@@ -1,5 +1,5 @@
 
-
+```
 rag_math_project/
 ├── .env                  # Environment variables (API keys, paths, etc.)
 ├── Dockerfile            # Dockerfile for your RAG application
@@ -48,3 +48,4 @@ rag_math_project/
 │   ├── test_chunker.py
 │   └── test_retrieval.py
 └── README.md
+```
