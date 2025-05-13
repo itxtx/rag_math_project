@@ -1,0 +1,11 @@
+[project]
+name = "rag-math-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pymupdf>=1.25.5",
+    "python-dotenv>=1.1.0",
+    "weaviate-client>=4.14.3",
+]

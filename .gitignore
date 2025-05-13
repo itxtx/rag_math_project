@@ -1,0 +1,8 @@
+
+*.env
+
+*.tex
+*.pdf
+
+*.venv
+

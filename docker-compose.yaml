@@ -1,0 +1,17 @@
+version: '3.4'
+services:
+  weaviate:
+    image: semitechnologies/weaviate:1.24.10 # You can check for the latest stable version
+    ports:
+      - "8080:8080" # REST API
+      - "50051:50051" # gRPC API
+    restart: on-failure:0
+    volumes:
+      - ./weaviate_data:/var/lib/weaviate # Persist Weaviate data
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none' # We'll handle embeddings in Python for now
+      ENABLE_MODULES: 'text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai' # Example modules, can be adjusted
+      CLUSTER_HOSTNAME: 'node1'
