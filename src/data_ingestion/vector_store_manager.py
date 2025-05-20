@@ -1,3 +1,4 @@
+# src/data_ingestion/vector_store_manager.py
 import os
 import weaviate
 from weaviate.auth import AuthApiKey # Or other auth methods
@@ -157,11 +158,11 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
     )
 
     processed_count = 0
-    successfully_added_count = 0 # Will be estimated based on errors
+    successfully_added_count = 0
     error_count = 0
     skipped_due_to_embedding_failure_count = 0
 
-    with client.batch as batch_context: # Renamed alias for clarity
+    with client.batch as batch_context:
         for i, chunk_data in enumerate(final_text_chunks):
             current_chunk_id_str = chunk_data.get("chunk_id")
             if not current_chunk_id_str:
@@ -172,7 +173,7 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
                 uuid.UUID(current_chunk_id_str)
             except ValueError:
                 print(f"Error: Chunk ID '{current_chunk_id_str}' is not a valid UUID. Skipping chunk.")
-                error_count +=1 # Count as an error before attempting batch
+                error_count +=1
                 continue
 
             embedding_vector = embed_chunk_data(chunk_data)
@@ -193,7 +194,7 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
                 "sequence_in_block": chunk_data.get("sequence_in_block", 0),
             }
 
-            batch_context.add_data_object( # Use the alias batch_context here
+            batch_context.add_data_object(
                 data_object=data_object,
                 class_name=WEAVIATE_CLASS_NAME,
                 vector=embedding_vector,
@@ -201,30 +202,52 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
             )
             processed_count +=1
 
-            if (i + 1) % (batch_size * 2) == 0:
+            if (i + 1) % (batch_size * 2) == 0: # Print progress less frequently
                 print(f"Prepared {i+1}/{len(final_text_chunks)} chunks for batching...")
 
+    # --- Start of Batch Import Summary & Debug Prints ---
     print(f"\n--- Batch import summary ---")
     print(f"Total chunks processed for Weaviate: {processed_count}")
     print(f"Chunks skipped due to embedding failure/empty text: {skipped_due_to_embedding_failure_count}")
 
-    # --- CORRECTED SECTION for accessing batch errors ---
+    # --- ADDED DEBUG PRINTS ---
+    print(f"DEBUG: Type of client.batch before checking failed_objects: {type(client.batch)}")
+    try:
+        print(f"DEBUG: Attributes of client.batch: {dir(client.batch)}")
+        if hasattr(client.batch, '_failed_objects'): # Check for the internal attribute
+            print(f"DEBUG: client.batch has _failed_objects. Length: {len(client.batch._failed_objects)}")
+        else:
+            print("DEBUG: client.batch does NOT have _failed_objects (internal list).")
+        
+        if hasattr(client.batch, 'failed_objects'): # Check for the property
+            print("DEBUG: client.batch HAS a 'failed_objects' attribute/property.")
+        else:
+            print("DEBUG: client.batch does NOT have a 'failed_objects' attribute/property.")
+
+    except Exception as e_debug:
+        print(f"DEBUG: Error inspecting client.batch: {e_debug}")
+    # --- END OF ADDED DEBUG PRINTS ---
+
     # Check for batch errors (objects that Weaviate rejected) by using client.batch
-    if client.batch.failed_objects: # Use client.batch here
-        batch_error_count = len(client.batch.failed_objects) # Use client.batch here
+    # This is the line that previously caused an AttributeError
+    if hasattr(client.batch, 'failed_objects') and client.batch.failed_objects:
+        batch_error_count = len(client.batch.failed_objects)
         print(f"Weaviate Import Errors: {batch_error_count} objects failed to import.")
-        for failed_obj_idx, failed_obj in enumerate(client.batch.failed_objects): # Use client.batch here
+        for failed_obj_idx, failed_obj in enumerate(client.batch.failed_objects):
             if failed_obj_idx < 5:
                  print(f"  Error {failed_obj_idx+1}: {failed_obj.message}")
             elif failed_obj_idx == 5:
                 print(f"  ... and {batch_error_count - 5} more errors.")
                 break
-        error_count += batch_error_count # Add batch errors to total error_count
-    else:
-        print("No errors reported from Weaviate during batch import.")
-    # --- END OF CORRECTED SECTION ---
+        error_count += batch_error_count
+    elif not hasattr(client.batch, 'failed_objects'):
+        print("WARNING: client.batch object does not have 'failed_objects' attribute. Cannot check for batch import errors this way.")
+        # If this warning appears, it indicates a deeper issue with the client.batch object's state or type.
+    else: # hasattr is true, but client.batch.failed_objects is empty or None
+        print("No errors reported from Weaviate during batch import (failed_objects list is empty or None).")
 
-    successfully_added_count = processed_count - error_count # Estimate based on pre-batch and batch errors
+
+    successfully_added_count = processed_count - error_count
 
     print(f"Successfully added to Weaviate (estimate): {max(0, successfully_added_count)}")
     print(f"Total errors encountered during storage: {error_count}")
@@ -239,6 +262,7 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
 
 if __name__ == '__main__':
     print("--- Vector Store Manager Demo ---")
+    # ... (rest of the demo code remains the same) ...
     client = None
     try:
         client = get_weaviate_client()

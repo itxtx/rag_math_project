@@ -54,7 +54,7 @@ weaviate_data/
 *.hierarchy
 # mypy
 .mypy_cache/
-
+data/
 
 .DS_Store
 # pytest

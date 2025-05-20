@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "asyncio>=3.4.3",
     "latex2sympy2>=1.9.1",
     "pylatexenc>=2.10",
     "pymupdf>=1.25.5",
