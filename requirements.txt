@@ -5,6 +5,7 @@ pylatexenc
 requests # Added for Mathpix API calls
 sentence-transformers # For generating embeddings
 sympy # For latex2sympy2 and math canonicalization
+latex2sympy2 # For converting LaTeX math to SymPy
 
 # For advanced math embedding pipeline (install separately as needed):
 # extract-math (often a Perl script or specific tool)

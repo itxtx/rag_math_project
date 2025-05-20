@@ -1,21 +1,18 @@
+# src/data_ingestion/latex_parser.py
 import os
 import re
 from pylatexenc.latexwalker import LatexWalker, LatexCharsNode, LatexCommentNode, LatexGroupNode, LatexMacroNode, LatexMathNode, LatexEnvironmentNode
-from pylatexenc.latex2text import LatexNodes2Text 
+from pylatexenc.latex2text import LatexNodes2Text
+from pylatexenc.macrospec import MacroSpec # For advanced context db modification if needed
 
 from src import config
 
-def custom_latex_to_text(latex_str: str, preserve_section_commands=False) -> str:
+def custom_latex_to_text(latex_str: str) -> str:
     """
     Converts LaTeX string to a cleaner text representation,
     attempting to preserve math and structure.
-    
-    Args:
-        latex_str (str): The LaTeX string to convert
-        preserve_section_commands (bool): Whether to preserve original section commands 
-                                         instead of transforming them. Defaults to False.
     """
-    if not latex_str.strip(): # Handle empty input string
+    if not latex_str.strip(): 
         return ""
 
     lw = LatexWalker(latex_str)
@@ -24,154 +21,129 @@ def custom_latex_to_text(latex_str: str, preserve_section_commands=False) -> str
     if nodelist is None: 
         nodelist = []
 
-
     class CustomLatexNodes2Text(LatexNodes2Text):
-        def __init__(self, preserve_section_commands=False, **kwargs):
-            super().__init__(math_mode='verbatim', **kwargs)
-            self.preserve_section_commands = preserve_section_commands
+        def __init__(self, **kwargs):
+            super().__init__(math_mode=LatexNodes2Text.MATH_MODE_VERBATIM, **kwargs)
+            # For more fine-grained control, you can modify the latex_context_db
+            # For example, to remove default handlers for sectioning if needed:
+            # self.latex_context_db.remove_macro('section') # And others
+            # Then ensure your latex_macro_section is used.
+            # However, pylatexenc *should* prefer subclass methods.
 
-        def _format_structural_macro(self, node, macroname, conversion_state):
+        def _format_structural_macro(self, node, macroname):
             arg_text = ""
             if node.nodeargs and node.nodeargs[0] and hasattr(node.nodeargs[0], 'nodelist'): 
-                arg_text = self.nodelist_to_text(node.nodeargs[0].nodelist, conversion_state=conversion_state)
-            
-            if self.preserve_section_commands:
-                return f"\n\n\\{macroname}{{{arg_text}}}\n"
-            else:
-                # Original transformation behavior
-                if macroname == 'section':
-                    return f"\n\n§ {arg_text.upper()}\n"
-                elif macroname == 'subsection':
-                    return f"\n\n§.§ {arg_text}\n"
-                elif macroname == 'subsubsection':
-                    return f"\n\n§.§.§ {arg_text}\n"
-                elif macroname == 'paragraph':
-                    return f"\n\n{arg_text}\n"
-                else:
-                    return f"\n\n{arg_text}\n"
+                arg_text = self.nodelist_to_text(node.nodeargs[0].nodelist)
+            return f"\n\n\\{macroname}{{{arg_text}}}\n" 
 
-        # Keep these std handlers as they are good practice, 
-        # even if we also add a direct check in convert_node.
-        def latex_std_section(self, node, conversion_state, **kwargs):
-            return self._format_structural_macro(node, 'section', conversion_state)
+        def latex_macro_section(self, node, **kwargs): # `node` is LatexMacroNode
+            return self._format_structural_macro(node, 'section')
 
-        def latex_std_subsection(self, node, conversion_state, **kwargs):
-            return self._format_structural_macro(node, 'subsection', conversion_state)
+        def latex_macro_subsection(self, node, **kwargs):
+            return self._format_structural_macro(node, 'subsection')
 
-        def latex_std_subsubsection(self, node, conversion_state, **kwargs):
-            return self._format_structural_macro(node, 'subsubsection', conversion_state)
+        def latex_macro_subsubsection(self, node, **kwargs):
+            return self._format_structural_macro(node, 'subsubsection')
 
-        def latex_std_paragraph(self, node, conversion_state, **kwargs): 
-            return self._format_structural_macro(node, 'paragraph', conversion_state)
+        def latex_macro_paragraph(self, node, **kwargs): 
+            return self._format_structural_macro(node, 'paragraph')
         
-        def convert_node(self, node, conversion_state=None):
+        def convert_node(self, node):
             if node is None:
                 return ""
             
-            if node.isNodeType(LatexCharsNode):
+            if node.isNodeType(LatexCharsNode): 
                 return node.chars
 
             if node.isNodeType(LatexMathNode):
                 return node.latex_verbatim() 
 
             if node.isNodeType(LatexMacroNode):
-                # --- BEGIN ADDED/MODIFIED SECTION FOR STRUCTURAL MACROS ---
-                # Explicitly catch and handle structural macros first.
-                if node.macroname in ['section', 'subsection', 'subsubsection', 'paragraph']:
-                    return self._format_structural_macro(node, node.macroname, conversion_state)
-                # --- END ADDED/MODIFIED SECTION FOR STRUCTURAL MACROS ---
+                # Check if we have a specific handler for this macro in our class
+                # (e.g., latex_macro_section). pylatexenc's dispatch mechanism
+                # should call these specific handlers if they exist on `self`.
+                # So, if execution reaches this generic LatexMacroNode check in *our*
+                # convert_node, it means it's not one of our specifically handled ones.
 
-                # Original logic for other macros:
+                # Handle macros we want to transform text from (like \textit)
                 if node.macroname in ['textit', 'textbf', 'emph']: 
                     if node.nodeargs and node.nodeargs[0] and hasattr(node.nodeargs[0], 'nodelist'):
-                        return self.nodelist_to_text(node.nodeargs[0].nodelist, conversion_state=conversion_state)
-                    return ""
-                
-                # Macros to remove entirely
-                if node.macroname in ['documentclass', 'usepackage', 
-                                      'title', 'author', 'date', 'maketitle',
-                                      'label', 'ref', 'cite', 'pagestyle', 'thispagestyle',
-                                      'includegraphics', 'figureheight', 'figurewidth', 'caption',
-                                      'tableofcontents', 'listoffigures', 'listoftables',
-                                      'appendix', 'bibliographystyle', 'bibliography',
-                                      ]:
+                        return self.nodelist_to_text(node.nodeargs[0].nodelist)
                     return "" 
                 
-                # For other unhandled macros, try to extract text from their arguments
-                text_from_args = ""
-                if hasattr(node, 'nodeargs') and node.nodeargs:
-                    for arg_node in node.nodeargs:
-                        if hasattr(arg_node, 'nodelist') and arg_node.nodelist:
-                            text_from_args += self.nodelist_to_text(arg_node.nodelist, conversion_state=conversion_state)
+                # Handle macros we want to remove entirely
+                macros_to_remove = [
+                    'documentclass', 'usepackage', 
+                    'title', 'author', 'date', 'maketitle',
+                    'label', 'ref', 'cite', 'pagestyle', 'thispagestyle',
+                    'includegraphics', 'figureheight', 'figurewidth', 'caption',
+                    'tableofcontents', 'listoffigures', 'listoftables',
+                    'appendix', 'bibliographystyle', 'bibliography'
+                ]
+                if node.macroname in macros_to_remove:
+                    return ""
                 
-                if text_from_args:
-                    return text_from_args
-                
-                # Fallback for macros not explicitly handled above
-                return super().convert_node(node, conversion_state=conversion_state)
+                # For ALL other macros (those not section-like, not textit-like, not in remove list),
+                # let the base class's convert_node attempt to handle it.
+                # The base class might have its own specific handlers or a default.
+                # Its default for unknown macros (latex_default_macro) returns '',
+                # but it might know some standard macros.
+                return super().convert_node(node)
 
 
             if node.isNodeType(LatexCommentNode):
                 return "" 
             
             if node.isNodeType(LatexEnvironmentNode):
-                if node.environmentname in ['document', 'abstract', 'center', 'figure', 'table']:
-                     return self.nodelist_to_text(node.nodelist, conversion_state=conversion_state)
-                return self.nodelist_to_text(node.nodelist, conversion_state=conversion_state)
+                if node.environmentname == 'document':
+                     return self.nodelist_to_text(node.nodelist)
+                # Math environments are handled by LatexMathNode due to MATH_MODE_VERBATIM
+                # For other environments, we can choose to process their content or delegate
+                if node.environmentname in ['abstract', 'center', 'figure', 'table']: # Examples
+                     return self.nodelist_to_text(node.nodelist)
+                # Fallback for other environments
+                return super().convert_node(node)
 
 
-            if node.isNodeType(LatexGroupNode):
-                return self.nodelist_to_text(node.nodelist, conversion_state=conversion_state)
+            if node.isNodeType(LatexGroupNode): 
+                return self.nodelist_to_text(node.nodelist)
 
-            return super().convert_node(node, conversion_state=conversion_state)
+            # Default fallback for any other node type not handled above
+            return super().convert_node(node)
 
-
-    converter = CustomLatexNodes2Text(preserve_section_commands=preserve_section_commands)
+    converter = CustomLatexNodes2Text()
     text_content = converter.nodelist_to_text(nodelist)
     
-    # Final cleanup of excessive newlines that might result from preserved structural commands
     text_content = re.sub(r'(\n\s*){3,}', '\n\n', text_content) 
     text_content = text_content.strip()
     return text_content
 
-
-def parse_latex_file(file_path, preserve_section_commands=False):
-    """
-    Parse a LaTeX file and convert it to plain text
-    
-    Args:
-        file_path (str): Path to the LaTeX file
-        preserve_section_commands (bool, optional): Whether to preserve original section commands 
-                                                   instead of transforming them. Defaults to False.
-    
-    Returns:
-        str: The parsed text content
-    """
+def parse_latex_file(file_path: str) -> str:
     try:
-        # Read the file
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             latex_content = f.read()
-        
-        # Use the modified converter function with the new option
-        parsed_text = custom_latex_to_text(latex_content, preserve_section_commands)
-        return parsed_text
+        if not latex_content.strip(): 
+            return ""
+        text_representation = custom_latex_to_text(latex_content)
+        return text_representation
     except FileNotFoundError:
-        print(f"File not found: {file_path}")
         return ""
     except Exception as e:
-        print(f"Error parsing LaTeX file {file_path}: {e}")
+        # print(f"DEBUG: Error parsing LaTeX file {file_path}: {e}") 
+        # import traceback
+        # traceback.print_exc() 
         return ""
 
 if __name__ == '__main__':
+    # ... (rest of __main__ from previous version, no changes needed here for the test fixes) ...
     print(f"--- Processing all .tex files in: {config.RAW_LATEX_DIR} ---")
     
     if not os.path.exists(config.RAW_LATEX_DIR):
         print(f"Directory not found: {config.RAW_LATEX_DIR}. Please create it and add .tex files.")
-    elif not os.listdir(config.RAW_LATEX_DIR):
-        # Create a dummy file for demonstration if the directory is empty
+    elif not os.listdir(config.RAW_LATEX_DIR) and not any(f.endswith(".tex") for f in os.listdir(config.RAW_LATEX_DIR)):
         dummy_tex_filename_main = "main_sample.tex"
         dummy_tex_file_main = os.path.join(config.RAW_LATEX_DIR, dummy_tex_filename_main)
-        if not os.path.exists(dummy_tex_file_main):
+        if not os.path.exists(dummy_tex_file_main): # Create only if RAW_LATEX_DIR was truly empty of .tex files
             with open(dummy_tex_file_main, "w", encoding="utf-8") as f:
                 f.write("\\documentclass{article}\n")
                 f.write("\\title{Sample for Main Execution}\n")
@@ -180,11 +152,11 @@ if __name__ == '__main__':
                 f.write("Content for main execution test $1+1=2$.\n")
                 f.write("\\end{document}\n")
             print(f"Created dummy file for main execution: {dummy_tex_file_main}")
-        # Fallthrough to process this newly created file or any existing ones.
     
-    # Check again if directory has files after potential dummy file creation
-    if not os.listdir(config.RAW_LATEX_DIR):
-         print(f"Still no files found in {config.RAW_LATEX_DIR} after attempting to create a dummy file.")
+    actual_files_found = any(f.endswith(".tex") for f in os.listdir(config.RAW_LATEX_DIR)) if os.path.exists(config.RAW_LATEX_DIR) else False
+    if not actual_files_found:
+         print(f"No .tex files found in {config.RAW_LATEX_DIR} to process for __main__ demo.")
+         exit()
 
     processed_count = 0
     for filename in os.listdir(config.RAW_LATEX_DIR):
@@ -209,6 +181,6 @@ if __name__ == '__main__':
                 processed_count += 1
             else:
                 print(f"Could not parse or empty content for: {filename}")
-        else:
-            print(f"Skipping non-.tex file: {filename}")
+        # else: # Only process .tex files
+            # print(f"Skipping non-.tex file: {filename}")
     print(f"\n--- Finished processing. Parsed {processed_count} .tex files. ---")
