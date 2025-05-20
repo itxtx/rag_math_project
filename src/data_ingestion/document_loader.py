@@ -1,16 +1,61 @@
 # src/data_ingestion/document_loader.py
 import os
-from typing import List, Dict, Optional, Literal
-from . import latex_parser # Assuming latex_parser.py is in the same directory
-from . import pdf_parser # Assuming pdf_parser.py is in the same directory
-from src import config # For directory paths
+from typing import List, Dict, Optional, Literal, Set
+from . import latex_parser 
+from . import pdf_parser 
+from src import config 
 
-def process_latex_documents(latex_dir: Optional[str] = None) -> List[Dict]:
+def load_processed_doc_filenames(log_file_path: str) -> Set[str]:
     """
-    Processes all .tex files in the specified directory.
+    Loads the set of already processed document filenames from the log file.
+    Each line in the log file is expected to be a filename.
+    """
+    processed_docs = set()
+    if os.path.exists(log_file_path):
+        try:
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    processed_docs.add(line.strip())
+            print(f"Loaded {len(processed_docs)} filenames from processed documents log: {log_file_path}")
+        except Exception as e:
+            print(f"Warning: Could not read processed documents log '{log_file_path}': {e}")
+    else:
+        print(f"Processed documents log not found at '{log_file_path}'. Will create if new documents are processed.")
+    return processed_docs
+
+def update_processed_docs_log(log_file_path: str, newly_processed_filenames: List[str]):
+    """
+    Appends newly processed document filenames to the log file.
+    """
+    if not newly_processed_filenames:
+        return
+    try:
+        # Ensure the directory for the log file exists
+        log_dir = os.path.dirname(log_file_path)
+        if log_dir and not os.path.exists(log_dir): # Check if log_dir is not empty string
+            os.makedirs(log_dir, exist_ok=True)
+            print(f"Created directory for processed documents log: {log_dir}")
+
+        with open(log_file_path, 'a', encoding='utf-8') as f:
+            for filename in newly_processed_filenames:
+                f.write(f"{filename}\n")
+        print(f"Appended {len(newly_processed_filenames)} filenames to processed documents log: {log_file_path}")
+    except Exception as e:
+        print(f"Warning: Could not update processed documents log '{log_file_path}': {e}")
+
+
+def process_latex_documents(
+        latex_dir: Optional[str] = None,
+        processed_filenames_log: Optional[Set[str]] = None
+    ) -> List[Dict]:
+    """
+    Processes all .tex files in the specified directory, skipping already processed ones.
     """
     if latex_dir is None:
-        latex_dir = getattr(config, 'DATA_DIR_RAW_LATEX', 'data/raw_latex') # Fallback path
+        latex_dir = config.DATA_DIR_RAW_LATEX
+    if processed_filenames_log is None: # Should ideally be passed in
+        processed_filenames_log = set()
+
 
     parsed_latex_docs = []
     print(f"\n--- Processing LaTeX files from: {latex_dir} ---")
@@ -19,46 +64,57 @@ def process_latex_documents(latex_dir: Optional[str] = None) -> List[Dict]:
         return parsed_latex_docs
 
     for filename in os.listdir(latex_dir):
+        if filename.startswith('.'): # Skip hidden files like .DS_Store
+            print(f"Skipping hidden file in LaTeX directory: {filename}")
+            continue
+        
+        if filename in processed_filenames_log:
+            print(f"Skipping already processed LaTeX file: {filename}")
+            continue
+
         if filename.endswith(".tex"):
             file_path = os.path.join(latex_dir, filename)
             print(f"Processing LaTeX file: {file_path}")
             try:
-                # Assuming latex_parser.parse_latex_file returns the parsed text content
                 content = latex_parser.parse_latex_file(file_path)
-                if content and content.strip(): # Ensure content is not empty
+                if content and content.strip():
                     doc_id = os.path.splitext(filename)[0]
                     parsed_latex_docs.append({
                         "doc_id": doc_id,
-                        "source": file_path,
-                        "original_type": "latex", # <<< CORRECTED TYPE
+                        "source": file_path, # Store full path
+                        "filename": filename, # Store just the filename for logging
+                        "original_type": "latex",
                         "parsed_content": content
                     })
-                    # Optionally save parsed content to a file for review
-                    output_dir = getattr(config, 'DATA_DIR_PARSED_LATEX', os.path.join(getattr(config, 'PARSED_CONTENT_DIR', 'data/parsed_content'), 'from_latex'))
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
+                    # Output saving logic (optional, can be removed if not needed here)
+                    output_dir = config.DATA_DIR_PARSED_LATEX
+                    if not os.path.exists(output_dir): os.makedirs(output_dir)
                     output_path = os.path.join(output_dir, f"{doc_id}_parsed.txt")
-                    with open(output_path, "w", encoding="utf-8") as f_out:
-                        f_out.write(content)
+                    with open(output_path, "w", encoding="utf-8") as f_out: f_out.write(content)
                     print(f"Saved parsed LaTeX content to: {output_path}")
                 else:
                     print(f"Skipping LaTeX file due to empty parsed content: {file_path}")
             except Exception as e:
                 print(f"Error processing LaTeX file {file_path}: {e}")
-        elif not filename.startswith('.'): # Ignore hidden files like .DS_Store
+        else:
             print(f"Skipping non-LaTeX file in LaTeX directory: {filename}")
             
     return parsed_latex_docs
 
-def process_pdf_documents(pdf_dir: Optional[str] = None,
-                          pdf_processing_tool: Literal["general", "mathpix"] = "general",
-                          mathpix_app_id: Optional[str] = None,
-                          mathpix_app_key: Optional[str] = None) -> List[Dict]:
+def process_pdf_documents(
+        pdf_dir: Optional[str] = None,
+        pdf_processing_tool: Literal["general", "mathpix"] = "general",
+        mathpix_app_id: Optional[str] = None,
+        mathpix_app_key: Optional[str] = None,
+        processed_filenames_log: Optional[Set[str]] = None
+    ) -> List[Dict]:
     """
-    Processes all .pdf files in the specified directory.
+    Processes all .pdf files in the specified directory, skipping already processed ones.
     """
     if pdf_dir is None:
-        pdf_dir = getattr(config, 'DATA_DIR_RAW_PDFS', 'data/raw_pdfs') # Fallback path
+        pdf_dir = config.DATA_DIR_RAW_PDFS
+    if processed_filenames_log is None:
+        processed_filenames_log = set()
 
     parsed_pdf_docs = []
     print(f"\n--- Processing PDF files from: {pdf_dir} ---")
@@ -67,38 +123,43 @@ def process_pdf_documents(pdf_dir: Optional[str] = None,
         return parsed_pdf_docs
 
     for filename in os.listdir(pdf_dir):
+        if filename.startswith('.'): # Skip hidden files
+            print(f"Skipping hidden file in PDF directory: {filename}")
+            continue
+
+        if filename in processed_filenames_log:
+            print(f"Skipping already processed PDF file: {filename}")
+            continue
+
         if filename.endswith(".pdf"):
             file_path = os.path.join(pdf_dir, filename)
             print(f"Processing PDF file: {file_path}")
             try:
-                # Assuming pdf_parser.parse_pdf_file handles different tools
                 content = pdf_parser.parse_pdf_file(
                     file_path,
                     pdf_tool=pdf_processing_tool,
                     app_id=mathpix_app_id,
                     app_key=mathpix_app_key
                 )
-                if content and content.strip(): # Ensure content is not empty
+                if content and content.strip():
                     doc_id = os.path.splitext(filename)[0]
                     parsed_pdf_docs.append({
                         "doc_id": doc_id,
                         "source": file_path,
-                        "original_type": "pdf", # Correct type for PDFs
+                        "filename": filename,
+                        "original_type": "pdf",
                         "parsed_content": content
                     })
-                    # Optionally save parsed content
-                    output_dir = getattr(config, 'DATA_DIR_PARSED_PDF', os.path.join(getattr(config, 'PARSED_CONTENT_DIR', 'data/parsed_content'), 'from_pdf'))
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
+                    output_dir = config.DATA_DIR_PARSED_PDF
+                    if not os.path.exists(output_dir): os.makedirs(output_dir)
                     output_path = os.path.join(output_dir, f"{doc_id}_parsed.txt")
-                    with open(output_path, "w", encoding="utf-8") as f_out:
-                        f_out.write(content)
+                    with open(output_path, "w", encoding="utf-8") as f_out: f_out.write(content)
                     print(f"Saved parsed PDF content to: {output_path}")
                 else:
                     print(f"Skipping PDF file due to empty parsed content: {file_path}")
             except Exception as e:
                 print(f"Error processing PDF file {file_path}: {e}")
-        elif not filename.startswith('.'): # Ignore hidden files
+        else:
             print(f"Skipping non-PDF file in PDF directory: {filename}")
     return parsed_pdf_docs
 
@@ -106,23 +167,21 @@ def load_and_parse_documents(
     latex_dir: Optional[str] = None,
     pdf_dir: Optional[str] = None,
     pdf_math_tool: Literal["general", "mathpix"] = "general",
-    process_latex: bool = True, # Flag to control LaTeX processing
-    process_pdfs: bool = True   # Flag to control PDF processing
+    process_latex: bool = True,
+    process_pdfs: bool = True,
+    processed_docs_log_path: Optional[str] = None
 ) -> List[Dict]:
     """
-    Loads and parses documents from specified directories.
-    By default, processes both LaTeX and PDF files.
+    Loads and parses documents from specified directories, skipping already processed ones.
     """
+    if processed_docs_log_path is None:
+        processed_docs_log_path = config.PROCESSED_DOCS_LOG_FILE
+    
+    already_processed_filenames = load_processed_doc_filenames(processed_docs_log_path)
     all_parsed_data = []
 
     if process_latex:
-        # Get Mathpix keys from config if not passed directly (though not used by LaTeX parser)
-        # This is more relevant for the PDF parser if it were to use them.
-        # For consistency, we can read them here.
-        # app_id = getattr(config, 'MATHPIX_APP_ID', None)
-        # app_key = getattr(config, 'MATHPIX_APP_KEY', None)
-        
-        parsed_latex_data = process_latex_documents(latex_dir)
+        parsed_latex_data = process_latex_documents(latex_dir, already_processed_filenames)
         all_parsed_data.extend(parsed_latex_data)
 
     if process_pdfs:
@@ -132,44 +191,38 @@ def load_and_parse_documents(
             pdf_dir,
             pdf_processing_tool=pdf_math_tool,
             mathpix_app_id=app_id,
-            mathpix_app_key=app_key
+            mathpix_app_key=app_key,
+            processed_filenames_log=already_processed_filenames
         )
         all_parsed_data.extend(parsed_pdf_data)
     
     if not all_parsed_data:
-        print("No documents were found or parsed from any specified directory.")
+        print("No new documents were found or parsed from any specified directory.")
     else:
-        print(f"Total documents parsed from all sources: {len(all_parsed_data)}")
+        print(f"Total new documents parsed from all sources: {len(all_parsed_data)}")
         
     return all_parsed_data
 
 if __name__ == '__main__':
-    # Example of direct execution for testing
-    print("Running document_loader.py directly for testing...")
+    print("Running document_loader.py directly for testing persistence...")
+    # Ensure config.PROCESSED_DOCS_LOG_FILE is set
+    # Create dummy log file for testing
+    dummy_log_file = os.path.join(config.DATA_DIR, "test_processed_log.txt")
+    if os.path.exists(dummy_log_file): os.remove(dummy_log_file) # Clean start
 
-    # Test LaTeX processing
-    # Ensure config.DATA_DIR_RAW_LATEX is set or provide a path
-    # Create a dummy tex file if needed in your data/raw_latex directory
-    # e.g., data/raw_latex/sample.tex
-    # \documentclass{article} \begin{document} Hello LaTeX. \section{Intro} Some text. \end{document}
+    # Create dummy tex file
+    os.makedirs(config.DATA_DIR_RAW_LATEX, exist_ok=True)
+    dummy_tex_path = os.path.join(config.DATA_DIR_RAW_LATEX, "dummy_persist.tex")
+    with open(dummy_tex_path, "w") as f: f.write("\\documentclass{article}\\begin{document}Test persist\\end{document}")
+
+    print("\n--- First run (dummy_persist.tex should be processed) ---")
+    parsed_docs1 = load_and_parse_documents(process_pdfs=False, processed_docs_log_path=dummy_log_file)
+    newly_processed_filenames1 = [doc['filename'] for doc in parsed_docs1]
+    update_processed_docs_log(dummy_log_file, newly_processed_filenames1)
+
+    print("\n--- Second run (dummy_persist.tex should be skipped) ---")
+    parsed_docs2 = load_and_parse_documents(process_pdfs=False, processed_docs_log_path=dummy_log_file)
     
-    # To run this, you might need to adjust config paths or create dummy files.
-    # For example, set config.DATA_DIR_RAW_LATEX and config.DATA_DIR_RAW_PDFS
-    # or ensure the default paths 'data/raw_latex' and 'data/raw_pdfs' exist
-    # relative to where this script is run from (or use absolute paths in config).
-
-    # Assuming config paths are set or default paths exist:
-    # parsed_docs = load_and_parse_documents(process_pdfs=False) # Test only LaTeX
-    parsed_docs = load_and_parse_documents() # Test both
-    
-    if parsed_docs:
-        print(f"\n--- Summary of parsed documents ({len(parsed_docs)}) ---")
-        for i, doc_data in enumerate(parsed_docs):
-            print(f"Doc {i+1}:")
-            print(f"  ID: {doc_data.get('doc_id')}")
-            print(f"  Source: {doc_data.get('source')}")
-            print(f"  Type: {doc_data.get('original_type')}")
-            print(f"  Content (first 100 chars): {doc_data.get('parsed_content', '')[:100]}...")
-    else:
-        print("No documents were parsed in the test run.")
-
+    if os.path.exists(dummy_tex_path): os.remove(dummy_tex_path)
+    if os.path.exists(dummy_log_file): os.remove(dummy_log_file)
+    print("\nPersistence test finished.")

@@ -1,55 +1,55 @@
-
+# src/config.py
 import os
 from dotenv import load_dotenv
 
-load_dotenv() # Load environment variables from .env file
+# Load environment variables from .env file if it exists
+# This is useful for local development to keep API keys out of the codebase.
+# In a production/deployed environment, these would typically be set as actual environment variables.
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env') # Assuming .env is in project root
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path)
 
 # Weaviate Configuration
 WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
-WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY", None) # If you enable authentication
+# WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY") # If using Weaviate Cloud Service with API key
 
-# Data Paths
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'rag_math_project/data'))
-RAW_LATEX_DIR = os.path.join(DATA_DIR, "raw_latex")
-RAW_PDF_DIR = os.path.join(DATA_DIR, "raw_pdfs")
+# Embedding Model Configuration
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 
-# Output directory for parsed content (before chunking)
-PARSED_OUTPUT_DIR = os.path.join(DATA_DIR, "parsed_content")
-PARSED_LATEX_OUTPUT_DIR = os.path.join(PARSED_OUTPUT_DIR, "from_latex")
-PARSED_PDF_OUTPUT_DIR = os.path.join(PARSED_OUTPUT_DIR, "from_pdf")
+# Data Directories (relative to project root, assuming src is in project root)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
-# Ensure output directories exist
-os.makedirs(PARSED_LATEX_OUTPUT_DIR, exist_ok=True)
-os.makedirs(PARSED_PDF_OUTPUT_DIR, exist_ok=True)
+DATA_DIR_RAW_LATEX = os.path.join(DATA_DIR, "raw_latex")
+DATA_DIR_RAW_PDFS = os.path.join(DATA_DIR, "raw_pdfs")
 
-# API Keys for external services (example for Mathpix)
+PARSED_CONTENT_DIR = os.path.join(DATA_DIR, "parsed_content")
+DATA_DIR_PARSED_LATEX = os.path.join(PARSED_CONTENT_DIR, "from_latex")
+DATA_DIR_PARSED_PDF = os.path.join(PARSED_CONTENT_DIR, "from_pdf")
+
+# Mathpix API Configuration (Optional)
 MATHPIX_APP_ID = os.getenv("MATHPIX_APP_ID")
 MATHPIX_APP_KEY = os.getenv("MATHPIX_APP_KEY")
 
-# --- Embedding Configuration ---
-# Standard text embedding model
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+# LLM Configuration (Example for Gemini, adjust as needed)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Loaded from .env if present
+QUESTION_GENERATION_LLM_MODEL = os.getenv("QUESTION_GENERATION_LLM_MODEL", "gemini-2.0-flash")
 
-# Configuration/Paths for Advanced Math Embedding Pipeline (Conceptual)
-# These are not direct .env settings but placeholders for where you might configure paths
-# or model names if you implement the advanced pipeline locally.
+# Search Defaults for Retriever
+DEFAULT_SEARCH_LIMIT = int(os.getenv("DEFAULT_SEARCH_LIMIT", "5"))
+DEFAULT_SEMANTIC_CERTAINTY = float(os.getenv("DEFAULT_SEMANTIC_CERTAINTY", "0.70"))
+DEFAULT_HYBRID_ALPHA = float(os.getenv("DEFAULT_HYBRID_ALPHA", "0.5"))
 
-# Path to extract-math script or related resources (if applicable)
-EXTRACT_MATH_PATH = os.getenv("EXTRACT_MATH_PATH", "extract-math")
+# --- NEW: Persistence Configuration ---
+# Path to the file that logs successfully processed document filenames.
+# This file will be created in the DATA_DIR if it doesn't exist.
+PROCESSED_DOCS_LOG_FILE = os.path.join(DATA_DIR, "processed_documents_log.txt")
 
-# Name or path for specialized math tokenizer
-MATH_TOKENIZER_NAME_OR_PATH = os.getenv("MATH_TOKENIZER_NAME_OR_PATH", "witiko/mathberta") # Example
+# Ensure data directories exist (optional, can be handled by specific modules)
+# os.makedirs(DATA_DIR_RAW_LATEX, exist_ok=True)
+# os.makedirs(DATA_DIR_RAW_PDFS, exist_ok=True)
+# os.makedirs(DATA_DIR_PARSED_LATEX, exist_ok=True)
+# os.makedirs(DATA_DIR_PARSED_PDF, exist_ok=True)
 
-# Name or path for specialized math embedding model
-# MATH_EMBEDDING_MODEL_NAME_OR_PATH = os.getenv("MATH_EMBEDDING_MODEL_NAME_OR_PATH", "ddrg/math_structure_bert") # Example
-
-
-# LLM Configuration (placeholder for now)
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# print(f"Weaviate URL: {WEAVIATE_URL}")
-#print(f"Raw LaTeX Dir: {RAW_LATEX_DIR}")
-#print(f"Raw PDF Dir: {RAW_PDF_DIR}")
-# print(f"Parsed LaTeX Output Dir: {PARSED_LATEX_OUTPUT_DIR}")
-# print(f"Parsed PDF Output Dir: {PARSED_PDF_OUTPUT_DIR}")
-# print(f"Using standard embedding model: {EMBEDDING_MODEL_NAME}")
+# You can add other global configurations here
+# For example, default chunk sizes, specific model parameters, etc.

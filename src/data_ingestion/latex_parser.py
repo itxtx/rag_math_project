@@ -132,17 +132,17 @@ def custom_latex_to_text(latex_str: str) -> str:
     document_node = None
     if nodelist: # Ensure nodelist is not empty before iterating
         for i, node in enumerate(nodelist):
-            print(f"DEBUG custom_latex_to_text: Top-level node {i} type: {type(node).__name__}")
+            #print(f"DEBUG custom_latex_to_text: Top-level node {i} type: {type(node).__name__}")
             if node.isNodeType(LatexEnvironmentNode) and node.environmentname == 'document':
                 document_node = node
-                print(f"DEBUG custom_latex_to_text: Found 'document' environment at top-level node index {i}.")
+                #print(f"DEBUG custom_latex_to_text: Found 'document' environment at top-level node index {i}.")
                 break
     
     converter = CustomLatexNodes2Text()
     text_content = "" # Default to empty
 
     if document_node:
-        print("DEBUG custom_latex_to_text: Processing ONLY content of 'document' environment.")
+        #print("DEBUG custom_latex_to_text: Processing ONLY content of 'document' environment.")
         text_content = converter.nodelist_to_text(document_node.nodelist)
     else:
         # If no 'document' environment is found at the top level, it's likely a fragment
@@ -157,7 +157,7 @@ def custom_latex_to_text(latex_str: str) -> str:
         text_content = re.sub(r'(\n\s*){3,}', '\n\n', text_content)
         text_content = text_content.strip()
     
-    print(f"DEBUG custom_latex_to_text: Final text content (first 200 chars): '{text_content[:200]}...'")
+    #print(f"DEBUG custom_latex_to_text: Final text content (first 200 chars): '{text_content[:200]}...'")
     return text_content
 
 
