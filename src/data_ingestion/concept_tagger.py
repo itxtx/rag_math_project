@@ -22,10 +22,9 @@ def tag_latex_concepts(parsed_content: str, source_path: str) -> list:
     Outputs a list of conceptual blocks.
     """
     conceptual_blocks = []
-    current_pos = 0
     
-    # Combine all patterns for a single pass or iterate.
-    # For simplicity, let's find all matches of all types and then sort by position.
+    if not parsed_content.strip(): # Handle empty or whitespace-only content
+        return []
     
     found_blocks = []
 
@@ -34,36 +33,30 @@ def tag_latex_concepts(parsed_content: str, source_path: str) -> list:
         if concept_type in ["section", "subsection", "subsubsection", "paragraph_title"]:
             for match in re.finditer(pattern, parsed_content):
                 name = match.group(1).strip()
-                # The "content" for a section title is just the title itself for tagging.
-                # The actual content of the section will be the text following it,
-                # until the next section or a major environment.
                 found_blocks.append({
                     "start": match.start(),
                     "end": match.end(),
                     "concept_type": concept_type,
                     "concept_name": name,
-                    "content": match.group(0) # The full matched command
+                    "content": match.group(0) 
                 })
         elif concept_type == "environment":
-            for match in re.finditer(pattern, parsed_content, re.IGNORECASE): # IGNORECASE for \begin{Theorem}
+            for match in re.finditer(pattern, parsed_content, re.IGNORECASE): 
                 env_type = match.group(1).lower()
                 env_name = match.group(2).strip() if match.group(2) else None
                 env_content = match.group(3).strip()
                 found_blocks.append({
                     "start": match.start(),
                     "end": match.end(),
-                    "concept_type": env_type, # e.g., "theorem", "definition"
-                    "concept_name": env_name, # e.g., "Pythagorean Theorem"
+                    "concept_type": env_type, 
+                    "concept_name": env_name, 
                     "content": env_content 
                 })
 
-    # Sort all found blocks by their start position
     found_blocks.sort(key=lambda b: b["start"])
 
-    # Iterate through sorted blocks and capture interstitial "general_content"
     last_block_end = 0
     for block in found_blocks:
-        # Add general content before this block
         if block["start"] > last_block_end:
             general_text = parsed_content[last_block_end:block["start"]].strip()
             if general_text:
@@ -75,19 +68,16 @@ def tag_latex_concepts(parsed_content: str, source_path: str) -> list:
                     "content": general_text
                 })
         
-        # Add the identified block
-        # For section titles, we are adding the command itself as content.
-        # For environments, we add the inner content.
         conceptual_blocks.append({
             "source": source_path,
             "original_type": "latex",
             "concept_type": block["concept_type"],
-            "concept_name": block.get("concept_name"), # Use .get for optional keys
+            "concept_name": block.get("concept_name"),
             "content": block["content"]
         })
         last_block_end = block["end"]
 
-    # Add any remaining general content after the last block
+    # Add any remaining general content after the last identified block OR if no blocks were found
     if last_block_end < len(parsed_content):
         general_text = parsed_content[last_block_end:].strip()
         if general_text:
@@ -99,15 +89,9 @@ def tag_latex_concepts(parsed_content: str, source_path: str) -> list:
                 "content": general_text
             })
     
-    # If no blocks were found at all, the whole content is general
-    if not found_blocks and parsed_content:
-        conceptual_blocks.append({
-            "source": source_path,
-            "original_type": "latex",
-            "concept_type": "general_content",
-            "concept_name": None,
-            "content": parsed_content
-        })
+    # If the entire content was general and no specific blocks were found,
+    # the above logic (last_block_end < len(parsed_content)) will correctly add it.
+    # No need for the `if not found_blocks and parsed_content:` check.
 
     return conceptual_blocks
 
@@ -118,7 +102,7 @@ def tag_pdf_concepts(parsed_content: str, source_path: str) -> list:
     Currently treats the whole content as a single 'general_content' block.
     """
     conceptual_blocks = []
-    if parsed_content.strip(): # Ensure there's actual content
+    if parsed_content.strip(): 
         conceptual_blocks.append({
             "source": source_path,
             "original_type": "pdf",
@@ -126,22 +110,18 @@ def tag_pdf_concepts(parsed_content: str, source_path: str) -> list:
             "concept_name": None,
             "content": parsed_content.strip()
         })
-    # TODO: Implement keyword extraction or LLM-based tagging for PDFs
-    # For example, one could split by paragraphs and then try to tag each.
     return conceptual_blocks
 
 
 def tag_concepts_in_document(parsed_doc_data: dict) -> list:
     """
     Processes a single parsed document's data to identify and tag concepts.
-    Input: {"source": file_path, "type": "latex" or "pdf", "content": parsed_text_string}
-    Output: A list of conceptual blocks for that document.
     """
     doc_type = parsed_doc_data.get("type")
     content = parsed_doc_data.get("content", "")
     source = parsed_doc_data.get("source", "unknown_source")
 
-    if not content:
+    if not content or not content.strip(): # Ensure content is not empty or just whitespace
         return []
 
     if doc_type == "latex":
@@ -156,7 +136,7 @@ def tag_concepts_in_document(parsed_doc_data: dict) -> list:
             "concept_type": "general_content",
             "concept_name": None,
             "content": content.strip()
-        }]
+        }] if content.strip() else []
 
 
 def tag_all_documents(parsed_docs_list: list) -> list:
@@ -172,10 +152,6 @@ def tag_all_documents(parsed_docs_list: list) -> list:
 
 
 if __name__ == '__main__':
-    # Example usage:
-    # This would typically be called by app.py after document_loader
-    
-    # Sample parsed LaTeX content (simulating output from latex_parser.py)
     sample_latex_parsed_content = """
 \\section{Introduction to Algebra}
 Algebra is a branch of mathematics.
@@ -221,4 +197,4 @@ Matrices are fundamental to linear algebra.
         print(f"  Original Type: {block['original_type']}")
         print(f"  Concept Type: {block['concept_type']}")
         print(f"  Concept Name: {block['concept_name']}")
-        print(f"  Content Snippet: {block['content'][:100].replace(chr(10), ' ')}...") # Replace newline for snippet view
+        print(f"  Content Snippet: {block['content'][:100].replace(chr(10), ' ')}...") 

@@ -9,8 +9,6 @@ class TestChunker(unittest.TestCase):
         chunks = chunk_content(text, chunk_size=20, chunk_overlap=5)
         self.assertTrue(len(chunks) > 1)
         self.assertEqual(chunks[0], "This is a test sente")
-        # Expected overlap: "sente"
-        # Next chunk starts at index 15 (20-5)
         self.assertEqual(chunks[1], "sentence that is lon") 
 
     def test_chunk_content_no_split_needed(self):
@@ -21,25 +19,35 @@ class TestChunker(unittest.TestCase):
 
     def test_chunk_content_exact_multiple(self):
         text = "abcd efgh ijkl mnop" # 19 chars
-        chunks = chunk_content(text, chunk_size=9, chunk_overlap=1) # 9-1 = 8 step
-        # "abcd efgh" (9)
-        # "h ijkl mn" (9) - starts at index 8
-        # "nop" (3) - starts at index 16
+        # chunk_size=9, chunk_overlap=1. Step = 8
+        # Chunk 1: text[0:9] -> "abcd efgh" (len 9)
+        # next_start = 0 + 9 - 1 = 8
+        # Chunk 2: text[8:17] -> "h ijkl mn" (len 9)
+        # next_start = 8 + 9 - 1 = 16
+        # Chunk 3: text[16:25] -> text[16:19] -> "nop" (len 3)
+        chunks = chunk_content(text, chunk_size=9, chunk_overlap=1) 
         self.assertEqual(len(chunks), 3)
         self.assertEqual(chunks[0], "abcd efgh")
         self.assertEqual(chunks[1], "h ijkl mn")
-        self.assertEqual(chunks[2], "op") # Corrected: last chunk will be shorter if not full
+        self.assertEqual(chunks[2], "nop") # Corrected assertion
 
     def test_chunk_content_with_overlap(self):
-        text = "abcdefghijklmnopqrstuvwxyz"
-        chunk_size = 10
-        chunk_overlap = 3
-        chunks = chunk_content(text, chunk_size, chunk_overlap)
+        text = "abcdefghijklmnopqrstuvwxyz" # len 26
+        # chunk_size = 10, chunk_overlap = 3. Step = 7
+        # Chunk 1: text[0:10] -> "abcdefghij"
+        # next_start = 0 + 10 - 3 = 7
+        # Chunk 2: text[7:17] -> "hijklmnopq"
+        # next_start = 7 + 10 - 3 = 14
+        # Chunk 3: text[14:24] -> "opqrstuvwx"
+        # next_start = 14 + 10 - 3 = 21
+        # Chunk 4: text[21:31] -> text[21:26] -> "vwxyz"
+        chunks = chunk_content(text, chunk_size=10, chunk_overlap=3)
         
+        self.assertEqual(len(chunks), 4)
         self.assertEqual(chunks[0], "abcdefghij")
-        self.assertEqual(chunks[1], "hijklmnopq") # Starts at index 7 (10-3)
-        self.assertEqual(chunks[2], "opqrstuvwx") # Starts at index 14 (7+7)
-        self.assertEqual(chunks[3], "uvwxyz")     # Starts at index 21 (14+7)
+        self.assertEqual(chunks[1], "hijklmnopq") 
+        self.assertEqual(chunks[2], "opqrstuvwx") 
+        self.assertEqual(chunks[3], "vwxyz")     # Corrected assertion
 
     def test_chunk_content_empty_text(self):
         chunks = chunk_content("", 100, 20)
@@ -96,13 +104,11 @@ class TestChunker(unittest.TestCase):
         self.assertEqual(final_chunks[1]["concept_type"], "general_content")
         self.assertEqual(final_chunks[1]["chunk_text"], "Short general content.")
         
-        # Theorem chunks
         theorem_chunks = [c for c in final_chunks if c["concept_type"] == "theorem"]
-        self.assertTrue(len(theorem_chunks) > 1) # Expecting 150 / (50-10) approx
+        self.assertTrue(len(theorem_chunks) > 1) 
         self.assertEqual(theorem_chunks[0]["chunk_text"], "A" * 50)
         self.assertEqual(theorem_chunks[0]["sequence_in_block"], 0)
-        self.assertEqual(theorem_chunks[1]["chunk_text"], "A" * 50) # Overlap makes this tricky to assert precisely without running the logic
-        self.assertTrue(theorem_chunks[1]["chunk_text"].startswith("A" * 10)) # Check overlap
+        self.assertTrue(theorem_chunks[1]["chunk_text"].startswith("A" * 10)) 
         self.assertEqual(theorem_chunks[1]["sequence_in_block"], 1)
 
 
@@ -110,10 +116,8 @@ class TestChunker(unittest.TestCase):
         conceptual_blocks = [{
             "source": "test.tex", "original_type": "latex",
             "concept_type": "definition", "concept_name": "Tiny Def",
-            "content": "Tiny." # Shorter than MIN_CHUNK_SIZE_THRESHOLD (default 20)
+            "content": "Tiny." 
         }]
-        # Default MIN_CHUNK_SIZE_THRESHOLD is 20. "Tiny." is 5 chars.
-        # It should still create a chunk because it's > 0 and the block itself isn't huge.
         final_chunks = chunk_conceptual_blocks(conceptual_blocks, chunk_size=100, chunk_overlap=20)
         self.assertEqual(len(final_chunks), 1)
         self.assertEqual(final_chunks[0]["chunk_text"], "Tiny.")
@@ -121,7 +125,7 @@ class TestChunker(unittest.TestCase):
         conceptual_blocks_empty = [{
             "source": "test.tex", "original_type": "latex",
             "concept_type": "definition", "concept_name": "Empty Def",
-            "content": "   " # Whitespace only
+            "content": "   " 
         }]
         final_chunks_empty = chunk_conceptual_blocks(conceptual_blocks_empty, chunk_size=100, chunk_overlap=20)
         self.assertEqual(len(final_chunks_empty), 0)

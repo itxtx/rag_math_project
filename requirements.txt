@@ -1,10 +1,13 @@
-# requirements.txt
 python-dotenv
 weaviate-client
 PyMuPDF
 pylatexenc
-requests
-# Add other libraries like PyMuPDF, pylatexenc, etc., as we implement parsers
-# For example:
-# langchain
-# sentence-transformers
+requests # Added for Mathpix API calls
+sentence-transformers # For generating embeddings
+sympy # For latex2sympy2 and math canonicalization
+
+# For advanced math embedding pipeline (install separately as needed):
+# extract-math (often a Perl script or specific tool)
+# latex2sympy2 (or latex2sympy2_extended)
+# transformers (for MathBERT, Llemma, etc.)
+# Specialized math tokenizers/models (e.g., from Hugging Face)
