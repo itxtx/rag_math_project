@@ -31,42 +31,29 @@ async def main():
 
     # Step 1.1: Load and Parse LaTeX Documents
     print("\nStep 1.1: Loading and Parsing LaTeX Documents...")
-    # Modify to only process LaTeX. We can pass specific flags or adjust document_loader
-    # For simplicity here, we'll assume document_loader can be told to skip PDFs
-    # or we'll filter its output.
-    # A more direct way is to call a LaTeX-specific function if available,
-    # or ensure DATA_DIR_RAW_PDFS is ignored by document_loader.
-    # Let's assume load_and_parse_documents can take flags to specify types.
-    # If not, we'd call a more specific function like `process_latex_documents`.
-
-    # For this modification, we'll directly call the LaTeX processing part of document_loader
-    # This assumes `process_latex_documents` exists and returns a similar structure.
-    # If `document_loader.load_and_parse_documents` is monolithic, we'd filter its results.
-    # Let's assume a more direct call for clarity of intent:
     
     latex_documents_path = getattr(config, 'DATA_DIR_RAW_LATEX', 'data/raw_latex')
     if not os.path.isdir(latex_documents_path):
         print(f"ERROR: LaTeX documents directory not found at {latex_documents_path}. Please create it and add .tex files.")
         return
 
-    # Assuming process_latex_documents returns a list of parsed doc data
-    # This might require a small refactor in document_loader if it's not already modular
     try:
-        # This is a conceptual change. If your document_loader.process_latex_documents
-        # isn't structured to be called directly like this and return the expected list of dicts,
-        # you'd need to adjust document_loader.py or how you call it.
-        # For now, let's simulate this specific call.
-        # parsed_docs_data = document_loader.process_latex_documents() # Idealized call
-        
-        # More realistically, if load_and_parse_documents is the entry point:
-        # We'll tell it to only process latex by effectively nullifying pdf_processing_tool
-        # and relying on its internal logic to skip PDF if no tool or path is valid.
-        # Or, better, add a flag to load_and_parse_documents.
-        # For now, let's filter the output if it processes both.
         print(f"Attempting to load only LaTeX documents from {latex_documents_path}...")
-        all_parsed_docs = document_loader.load_and_parse_documents(process_pdfs=False) # Assuming such a flag exists or can be added
+        # Assuming document_loader.load_and_parse_documents can be told to skip PDFs
+        # or we filter its output. If a process_pdfs flag is added, it's cleaner.
+        all_parsed_docs = document_loader.load_and_parse_documents(process_pdfs=False) 
 
-        parsed_docs_data = [doc for doc in all_parsed_docs if doc.get("original_type") == "latex"]
+        # --- ADDED DEBUG PRINT ---
+        #print(f"DEBUG app.py: all_parsed_docs from document_loader: {all_parsed_docs}")
+        # --- END OF DEBUG PRINT ---
+
+        # Filter for LaTeX documents if all_parsed_docs might contain other types
+        parsed_docs_data = [doc for doc in all_parsed_docs if doc and doc.get("original_type") == "latex"]
+        
+        # --- ADDED DEBUG PRINT ---
+        #print(f"DEBUG app.py: parsed_docs_data after filtering for LaTeX: {parsed_docs_data}")
+        # --- END OF DEBUG PRINT ---
+
 
     except Exception as e:
         print(f"ERROR: Failed during LaTeX document loading/parsing phase: {e}")
@@ -75,30 +62,26 @@ async def main():
         return
 
     if not parsed_docs_data:
-        print("ERROR: No LaTeX documents were successfully parsed or found. Exiting.")
+        print("ERROR: No LaTeX documents were successfully parsed or found (or correctly structured in parsed_docs_data). Exiting.")
         return
     print(f"Successfully parsed {len(parsed_docs_data)} LaTeX documents.")
 
     # Step 1.2: Concept/Topic Identification & Tagging for LaTeX content
     print("\nStep 1.2: Concept/Topic Identification & Tagging (for LaTeX content)...")
-    all_conceptual_blocks = concept_tagger.tag_all_documents(parsed_docs_data) # This will now only process LaTeX data
+    all_conceptual_blocks = concept_tagger.tag_all_documents(parsed_docs_data) 
 
     if not all_conceptual_blocks:
         print("Warning: No conceptual blocks were identified from the parsed LaTeX documents.")
-        # If this is critical, we can exit. For now, we'll let chunking handle empty input.
-        # However, if parsing was successful but no blocks, it's an issue.
-        # Let's assume if parsed_docs_data was non-empty, we expect *some* blocks or it's an issue.
-        if parsed_docs_data: # If we had parsed docs but got no blocks
+        if parsed_docs_data: 
              print("ERROR: LaTeX documents were parsed, but no conceptual blocks were identified. This might indicate an issue in the tagging process for LaTeX content. Exiting.")
              return
-        # If parsed_docs_data was also empty, the earlier check would have exited.
     else:
         print(f"Identified {len(all_conceptual_blocks)} conceptual blocks from LaTeX documents.")
 
     # Step 1.3: Text Chunking for LaTeX-derived blocks
     print("\nStep 1.3: Text Chunking (for LaTeX-derived blocks)...")
     final_text_chunks = chunker.chunk_conceptual_blocks(
-        all_conceptual_blocks, # This list now only contains LaTeX-derived blocks
+        all_conceptual_blocks, 
         chunk_size=DEFAULT_CHUNK_SIZE,
         chunk_overlap=DEFAULT_CHUNK_OVERLAP
     )
@@ -150,7 +133,6 @@ async def main():
 
     if not retrieved_chunks:
         print("No relevant chunks retrieved for the query. Cannot generate questions.")
-        # This is not necessarily an error for the app to exit, but Phase 2.4 won't run.
     else:
         print(f"Successfully retrieved {len(retrieved_chunks)} chunks:")
         for i, chunk in enumerate(retrieved_chunks):
@@ -178,7 +160,7 @@ async def main():
             print("RAGQuestionGenerator initialized.")
         except Exception as e:
             print(f"Error initializing RAGQuestionGenerator: {e}")
-            return # Exit if generator can't be initialized
+            return 
 
         print(f"\nStep 2.4: Generating {DEFAULT_NUM_QUESTIONS_TO_GENERATE} '{DEFAULT_QUESTION_TYPE}' questions...")
         generated_questions = await question_gen.generate_questions(
