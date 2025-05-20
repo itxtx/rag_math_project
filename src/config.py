@@ -34,7 +34,7 @@ MATHPIX_APP_KEY = os.getenv("MATHPIX_APP_KEY")
 # LLM Configuration (Example for Gemini, adjust as needed)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Loaded from .env if present
 QUESTION_GENERATION_LLM_MODEL = os.getenv("QUESTION_GENERATION_LLM_MODEL", "gemini-2.0-flash")
-
+EVALUATION_LLM_MODEL = os.getenv("EVALUATION_LLM_MODEL", "gemini-2.0-flash")
 # Search Defaults for Retriever
 DEFAULT_SEARCH_LIMIT = int(os.getenv("DEFAULT_SEARCH_LIMIT", "5"))
 DEFAULT_SEMANTIC_CERTAINTY = float(os.getenv("DEFAULT_SEMANTIC_CERTAINTY", "0.70"))
