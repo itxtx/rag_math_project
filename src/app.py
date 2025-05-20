@@ -1,7 +1,7 @@
 # src/app.py
 import os
 import asyncio # For running async functions
-import json # For pretty printing results
+
 
 from src.data_ingestion import document_loader
 from src.data_ingestion import concept_tagger
