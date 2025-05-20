@@ -43,7 +43,8 @@ class AnswerEvaluator:
         Please provide your evaluation in a JSON format with two keys:
         1. "accuracy_score": A float between 0.0 (completely incorrect) and 1.0 (perfectly correct and comprehensive based on the context).
         2. "feedback": A brief textual explanation for the score, highlighting strengths or areas for improvement. If the answer is incorrect, point out the mistake.
-
+        3. "correct answer": Give a precise and short correct answer highlighting the correct areas of the answer, as well as patiently explaining the incorrect areas.
+        
         Question:
         "{question_text}"
 
@@ -59,6 +60,13 @@ class AnswerEvaluator:
         {{
           "accuracy_score": 0.8,
           "feedback": "The answer correctly identifies the main point but misses some nuances from the context."
+          "correct_answer": "Your answer is mostly correct, but let's refine it a bit to be more precise based on the text.
+
+                            A differential equation (DE) is an equation involving an unknown function and one or more of its derivatives.
+
+                            An Ordinary Differential Equation (ODE) contains only ordinary derivatives of one or more unknown functions with respect to a single independent variable.
+                            The order of an ODE is the order of the highest derivative of the unknown function appearing in the equation.
+                            So, for example,  $x + 2y = \sin(x)$ is an ODE of order 0"
         }}
         
         If the learner's answer is completely off-topic or nonsensical, assign a low score and indicate this in the feedback.
