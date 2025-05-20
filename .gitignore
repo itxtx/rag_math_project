@@ -41,10 +41,10 @@ coverage.xml
 *.cover
 .hypothesis/
 pytest_cache/
-
+weaviate_data/
 # Jupyter Notebook
 .ipynb_checkpoints
-
+*.bloom
 # PyInstaller
 *.manifest
 *.spec
