@@ -1,12 +1,11 @@
 # src.interaction.answer_handler.py
 import asyncio
 from typing import Dict, Any, Optional
-
-# Placeholder imports for modules it will interact with.
-# These will be properly imported once those modules are defined.
-# from src.evaluation import answer_evaluator
-# from src.learner_model import knowledge_tracker
-#from src.generation import question_generator_rag # If it needs to fetch questions
+import os 
+# Import the actual modules
+from src.evaluation.answer_evaluator import AnswerEvaluator
+from src.learner_model.knowledge_tracker import KnowledgeTracker
+# from src.generation import question_generator_rag # If it needs to fetch questions
 
 class AnswerHandler:
     """
@@ -14,128 +13,105 @@ class AnswerHandler:
     coordinating evaluation and profile updates.
     """
 
-    def __init__(self, evaluator, tracker, question_generator=None):
+    def __init__(self, 
+                 evaluator: AnswerEvaluator, 
+                 tracker: KnowledgeTracker, 
+                 question_generator=None): # question_generator remains optional
         """
         Initializes the AnswerHandler.
 
         Args:
             evaluator: An instance of the AnswerEvaluator.
             tracker: An instance of the KnowledgeTracker.
-            question_generator: An optional instance of a question generator
-                                (e.g., RAGQuestionGenerator) if this handler
-                                is also responsible for presenting questions.
+            question_generator: An optional instance of a question generator.
         """
-        # self.evaluator = evaluator # To be uncommented when AnswerEvaluator is available
-        # self.tracker = tracker   # To be uncommented when KnowledgeTracker is available
-        # self.question_generator = question_generator # Optional
-
-        # For now, using placeholders until actual evaluator/tracker are integrated
-        self.evaluator = MagicMockAnswerEvaluator() # Placeholder
-        self.tracker = MagicMockKnowledgeTracker()   # Placeholder
+        if not isinstance(evaluator, AnswerEvaluator):
+            raise TypeError("evaluator must be an instance of AnswerEvaluator.")
+        if not isinstance(tracker, KnowledgeTracker):
+            raise TypeError("tracker must be an instance of KnowledgeTracker.")
+            
+        self.evaluator = evaluator
+        self.tracker = tracker
+        self.question_generator = question_generator 
         
-        print("AnswerHandler initialized.")
+        print("AnswerHandler initialized with real components.")
 
     async def submit_answer(self,
                             learner_id: str,
-                            question_id: str, # Or some identifier for the question/concept
+                            question_id: str, # Concept ID for tracking
                             question_text: str,
-                            retrieved_context: str, # The context based on which the question was asked
+                            retrieved_context: str, 
                             learner_answer: str
                             ) -> Dict[str, Any]:
         """
         Processes a learner's submitted answer.
-
-        Args:
-            learner_id: The ID of the learner.
-            question_id: A unique identifier for the question or the concept it relates to.
-                         This will be used as 'concept_id' for profile updates.
-            question_text: The text of the question asked.
-            retrieved_context: The context chunks/text based on which the question was generated
-                               and against which the answer should be evaluated.
-            learner_answer: The answer provided by the learner.
-
-        Returns:
-            A dictionary containing the evaluation result and feedback.
         """
         print(f"\nAnswerHandler: Learner '{learner_id}' submitted answer for question/concept '{question_id}'.")
         print(f"  Question: \"{question_text}\"")
         print(f"  Learner's Answer: \"{learner_answer}\"")
-        # print(f"  Context Provided: \"{retrieved_context[:200]}...\"") # Can be verbose
 
-        # Step 1: Evaluate the answer
-        # evaluation_result = await self.evaluator.evaluate_answer(
-        #     question_text,
-        #     retrieved_context,
-        #     learner_answer
-        # )
-        # Placeholder for evaluation:
-        evaluation_result = await self.evaluator.evaluate_answer(question_text, retrieved_context, learner_answer)
+        # Step 1: Evaluate the answer using the real evaluator
+        evaluation_result = await self.evaluator.evaluate_answer(
+            question_text,
+            retrieved_context,
+            learner_answer
+        )
         
         print(f"  Evaluation Result: {evaluation_result}")
 
-        accuracy_score = evaluation_result.get("accuracy_score", 0.0) # e.g., 0.0 to 1.0
-        # Convert accuracy (0-1) to a 0-10 graded score for the tracker
-        graded_score = accuracy_score * 10.0 
+        accuracy_score = evaluation_result.get("accuracy_score", 0.0) 
         feedback = evaluation_result.get("feedback", "No specific feedback provided.")
-        answered_correctly = accuracy_score > 0.7 # Example threshold for "correct"
+        
+        # Step 2: Update learner's knowledge profile using the real tracker
+        # The tracker will calculate the graded score and determine 'answered_correctly'
+        await self.tracker.update_knowledge_level(
+            learner_id=learner_id,
+            concept_id=question_id, 
+            accuracy_score=accuracy_score, # Pass the 0-1 accuracy score
+            raw_eval_data=evaluation_result 
+        )
 
-        # Step 2: Update learner's knowledge profile
-        # await self.tracker.update_knowledge_level(
-        #     learner_id=learner_id,
-        #     concept_id=question_id, # Using question_id as concept_id
-        #     score=graded_score,
-        #     answered_correctly=answered_correctly,
-        #     raw_eval_data=evaluation_result # Store the full evaluation
-        # )
-        # Placeholder for tracking:
-        await self.tracker.update_knowledge_level(learner_id, question_id, graded_score, answered_correctly, evaluation_result)
-
-
+        # For the return value, let's also include the graded score calculated by the tracker
+        # For simplicity, we can recalculate it here or assume tracker might return it.
+        # Let's assume the tracker's internal logic is what matters for the DB.
+        # The handler can return the direct evaluation.
         return {
             "learner_id": learner_id,
-            "question_id": question_id,
-            "accuracy_score": accuracy_score,
-            "graded_score": graded_score,
+            "question_id": question_id, # This is the concept_id
+            "accuracy_score": accuracy_score, # 0.0 - 1.0
             "feedback": feedback,
-            "answered_correctly": answered_correctly
+            # "graded_score" and "answered_correctly" are handled by the tracker internally for DB update
         }
 
-# --- Placeholder Mock Classes (until actual modules are implemented) ---
-class MagicMockAnswerEvaluator:
-    async def evaluate_answer(self, question, context, answer):
-        print("MagicMockAnswerEvaluator: Evaluating answer...")
-        # Simulate LLM evaluation based on answer length or keywords
-        if len(answer) > 10 and "thermodynamics" in answer.lower():
-            return {"accuracy_score": 0.9, "feedback": "Good, detailed answer mentioning key terms."}
-        elif len(answer) > 5:
-            return {"accuracy_score": 0.6, "feedback": "Seems plausible, but could be more specific."}
-        else:
-            return {"accuracy_score": 0.2, "feedback": "Answer is too short or lacks detail."}
-
-class MagicMockKnowledgeTracker:
-    async def update_knowledge_level(self, learner_id, concept_id, score, answered_correctly, raw_eval_data):
-        print(f"MagicMockKnowledgeTracker: Updating profile for learner '{learner_id}', concept '{concept_id}'.")
-        print(f"  Score: {score:.1f}/10, Correct: {answered_correctly}")
-        # In a real implementation, this would interact with LearnerProfileManager
-        pass
-# --- End of Placeholder Mock Classes ---
-
+# No mock classes needed here anymore if this module is always instantiated with real ones.
 
 async def demo_answer_submission():
-    print("--- AnswerHandler Demo ---")
-
-    # Initialize with mock evaluator and tracker
-    # In a real app, these would be actual instances of your evaluator and tracker classes.
-    mock_evaluator = MagicMockAnswerEvaluator()
-    mock_tracker = MagicMockKnowledgeTracker()
+    print("--- AnswerHandler Demo (with real component setup) ---")
     
-    answer_handler = AnswerHandler(evaluator=mock_evaluator, tracker=mock_tracker)
+    # For this demo to run, you need instances of actual components.
+    # This requires setting up ProfileManager first for the KnowledgeTracker.
+    import os
+    from src import config
+    from src.learner_model.profile_manager import LearnerProfileManager
 
-    # Sample data for submission
-    learner_id = "learner_test_001"
-    # Assume a question was generated by RAGQuestionGenerator
-    # For this demo, we'll use a sample question and context
-    question_id = "thermo_q1" # This would be the concept_id
+    # Setup ProfileManager for the demo
+    demo_db_path = os.path.join(config.DATA_DIR, "demo_handler_profiles.sqlite3")
+    if os.path.exists(demo_db_path):
+        os.remove(demo_db_path)
+    
+    profile_manager = LearnerProfileManager(db_path=demo_db_path)
+    
+    # Instantiate actual components
+    # Ensure GEMINI_API_KEY is available in config or .env for AnswerEvaluator
+    real_evaluator = AnswerEvaluator() 
+    real_tracker = KnowledgeTracker(profile_manager=profile_manager)
+    
+    answer_handler = AnswerHandler(evaluator=real_evaluator, tracker=real_tracker)
+
+    learner_id = "learner_handler_001"
+    profile_manager.create_profile(learner_id) # Ensure profile exists
+
+    question_id = "thermo_q_demo" 
     question_text = "What is the first law of thermodynamics?"
     retrieved_context = (
         "The first law of thermodynamics, also known as the law of conservation of energy, "
@@ -143,24 +119,30 @@ async def demo_answer_submission():
         "It can only be transformed from one form to another."
     )
     
-    # Simulate learner submitting an answer
-    learner_answer_good = "The first law of thermodynamics is about the conservation of energy, meaning energy isn't made or lost, just changed."
-    learner_answer_poor = "IDK"
+    learner_answer_good = "The first law of thermodynamics is about the conservation of energy."
 
-    print("\nSubmitting a good answer:")
-    result_good = await answer_handler.submit_answer(
+    print("\nSubmitting an answer:")
+    result = await answer_handler.submit_answer(
         learner_id, question_id, question_text, retrieved_context, learner_answer_good
     )
-    print(f"Handler response for good answer: {result_good}")
+    print(f"Handler response: {result}")
 
-    print("\nSubmitting a poor answer:")
-    result_poor = await answer_handler.submit_answer(
-        learner_id, question_id, question_text, retrieved_context, learner_answer_poor
-    )
-    print(f"Handler response for poor answer: {result_poor}")
+    # Check profile manager for updates
+    knowledge = profile_manager.get_concept_knowledge(learner_id, question_id)
+    print(f"\nKnowledge for '{question_id}' after submission: {knowledge}")
+    history = profile_manager.get_score_history(learner_id, question_id)
+    print(f"Score history for '{question_id}': {history}")
     
+    profile_manager.close_db()
     print("\n--- AnswerHandler Demo Finished ---")
 
 
 if __name__ == "__main__":
+    # Load .env for direct script execution if needed
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    if os.path.exists(dotenv_path):
+        print(f"AnswerHandler Demo: Found .env file at {dotenv_path}, loading.")
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path)
+
     asyncio.run(demo_answer_submission())
