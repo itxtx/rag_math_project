@@ -84,7 +84,7 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
             except Exception as e_del:
                 print(f"Note: Could not delete existing class (may not exist or other issue): {e_del}")
 
-            vector_store_manager.create_weaviate_schema(cls.weaviate_client) # This will now include parent_block_id
+            vector_store_manager.create_weaviate_schema(cls.weaviate_client) 
             print("Schema ensured.")
 
             print(f"Ingesting {len(DUMMY_CHUNKS_FOR_INTEGRATION_TEST)} dummy chunks...")
@@ -102,21 +102,18 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
             obj = cls.weaviate_client.data_object.get_by_id(
                 DUMMY_CHUNKS_FOR_INTEGRATION_TEST[0]['chunk_id'],
                 class_name=vector_store_manager.WEAVIATE_CLASS_NAME,
-                with_vector=False # Don't need vector for this check
+                with_vector=False 
             )
             if obj:
                 print(f"Successfully fetched ingested object: {obj.get('id')}")
-                # Also check if parent_block_id was stored
                 retrieved_props = obj.get('properties', {})
                 print(f"  Properties retrieved: {retrieved_props}")
                 if 'parent_block_id' not in retrieved_props:
                     print(f"WARNING: 'parent_block_id' NOT FOUND in fetched object {obj.get('id')}")
                 else:
                     print(f"  'parent_block_id' found: {retrieved_props.get('parent_block_id')}")
-
             else:
                 print(f"WARNING: Could not fetch ingested object by ID {DUMMY_CHUNKS_FOR_INTEGRATION_TEST[0]['chunk_id']}. Ingestion might have issues.")
-
 
         except ConnectionRefusedError as e:
             print(f"CRITICAL ERROR in setUpClass: Weaviate connection refused at {config.WEAVIATE_URL}. {e}")
@@ -152,10 +149,6 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
 
         query = "energy conservation law" 
         print(f"Retrieving chunks for query: '{query}'")
-        # Ensure DEFAULT_RETURN_PROPERTIES in Retriever includes parent_block_id
-        # The test failure indicated "Cannot query field 'parent_block_id'".
-        # This implies the retriever might be trying to fetch it, but it wasn't in the schema during that run.
-        # With the schema fix, this part of the retriever should work.
         retrieved_chunks = retriever_instance.search(query_text=query, search_type="semantic", limit=1, certainty=0.01)
 
         self.assertIsNotNone(retrieved_chunks)
@@ -180,7 +173,7 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
                 context_chunks=retrieved_chunks,
                 num_questions=num_questions_to_generate,
                 question_type="factual",
-                difficulty_level="intermediate" # Added for consistency with QG update
+                difficulty_level="intermediate" 
             )
         generated_questions = asyncio.run(run_async_generate_questions())
 
