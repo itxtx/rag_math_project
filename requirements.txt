@@ -1,9 +1,10 @@
 # requirements.txt
 python-dotenv
 weaviate-client
+PyMuPDF
+pylatexenc
+requests
 # Add other libraries like PyMuPDF, pylatexenc, etc., as we implement parsers
 # For example:
-# PyMuPDF
-# pylatexenc
 # langchain
 # sentence-transformers
