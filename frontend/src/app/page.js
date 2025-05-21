@@ -1,11 +1,8 @@
 "use client"; // This directive marks the component as a Client Component in Next.js App Router
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // Shadcn UI components (assuming they are set up in your project)
-// The import paths have been adjusted to use the '@/components' alias,
-// which is the standard setup for Shadcn UI in Next.js.
-// This requires your jsconfig.json or tsconfig.json to have the path alias configured.
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,20 +11,42 @@ import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress'; // For loading indicator
 
+// You might need to add a simple icon for the theme toggle, e.g., from Lucide React
+// npm install lucide-react
+import { Sun, Moon } from 'lucide-react';
+
 // Main App component
 function App() {
   // State variables for managing the application's data and UI
   const [learnerId, setLearnerId] = useState(''); // Stores the learner's ID
   const [question, setQuestion] = useState(null); // Stores the current question object from the API
   const [answer, setAnswer] = useState(''); // Stores the learner's typed answer
-  const [feedback, setFeedback] = useState(null); // Stores the evaluation feedback from the API
+  // feedback now stores an object with both feedback text and correct answer
+  const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState(null); // Stores any error messages
   const [loading, setLoading] = useState(false); // Indicates if an API call is in progress
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false); // Controls the visibility of the error dialog
+  const [theme, setTheme] = useState('light'); // State for managing the current theme (light/dark)
 
   // Base URL for your FastAPI backend
   // IMPORTANT: Adjust this if your FastAPI server is running on a different host or port.
   const API_BASE_URL = 'http://localhost:8000/api/v1';
+
+  // Effect to apply the 'dark' class to the html element based on the theme state
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  /**
+   * Toggles the current theme between 'light' and 'dark'.
+   */
+  const toggleTheme = () => {
+    setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
+  };
 
   /**
    * Handles the "Start Interaction" button click.
@@ -106,7 +125,11 @@ function App() {
       }
 
       const data = await response.json();
-      setFeedback(data.evaluation.feedback); // Set the received feedback
+      // Store both feedback and correct_answer_suggestion
+      setFeedback({
+        feedbackText: data.evaluation.feedback,
+        correctAnswer: data.evaluation['correct answer'] || null, // Access using bracket notation due to space
+      });
     } catch (err) {
       console.error('Error submitting answer:', err);
       setError(err.message); // Set the error message
@@ -117,29 +140,39 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4 font-inter">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 flex items-center justify-center p-4 font-inter relative">
+      {/* Theme Toggle Button */}
+      <Button
+        onClick={toggleTheme}
+        variant="outline"
+        size="icon"
+        className="absolute top-4 left-4 rounded-full shadow-md bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-200 dark:border-gray-600"
+      >
+        {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+      </Button>
+
       <div className="w-full max-w-2xl space-y-6">
         {/* Application Title */}
-        <h1 className="text-4xl font-extrabold text-center text-gray-800 drop-shadow-md">
+        <h1 className="text-4xl font-extrabold text-center text-gray-800 dark:text-gray-200 drop-shadow-md">
           Adaptive Learning System
         </h1>
 
         {/* Learner ID Input Card */}
-        <Card className="w-full rounded-xl shadow-lg border border-gray-200">
+        <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <CardHeader>
-            <CardTitle className="text-2xl font-bold text-gray-700">Get Started</CardTitle>
-            <CardDescription className="text-gray-500">Enter your unique learner ID to begin your learning journey.</CardDescription>
+            <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Get Started</CardTitle>
+            <CardDescription className="text-gray-500 dark:text-gray-400">Enter your unique learner ID to begin your learning journey.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid w-full items-center gap-1.5">
-              <Label htmlFor="learnerId" className="text-gray-700">Learner ID</Label>
+              <Label htmlFor="learnerId" className="text-gray-700 dark:text-gray-200">Learner ID</Label>
               <Input
                 type="text"
                 id="learnerId"
                 placeholder="e.g., learner-123"
                 value={learnerId}
                 onChange={(e) => setLearnerId(e.target.value)}
-                className="rounded-md focus:ring-2 focus:ring-blue-300"
+                className="rounded-md focus:ring-2 focus:ring-blue-300 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
                 disabled={loading}
               />
             </div>
@@ -167,28 +200,28 @@ function App() {
 
         {/* Loading Progress Bar */}
         {loading && (
-          <Progress value={100} className="w-full animate-pulse h-2 bg-blue-200" />
+          <Progress value={100} className="w-full animate-pulse h-2 bg-blue-200 dark:bg-blue-700" />
         )}
 
         {/* Question Display Card */}
         {question && (
-          <Card className="w-full rounded-xl shadow-lg border border-gray-200">
+          <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-gray-700">Current Question</CardTitle>
-              <CardDescription className="text-gray-500">Reflect on the concept and provide your best answer.</CardDescription>
+              <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Current Question</CardTitle>
+              <CardDescription className="text-gray-500 dark:text-gray-400">Reflect on the concept and provide your best answer.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-gray-800 text-lg leading-relaxed">{question.question_text}</p>
+              <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                <p className="text-gray-800 dark:text-gray-200 text-lg leading-relaxed">{question.question_text}</p>
               </div>
               <div className="grid w-full items-center gap-1.5">
-                <Label htmlFor="answer" className="text-gray-700">Your Answer</Label>
+                <Label htmlFor="answer" className="text-gray-700 dark:text-gray-200">Your Answer</Label>
                 <Textarea
                   id="answer"
                   placeholder="Type your answer here..."
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
-                  className="min-h-[100px] rounded-md focus:ring-2 focus:ring-blue-300"
+                  className="min-h-[100px] rounded-md focus:ring-2 focus:ring-blue-300 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
                   disabled={loading}
                 />
               </div>
@@ -217,14 +250,21 @@ function App() {
 
         {/* Feedback Display Card */}
         {feedback && (
-          <Card className="w-full rounded-xl shadow-lg border border-gray-200">
+          <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-gray-700">Evaluation Feedback</CardTitle>
-              <CardDescription className="text-gray-500">Here's how you did on the last question.</CardDescription>
+              <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Evaluation Feedback</CardTitle>
+              <CardDescription className="text-gray-500 dark:text-gray-400">Here's how you did on the last question.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <p className="text-blue-800 text-lg leading-relaxed">{feedback}</p>
+            <CardContent className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+                <p className="text-blue-800 dark:text-blue-200 text-lg leading-relaxed">
+                  <span className="font-semibold">Feedback:</span> {feedback.feedbackText}
+                </p>
+                {feedback.correctAnswer && (
+                  <p className="text-blue-800 dark:text-blue-200 text-lg leading-relaxed mt-2">
+                    <span className="font-semibold">Correct Answer:</span> {feedback.correctAnswer}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -232,10 +272,10 @@ function App() {
 
         {/* Error Dialog */}
         <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
-          <AlertDialogContent className="rounded-xl shadow-lg">
+          <AlertDialogContent className="rounded-xl shadow-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-red-600">Error</AlertDialogTitle>
-              <AlertDialogDescription>
+              <AlertDialogTitle className="text-red-600 dark:text-red-400">Error</AlertDialogTitle>
+              <AlertDialogDescription className="text-gray-700 dark:text-gray-300">
                 {error}
               </AlertDialogDescription>
             </AlertDialogHeader>

@@ -22,6 +22,7 @@ class AnswerSubmissionRequest(BaseModel):
 class EvaluationResult(BaseModel):
     accuracy_score: float = Field(..., ge=0.0, le=1.0, description="Accuracy score from 0.0 to 1.0.")
     feedback: str = Field(..., description="Textual feedback on the answer.")
+    correct_answer: Optional[str] = None
     # Optional: If your evaluator can provide a model/correct answer
     # correct_answer_suggestion: Optional[str] = Field(None, description="A suggested correct answer or key points.")
 

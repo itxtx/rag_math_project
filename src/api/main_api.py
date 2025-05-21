@@ -1,11 +1,9 @@
-# src/api/main_api.py
 import os
 import asyncio
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional
 import uvicorn
-from fastapi.middleware.cors import CORSMiddleware # <-- ADD THIS IMPORT
-
 
 
 # Assuming your project root is the parent of 'src' and is in PYTHONPATH
@@ -34,23 +32,21 @@ app = FastAPI(
     version="0.1.0"
 )
 
-
-# --- CORS Configuration --- <-- ADD THIS BLOCK
+# --- CORS Configuration ---
 origins = [
     "http://localhost:3000",  # Allow your frontend to access the backend
     "http://127.0.0.1:3000",  # Another common localhost address
-    # Add other origins if your frontend will be deployed elsewhere, e.g.:
-    # "https://your-production-frontend-domain.com",
+    # You can add other origins if your frontend will be deployed elsewhere
+    # "https://your-frontend-domain.com",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers in the request
+    allow_methods=["*"],  # Allows all methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allows all headers
 )
-
 
 # --- Global RAG System Components ---
 # These will be initialized once when the application starts.
@@ -158,7 +154,7 @@ async def get_rag_components() -> RAGSystemComponents:
             return RAGSystemComponents() # This would create a new instance, not the global one.
                                          # Better to raise an error if not initialized.
         except Exception as e:
-             raise HTTPException(status_code=503, detail=f"RAG system components not available: {e}")
+            raise HTTPException(status_code=503, detail=f"RAG system components not available: {e}")
     return rag_components_instance
 
 
@@ -219,12 +215,13 @@ async def submit_learner_answer(
             learner_answer=request.learner_answer
         )
         
-        # The handler_response contains accuracy_score and feedback.
-        # We need to wrap it in EvaluationResult for the API response.
+        # The handler_response contains accuracy_score, feedback, and now 'correct_answer'.
+        # IMPORTANT: Ensure your EvaluationResult Pydantic model (in src/api/models.py)
+        # has a field named 'correct_answer' (e.g., correct_answer: Optional[str] = None)
         eval_result = EvaluationResult(
             accuracy_score=handler_response.get("accuracy_score", 0.0),
-            feedback=handler_response.get("feedback", "Evaluation feedback not available.")
-            # correct_answer_suggestion can be added if evaluator provides it
+            feedback=handler_response.get("feedback", "Evaluation feedback not available."),
+            correct_answer=handler_response.get("correct_answer") # Added correct_answer
         )
         
         return AnswerSubmissionResponse(
