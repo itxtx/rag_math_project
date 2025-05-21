@@ -1,15 +1,11 @@
 "use client"; // This directive marks the component as a Client Component in Next.js App Router
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown'; // Import ReactMarkdown
 import remarkMath from 'remark-math'; // Import remark-math for parsing math
 import rehypeKatex from 'rehype-katex'; // Import rehype-katex for rendering math
 
-// Shadcn UI components (assuming these paths are correct for your project structure)
-// Ensure you have these components installed and correctly pathed.
-// For example, if they are in a 'components/ui' directory relative to this file:
-// import { Input } from './components/ui/input';
-// For now, I'll keep your original paths.
+// Shadcn UI components
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from '@/components/ui/card';
@@ -44,7 +40,7 @@ function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
-  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true);
+  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true); // Dialog open by default
   const [theme, setTheme] = useState('light');
 
   const [availableTopics, setAvailableTopics] = useState([]);
@@ -73,7 +69,9 @@ function App() {
     link.crossOrigin = 'anonymous';
     document.head.appendChild(link);
     return () => {
-      document.head.removeChild(link);
+      if (document.head.contains(link)) { // Check if the link is still in head before removing
+        document.head.removeChild(link);
+      }
     };
   }, []);
 
@@ -90,20 +88,18 @@ function App() {
         }
         const data = await response.json();
         setAvailableTopics(data);
-        if (data.length > 0 && !selectedTopicId) { // Pre-select only if no topic is selected yet
+        if (data.length > 0 && !selectedTopicId) { 
           setSelectedTopicId(data[0].topic_id);
         }
       } catch (err) {
         console.error('Error fetching topics:', err);
         setTopicsError(err.message);
-        // Displaying error in dialog is handled by main error state if needed,
-        // or you can have a specific topics error display.
       } finally {
         setTopicsLoading(false);
       }
     };
     fetchTopics();
-  }, [API_BASE_URL, selectedTopicId]); // Added selectedTopicId to dependencies to ensure it can be pre-selected
+  }, [API_BASE_URL]); // Removed selectedTopicId from dependency array
 
   // Theme toggle function
   const toggleTheme = () => {
@@ -138,7 +134,7 @@ function App() {
       }
       const data = await response.json();
       setQuestion(data);
-      setIsLearnerIdDialogOpen(false);
+      setIsLearnerIdDialogOpen(false); // Close dialog on successful start
     } catch (err) {
       console.error('Error starting interaction:', err);
       setError(err.message);
@@ -172,7 +168,7 @@ function App() {
         body: JSON.stringify({
           learner_id: learnerId,
           question_id: question.question_id,
-          question_text: question.question_text, // Original question text
+          question_text: question.question_text, 
           context_for_evaluation: question.context_for_evaluation,
           learner_answer: answer,
         }),
@@ -196,7 +192,7 @@ function App() {
   }, [learnerId, question, answer, API_BASE_URL]);
 
   // Memoized cleaned question text
-  const cleanedQuestionText = React.useMemo(() => {
+  const cleanedQuestionText = useMemo(() => {
     if (question && question.question_text) {
       return cleanLatexString(question.question_text);
     }
@@ -204,7 +200,7 @@ function App() {
   }, [question]);
 
   // Memoized cleaned feedback text
-  const cleanedFeedback = React.useMemo(() => {
+  const cleanedFeedback = useMemo(() => {
     if (!feedback) return null;
     return {
       feedbackText: cleanLatexString(feedback.feedbackText),
@@ -219,15 +215,16 @@ function App() {
         onClick={toggleTheme}
         variant="outline"
         size="icon"
-        className="absolute top-4 left-4 rounded-full shadow-md bg-card hover:bg-accent text-foreground border-border"
+        className="absolute top-4 left-4 rounded-full bg-card hover:bg-accent text-foreground border-border" // Removed shadow-md
         aria-label="Toggle theme"
       >
         {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
       </Button>
 
       <div className="w-full max-w-2xl space-y-6">
+        {/* Learner ID & Topic Selection Dialog (Initial Setup) */}
         <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
-          <AlertDialogContent className="rounded-xl shadow-lg bg-card border-border">
+          <AlertDialogContent className="rounded-xl bg-card border-border"> {/* Removed shadow-lg */}
             <AlertDialogHeader>
               <AlertDialogTitle className="text-2xl font-bold text-card-foreground">Get Started</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground">
@@ -278,7 +275,7 @@ function App() {
                 disabled={!learnerId.trim() || loading || topicsLoading || !selectedTopicId || availableTopics.length === 0}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
-                {loading && !question ? ( // Show "Starting..." only when initially loading
+                {loading && !question ? ( 
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -294,11 +291,11 @@ function App() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {loading && <Progress value={undefined} className="w-full h-2 bg-primary animate-pulse" />} {/* Indeterminate progress */}
+        {loading && <Progress value={undefined} className="w-full h-2 bg-primary animate-pulse" />}
 
 
         {question && (
-          <Card className="w-full rounded-xl shadow-lg border border-border bg-card">
+          <Card className="w-full rounded-xl border border-border bg-card"> {/* Removed shadow-lg */}
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-card-foreground">Question {question.question_number || ''}</CardTitle>
               <CardDescription className="text-muted-foreground">Provide your answer below.</CardDescription>
@@ -306,7 +303,7 @@ function App() {
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30"
-                key={question.question_id} // Using question_id as key
+                key={question.question_id} 
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
@@ -333,7 +330,7 @@ function App() {
                 disabled={loading || !answer.trim()}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
-                {loading && feedback === null ? ( // Show "Submitting..." only when submitting answer
+                {loading && feedback === null ? ( 
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -350,14 +347,13 @@ function App() {
         )}
 
         {cleanedFeedback && (
-          <Card className="w-full rounded-xl shadow-lg border border-border bg-card mt-6">
+          <Card className="w-full rounded-xl border border-border bg-card mt-6"> {/* Removed shadow-lg */}
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-card-foreground">Evaluation Feedback</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30"
-                // Key for feedback section, ensuring re-render if content changes
                 key={(cleanedFeedback.feedbackText || "") + (cleanedFeedback.correctAnswer || "")}
               >
                 <ReactMarkdown
@@ -381,7 +377,7 @@ function App() {
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button
-                onClick={handleStartInteraction} // This button now fetches the next question
+                onClick={handleStartInteraction} 
                 disabled={loading}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
@@ -391,8 +387,9 @@ function App() {
           </Card>
         )}
 
+        {/* Error Dialog */}
         <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
-          <AlertDialogContent className="rounded-xl shadow-lg bg-card border-border">
+          <AlertDialogContent className="rounded-xl bg-card border-border"> {/* Removed shadow-lg */}
             <AlertDialogHeader>
               <AlertDialogTitle className="text-destructive font-semibold">Error</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground py-2">
@@ -406,7 +403,6 @@ function App() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
       </div>
     </div>
   );
