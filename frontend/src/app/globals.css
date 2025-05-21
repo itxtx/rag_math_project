@@ -162,6 +162,15 @@ body {
   display: inline-block;
   /* Added transform to potentially force hardware acceleration and fix ghosting */
   transform: translateZ(0);
+  /* Added font smoothing for better rendering consistency */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Added backface-visibility for composite layer issues */
+  backface-visibility: hidden;
+  /* Added isolation to create a new stacking context */
+  isolation: isolate;
+  /* Added z-index to ensure it's on top */
+  z-index: 1;
 }
 
 .katex-display {
@@ -169,6 +178,14 @@ body {
   text-align: center;
   margin-top: 1em;
   margin-bottom: 1em;
+  /* Added font smoothing and backface-visibility for block math */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  backface-visibility: hidden;
+  /* Added isolation to create a new stacking context */
+  isolation: isolate;
+  /* Added z-index to ensure it's on top */
+  z-index: 1;
 }
 
 /* Additional styling for markdown body if needed (retained from previous) */
