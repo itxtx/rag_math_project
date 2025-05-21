@@ -1,6 +1,9 @@
 "use client"; // This directive marks the component as a Client Component in Next.js App Router
 
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown'; // Import ReactMarkdown
+import remarkMath from 'remark-math'; // Import remark-math for parsing math
+import rehypeKatex from 'rehype-katex'; // Import rehype-katex for rendering math
 
 // Shadcn UI components (assuming they are set up in your project)
 import { Input } from '@/components/ui/input';
@@ -40,6 +43,21 @@ function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  // Effect to load KaTeX CSS dynamically
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+    link.integrity = 'sha384-n8MV3dEkVvJoQWT9sJILfSTgA9rwYQq8qxbl8tB7vO0FrvPz9HTZkYet5PkeFNHS';
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+
+    // Cleanup function to remove the link when the component unmounts
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []); // Empty dependency array means this effect runs once on mount
 
   /**
    * Toggles the current theme between 'light' and 'dark'.
@@ -214,8 +232,17 @@ function App() {
               <CardDescription className="text-muted-foreground">Reflect on the concept and provide your best answer.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-4 rounded-lg border border-border"> {/* Removed bg-muted */}
-                <p className="text-foreground text-lg leading-relaxed">{question.question_text}</p>
+              <div
+                className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body"
+                key={question.question_text} // Added key to force re-render if text changes
+              >
+                {/* Render question text as Markdown with KaTeX support */}
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {question.question_text}
+                </ReactMarkdown>
               </div>
               <div className="grid w-full items-center gap-1.5">
                 <Label htmlFor="answer" className="text-card-foreground">Your Answer</Label>
@@ -224,7 +251,7 @@ function App() {
                   placeholder="Type your answer here..."
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
-                  className="min-h-[200px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border" // Increased min-h to 200px
+                  className="min-h-[200px] rounded-md focus:ring-2 focus:ring-ring bg-transparent text-foreground border-border"
                   disabled={loading}
                 />
               </div>
@@ -259,14 +286,26 @@ function App() {
               <CardDescription className="text-muted-foreground">Here's how you did on the last question.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-muted p-4 rounded-lg border border-border">
-                <p className="text-foreground text-lg leading-relaxed">
-                  <span className="font-semibold">Feedback:</span> {feedback.feedbackText}
-                </p>
+              <div
+                className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body"
+                key={feedback.feedbackText + (feedback.correctAnswer || '')} // Added key to force re-render
+              >
+                {/* Render feedback text as Markdown with KaTeX support */}
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {`**Feedback:** ${feedback.feedbackText}`}
+                </ReactMarkdown>
+
                 {feedback.correctAnswer && (
-                  <p className="text-foreground text-lg leading-relaxed mt-2">
-                    <span className="font-semibold">Correct Answer:</span> {feedback.correctAnswer}
-                  </p>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                    className="mt-2" // Only margin top needed here
+                  >
+                    {`**Correct Answer:** ${feedback.correctAnswer}`}
+                  </ReactMarkdown>
                 )}
               </div>
             </CardContent>
