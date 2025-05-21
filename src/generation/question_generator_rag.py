@@ -89,7 +89,7 @@ class RAGQuestionGenerator:
         \"\"\"
 
         Output Format:
-        Generate exactly {num_questions} question(s). Each question must be on a new line and start with a number followed by a period (e.g., "1. What is...?").
+        Generate exactly {num_questions} question(s). Each question must be on a new line and start with a number followed by a period (e.g., "1. What is...?"). Mathematical expressions should be in valid latex.
         """
         # Add numbered placeholders to guide the LLM for the exact number of questions
         for i in range(1, num_questions + 1):
