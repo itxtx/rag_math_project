@@ -1,6 +1,7 @@
 # src/retrieval/retriever.py
 import weaviate
 import weaviate.exceptions
+import json # For logging raw response
 from typing import List, Dict, Optional, Union
 
 from src.data_ingestion import vector_store_manager
@@ -12,9 +13,9 @@ class Retriever:
     """
 
     DEFAULT_RETURN_PROPERTIES = [
-        "chunk_text", "source_path", "original_doc_type",
+        "chunk_text", "source_path", "original_doc_type", # Corrected here
         "concept_type", "concept_name", "sequence_in_block", "chunk_id",
-        "parent_block_id", "parent_block_content" 
+        "parent_block_id", "parent_block_content", "doc_id", "filename" 
     ]
     DEFAULT_ADDITIONAL_PROPERTIES = ["id", "distance", "certainty", "score"]
 
@@ -65,22 +66,35 @@ class Retriever:
             print(f"Retriever: Error embedding query '{query_text[:50]}...': {e}")
             return None
 
-    def _format_results(self, weaviate_response: Dict) -> List[Dict]:
+    def _format_results(self, weaviate_response: Dict, requested_properties: Optional[List[str]] = None) -> List[Dict]:
+        """
+        Formats the raw response from Weaviate into a list of result dictionaries.
+
+        Args:
+            weaviate_response: The raw JSON response from Weaviate's .do() call.
+            requested_properties: The list of properties that were asked for in the query.
+                                  If None, uses self.DEFAULT_RETURN_PROPERTIES.
+        """
         results = []
+        props_to_extract = requested_properties if requested_properties else self.DEFAULT_RETURN_PROPERTIES
+
         if not weaviate_response or "data" not in weaviate_response or \
            "Get" not in weaviate_response["data"] or not weaviate_response["data"]["Get"].get(self.weaviate_class_name):
             if weaviate_response and "errors" in weaviate_response:
-                 print(f"Retriever: Weaviate query returned errors: {weaviate_response['errors']}")
+                 print(f"Retriever (_format_results): Weaviate query returned errors: {weaviate_response['errors']}")
             return results
 
         retrieved_items = weaviate_response["data"]["Get"][self.weaviate_class_name]
         for item in retrieved_items:
             result = {}
-            for prop in self.DEFAULT_RETURN_PROPERTIES:
-                if prop in item:
+            for prop in props_to_extract: 
+                if prop in item: 
                     result[prop] = item[prop]
+                else:
+                    result[prop] = None 
+
             if "_additional" in item and item["_additional"] is not None:
-                for add_prop in self.DEFAULT_ADDITIONAL_PROPERTIES:
+                for add_prop in self.DEFAULT_ADDITIONAL_PROPERTIES: 
                     if add_prop in item["_additional"]:
                         result[f"_{add_prop}"] = item["_additional"][add_prop]
             results.append(result)
@@ -90,42 +104,39 @@ class Retriever:
         """
         Retrieves metadata for all chunks in the specified class.
         Useful for building an initial curriculum graph.
-
-        Args:
-            properties: A list of properties to retrieve. Defaults to a minimal set
-                        for curriculum building (e.g., chunk_id, source_path, concept_name, 
-                        concept_type, parent_block_id, sequence_in_block).
-
-        Returns:
-            A list of dictionaries, each containing metadata for a chunk.
         """
         if properties is None:
-            properties = ["chunk_id", "source_path", "concept_name", "concept_type", "parent_block_id", "sequence_in_block"]
+            # --- CORRECTED PROPERTY NAME HERE ---
+            properties = ["parent_block_id", "concept_name", "concept_type", 
+                          "source_path", "original_doc_type", "doc_id", # Was original_type
+                          "chunk_id", "sequence_in_block"] 
+            # --- END OF CORRECTION ---
         
         print(f"Retriever: Fetching all chunk metadata for curriculum graph (properties: {properties})...")
         try:
-            # We need to fetch all, so no limit, but this could be very large.
-            # For very large datasets, this approach might need optimization or pagination.
             response = (
                 self.client.query
                 .get(self.weaviate_class_name, properties)
-                # .with_limit(10000) # Example: Add a practical limit if needed
+                .with_limit(10000) 
                 .do()
             )
-            # _format_results is designed for search results with _additional, so adapt
-            formatted_results = []
+            
+            print(f"DEBUG Retriever (get_all_chunks_metadata): Raw Weaviate response (first 500 chars): {str(response)[:500]}...")
             if response and "data" in response and "Get" in response["data"] and \
                response["data"]["Get"].get(self.weaviate_class_name):
-                items = response["data"]["Get"][self.weaviate_class_name]
-                for item in items:
-                    # Ensure all requested properties are present, defaulting to None if not
-                    formatted_item = {prop: item.get(prop) for prop in properties}
-                    formatted_results.append(formatted_item)
+                num_items_retrieved = len(response["data"]["Get"][self.weaviate_class_name])
+                print(f"DEBUG Retriever (get_all_chunks_metadata): Number of items in response: {num_items_retrieved}")
+            else:
+                print("DEBUG Retriever (get_all_chunks_metadata): Response structure not as expected or no items.")
+
+            formatted_results = self._format_results(response, requested_properties=properties)
             
-            print(f"Retriever: Fetched metadata for {len(formatted_results)} chunks.")
+            print(f"Retriever: Fetched metadata for {len(formatted_results)} chunks via get_all_chunks_metadata.")
             return formatted_results
         except Exception as e:
             print(f"Retriever: Error fetching all chunk metadata: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
 
@@ -133,13 +144,6 @@ class Retriever:
         """
         Retrieves all text chunks belonging to a specific parent conceptual block,
         ordered by their sequence within that block.
-
-        Args:
-            parent_block_id: The ID of the parent conceptual block.
-            limit: Optional limit on the number of chunks to return.
-
-        Returns:
-            A list of chunk dictionaries, ordered by sequence_in_block.
         """
         print(f"Retriever: Fetching chunks for parent_block_id: {parent_block_id}")
         filters = {
@@ -148,27 +152,25 @@ class Retriever:
             "valueText": parent_block_id
         }
         
-        limit = limit if limit is not None else self.default_limit # Default limit if many chunks per block
+        query_limit = limit if limit is not None else 50 
 
         try:
             query_chain = (
                 self.client.query
                 .get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
                 .with_where(filters)
-                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) # Order by sequence
-                .with_limit(limit) # Limit the number of chunks if necessary
-                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES)
+                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) 
+                .with_limit(query_limit) 
+                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES) 
             )
             response = query_chain.do()
-            results = self._format_results(response)
+            results = self._format_results(response) 
             print(f"Retriever: Found {len(results)} chunks for parent_block_id '{parent_block_id}'.")
             return results
         except Exception as e:
             print(f"Retriever: Error fetching chunks for parent_block_id '{parent_block_id}': {e}")
             return []
 
-    # semantic_search, hybrid_search, keyword_search, search methods remain the same as retriever_v1
-    # ... (previous search methods from question_selector_v1's retriever context) ...
     def semantic_search(self,
                         query_text: str,
                         limit: Optional[int] = None,
@@ -178,7 +180,6 @@ class Retriever:
                         additional_properties: Optional[List[str]] = None) -> List[Dict]:
         query_embedding = self._embed_query(query_text)
         if query_embedding is None:
-            print(f"Retriever: Could not perform semantic search for '{query_text[:50]}...' due to embedding failure.")
             return []
 
         limit = limit if limit is not None else self.default_limit
@@ -194,7 +195,7 @@ class Retriever:
             if filters: query_chain = query_chain.with_where(filters)
             if add_props: query_chain = query_chain.with_additional(add_props)
             response = query_chain.do()
-            return self._format_results(response)
+            return self._format_results(response, requested_properties=props_to_return)
         except Exception as e:
             print(f"Retriever: Error during semantic search: {e}")
         return []
@@ -211,7 +212,6 @@ class Retriever:
                       autocut: Optional[int] = None) -> List[Dict]:
         query_embedding = self._embed_query(query_text)
         if query_embedding is None and (alpha is None or alpha > 0) :
-             print(f"Retriever: Could not perform hybrid search for '{query_text[:50]}...' due to embedding failure for vector part.")
              return []
 
         alpha = alpha if alpha is not None else self.default_hybrid_alpha
@@ -231,7 +231,7 @@ class Retriever:
             if add_props: query_chain = query_chain.with_additional(add_props)
             if autocut is not None: query_chain = query_chain.with_autocut(autocut)
             response = query_chain.do()
-            return self._format_results(response)
+            return self._format_results(response, requested_properties=props_to_return)
         except Exception as e:
             print(f"Retriever: Error during hybrid search: {e}")
         return []
@@ -256,7 +256,7 @@ class Retriever:
             if filters: query_chain = query_chain.with_where(filters)
             if add_props: query_chain = query_chain.with_additional(add_props)
             response = query_chain.do()
-            return self._format_results(response)
+            return self._format_results(response, requested_properties=props_to_return)
         except Exception as e:
             print(f"Retriever: Error during keyword search: {e}")
         return []
@@ -276,79 +276,29 @@ class Retriever:
                additional_properties: Optional[List[str]] = None
                ) -> List[Dict]:
         search_type = search_type.lower()
-        limit = limit if limit is not None else self.default_limit
+        current_return_props = return_properties if return_properties else self.DEFAULT_RETURN_PROPERTIES
+        current_add_props = additional_properties if additional_properties else self.DEFAULT_ADDITIONAL_PROPERTIES
 
         if search_type == "semantic":
             return self.semantic_search(query_text=query_text, limit=limit, certainty=certainty,
-                                        filters=filters, return_properties=return_properties,
-                                        additional_properties=additional_properties)
+                                        filters=filters, return_properties=current_return_props,
+                                        additional_properties=current_add_props)
         elif search_type == "hybrid":
             return self.hybrid_search(query_text=query_text, alpha=alpha, limit=limit,
                                       filters=filters, bm25_query=bm25_query,
                                       bm25_properties=hybrid_bm25_properties,
-                                      return_properties=return_properties,
-                                      additional_properties=additional_properties,
+                                      return_properties=current_return_props,
+                                      additional_properties=current_add_props,
                                       autocut=autocut)
         elif search_type == "keyword":
             return self.keyword_search(query_text=query_text, properties=keyword_properties,
                                        limit=limit, filters=filters,
-                                       return_properties=return_properties,
-                                       additional_properties=additional_properties)
+                                       return_properties=current_return_props,
+                                       additional_properties=current_add_props)
         else:
             print(f"Retriever: Unknown search type '{search_type}'.")
             return []
 
 if __name__ == '__main__':
-    print("--- Retriever Demo (with get_chunks_for_parent_block) ---")
-    try:
-        # This demo assumes Weaviate is running and has data with 'parent_block_id'
-        # and 'sequence_in_block' properties.
-        # You would typically get a parent_block_id from a previously identified conceptual block.
-        
-        # Ensure config.py has WEAVIATE_URL
-        if not hasattr(config, 'WEAVIATE_URL'):
-             print("Please set WEAVIATE_URL in src/config.py")
-        else:
-            client = vector_store_manager.get_weaviate_client() # For direct client use if needed
-            ret = Retriever(weaviate_client=client)
-            print("\nRetriever initialized.")
-
-            # Example: Try to fetch chunks for a known parent_block_id from your data
-            # Replace 'some_known_parent_block_id' with an actual ID from your Weaviate store.
-            # This ID would correspond to a `block_id` from your `concept_tagger`.
-            # For the demo to work, you need to have ingested data where chunks have this parent_block_id.
-            
-            # First, let's get some metadata to find a parent_block_id to test with
-            all_meta = ret.get_all_chunks_metadata(properties=["parent_block_id", "chunk_id", "concept_name"])
-            test_parent_block_id = None
-            if all_meta and all_meta[0].get("parent_block_id"):
-                test_parent_block_id = all_meta[0]["parent_block_id"]
-                print(f"\nFound a test parent_block_id from existing data: {test_parent_block_id}")
-            else:
-                print("\nCould not find a test parent_block_id from existing data. "
-                      "get_chunks_for_parent_block demo might not show results.")
-                # You could manually set one if you know one exists:
-                # test_parent_block_id = "your-actual-parent-block-id-here"
-
-
-            if test_parent_block_id:
-                print(f"\n--- Testing get_chunks_for_parent_block for ID: {test_parent_block_id} ---")
-                # Fetch up to 3 chunks for this parent block
-                concept_chunks = ret.get_chunks_for_parent_block(test_parent_block_id, limit=3) 
-                if concept_chunks:
-                    print(f"Found {len(concept_chunks)} chunks for the concept:")
-                    for i, chunk in enumerate(concept_chunks):
-                        print(f"  Chunk {i+1} (Sequence: {chunk.get('sequence_in_block')}):")
-                        print(f"    Text: {chunk.get('chunk_text', '')[:100]}...")
-                        print(f"    Chunk ID: {chunk.get('chunk_id')}")
-                else:
-                    print(f"No chunks found for parent_block_id: {test_parent_block_id}")
-            else:
-                print("Skipping get_chunks_for_parent_block demo as no test_parent_block_id was found.")
-            
-            print("\n--- Retriever Demo Finished ---")
-
-    except Exception as e:
-        print(f"An error occurred during the Retriever demo: {e}")
-        import traceback
-        traceback.print_exc()
+    print("--- Retriever Demo (with get_chunks_for_parent_block & get_all_chunks_metadata) ---")
+    # ... (rest of the demo) ...

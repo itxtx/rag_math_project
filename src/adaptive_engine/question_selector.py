@@ -11,9 +11,9 @@ from src import config
 # Constants for selection strategy
 LOW_SCORE_THRESHOLD = 5.0 
 PERFECT_SCORE_THRESHOLD = 9.0 
-# NUM_CANDIDATE_CONCEPTS_TO_FETCH is less relevant if we have a full curriculum map
-NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX = 3 # Max chunks to form context for a new concept
-NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX = 3    # Max chunks for review context
+NUM_CANDIDATE_CONCEPTS_TO_FETCH = 5 
+NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX = 3 
+NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX = 3    
 
 class QuestionSelector:
     """
@@ -36,7 +36,7 @@ class QuestionSelector:
         self.retriever = retriever
         self.question_generator = question_generator
         
-        self.curriculum_map: List[Dict[str, Any]] = [] # Stores unique conceptual blocks
+        self.curriculum_map: List[Dict[str, Any]] = [] 
         self._load_curriculum_map()
         
         print(f"QuestionSelector initialized. Loaded {len(self.curriculum_map)} unique conceptual blocks into curriculum map.")
@@ -47,18 +47,15 @@ class QuestionSelector:
         an in-memory curriculum map. A conceptual block is identified by 'parent_block_id'.
         """
         print("QuestionSelector: Loading curriculum map...")
-        # Properties needed to identify and describe a conceptual block
-        # 'parent_block_id' is the key. We also want its name, type, source.
-        # These typically come from the chunk level, so we aggregate.
-        # We assume that all chunks with the same parent_block_id share the same
-        # concept_name, concept_type, source_path, original_type.
         
-        # get_all_chunks_metadata retrieves chunk-level data.
-        # We need to distill this into unique conceptual blocks.
+        # --- CORRECTED PROPERTY NAME IN EXPLICIT LIST ---
         all_chunks_meta = self.retriever.get_all_chunks_metadata(
             properties=["parent_block_id", "concept_name", "concept_type", 
-                        "source_path", "original_type", "doc_id"] # Added doc_id
+                        "source_path", "original_doc_type", "doc_id", # Changed original_type to original_doc_type
+                        "chunk_id", "sequence_in_block"] # Added chunk_id and sequence from retriever's default
         )
+        # --- END OF CORRECTION ---
+
 
         if not all_chunks_meta:
             print("QuestionSelector: WARNING - No chunk metadata found to build curriculum map.")
@@ -68,45 +65,41 @@ class QuestionSelector:
         temp_map: Dict[str, Dict[str, Any]] = {}
         for chunk_meta in all_chunks_meta:
             parent_id = chunk_meta.get("parent_block_id")
-            if not parent_id: # Skip chunks without a parent_block_id
+            if not parent_id: 
                 continue
             
             if parent_id not in temp_map:
                 temp_map[parent_id] = {
-                    "concept_id": parent_id, # This is the ID of the conceptual block
+                    "concept_id": parent_id, 
                     "concept_name": chunk_meta.get("concept_name", "Unnamed Concept Block"),
                     "concept_type": chunk_meta.get("concept_type", "unknown"),
                     "source_path": chunk_meta.get("source_path", "unknown"),
-                    "original_type": chunk_meta.get("original_type", "unknown"),
-                    "doc_id": chunk_meta.get("doc_id", "unknown") # Document it belongs to
-                    # We could add block_order here if it was stored with chunks or conceptual blocks
+                    "original_doc_type": chunk_meta.get("original_doc_type", "unknown"), # Use correct key
+                    "doc_id": chunk_meta.get("doc_id", "unknown") 
                 }
         
         self.curriculum_map = list(temp_map.values())
-        # Optionally sort the curriculum_map, e.g., by source_path, then by some internal order if available
-        # For now, the order is based on first encounter.
         print(f"QuestionSelector: Built curriculum map with {len(self.curriculum_map)} unique conceptual blocks.")
 
 
     async def _determine_difficulty(self, 
                                    learner_id: str, 
-                                   concept_id: Optional[str] # This is the parent_block_id
+                                   concept_id: Optional[str] 
                                    ) -> str:
-        """Determines appropriate difficulty level."""
         difficulty = "intermediate" 
         if concept_id:
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if knowledge:
                 score = knowledge.get("current_score", 0.0)
                 attempts = knowledge.get("total_attempts", 0)
-                if attempts == 0: # First time seeing this specific concept
+                if attempts == 0: 
                     difficulty = "beginner"
                 elif score < LOW_SCORE_THRESHOLD:
                     difficulty = "beginner" 
                 elif score >= PERFECT_SCORE_THRESHOLD:
                     difficulty = "advanced" 
             else: 
-                difficulty = "beginner" # No record, treat as new
+                difficulty = "beginner" 
         else: 
             difficulty = "beginner"
         
@@ -121,18 +114,20 @@ class QuestionSelector:
 
         low_score_concepts = []
         for concept_block in self.curriculum_map:
-            concept_id = concept_block["concept_id"] # This is the parent_block_id
+            concept_id = concept_block["concept_id"] 
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if knowledge and knowledge.get("current_score", 10.0) < LOW_SCORE_THRESHOLD and knowledge.get("total_attempts", 0) > 0:
-                concept_block_copy = concept_block.copy() # Avoid modifying original map item
+                concept_block_copy = concept_block.copy() 
                 concept_block_copy["current_score"] = knowledge.get("current_score")
                 concept_block_copy["is_review"] = True
+                # We need context_text for the selected concept.
+                # _load_curriculum_map doesn't store chunk_text.
+                # We'll fetch it when the concept is actually selected in select_next_question.
                 low_score_concepts.append(concept_block_copy)
         
         if low_score_concepts:
-            # Prioritize by lowest score, then perhaps recency (not tracked yet)
             low_score_concepts.sort(key=lambda x: x.get("current_score", LOW_SCORE_THRESHOLD))
-            selected_for_review = low_score_concepts[0] # Pick the one with the lowest score
+            selected_for_review = low_score_concepts[0] 
             print(f"QuestionSelector: Selected concept '{selected_for_review['concept_name']}' (ID: {selected_for_review['concept_id']}) for review (score: {selected_for_review['current_score']}).")
             return selected_for_review
         
@@ -149,20 +144,19 @@ class QuestionSelector:
         for concept_block in self.curriculum_map:
             concept_id = concept_block["concept_id"]
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-            if not knowledge or knowledge.get("total_attempts", 0) == 0: # Truly new
+            if not knowledge or knowledge.get("total_attempts", 0) == 0: 
                 concept_block_copy = concept_block.copy()
                 concept_block_copy["is_review"] = False
                 potential_new_concepts.append(concept_block_copy)
-            elif knowledge.get("current_score", 0.0) < PERFECT_SCORE_THRESHOLD: # Attempted but not mastered
+            elif knowledge.get("current_score", 0.0) < PERFECT_SCORE_THRESHOLD: 
                 concept_block_copy = concept_block.copy()
-                concept_block_copy["is_review"] = False # Treat as new if not explicitly for review
+                concept_block_copy["is_review"] = False 
                 potential_new_concepts.append(concept_block_copy)
         
         if not potential_new_concepts:
             print("QuestionSelector: No new or unmastered concepts found in curriculum map.")
             return None
 
-        # Simplified Adjacency: Prefer concepts from the same document as last attempted, if available
         if last_attempted_doc_id:
             same_doc_new_concepts = [c for c in potential_new_concepts if c.get("doc_id") == last_attempted_doc_id]
             if same_doc_new_concepts:
@@ -171,7 +165,6 @@ class QuestionSelector:
                 print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}) from same document.")
                 return selected_new
         
-        # If no same-doc concepts or no last_attempted_doc_id, pick randomly from all potential new ones
         selected_new = random.choice(potential_new_concepts) 
         print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}) randomly.")
         return selected_new
@@ -181,17 +174,15 @@ class QuestionSelector:
         print(f"\nQuestionSelector: Selecting next question for learner '{learner_id}'...")
         self.profile_manager.create_profile(learner_id) 
 
-        selected_concept_block_info: Optional[Dict[str, Any]] = None # This will hold the chosen conceptual block's metadata
+        selected_concept_block_info: Optional[Dict[str, Any]] = None 
         is_review_selection = False
 
-        # TODO: Integrate Spaced Repetition System (Phase 5) to identify concepts for review.
-        # For now, simple low-score review:
         selected_concept_block_info = await self._select_concept_for_review(learner_id)
         if selected_concept_block_info:
             is_review_selection = True
 
         last_doc_id_for_new_selection = None
-        if selected_concept_block_info: # If a review item was selected, use its doc_id for adjacency
+        if selected_concept_block_info: 
             last_doc_id_for_new_selection = selected_concept_block_info.get("doc_id")
 
         if not selected_concept_block_info:
@@ -202,13 +193,12 @@ class QuestionSelector:
             print("QuestionSelector: Could not select any suitable concept (review or new).")
             return None
 
-        parent_block_id_for_qg = selected_concept_block_info["concept_id"] # This is the ID of the conceptual block
+        parent_block_id_for_qg = selected_concept_block_info["concept_id"] 
         concept_name_for_qg = selected_concept_block_info.get("concept_name", "N/A")
         
         difficulty = await self._determine_difficulty(learner_id, parent_block_id_for_qg)
         context_limit = NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX if is_review_selection else NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX
 
-        # Get all chunks for this conceptual block to form the context
         print(f"QuestionSelector: Fetching context for concept_id (parent_block_id) '{parent_block_id_for_qg}' with limit {context_limit}.")
         context_chunks_data = self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=context_limit)
 
@@ -216,7 +206,6 @@ class QuestionSelector:
             print(f"QuestionSelector: No context chunks found by retriever for parent_block_id '{parent_block_id_for_qg}'. Cannot generate question.")
             return None
         
-        # Concatenate text from all retrieved chunks for this conceptual block
         full_context_for_qg = "\n\n".join([chk.get("chunk_text", "") for chk in context_chunks_data if chk.get("chunk_text","").strip()])
         
         if not full_context_for_qg.strip():
@@ -225,15 +214,12 @@ class QuestionSelector:
 
         print(f"QuestionSelector: Generating {difficulty} question for concept '{concept_name_for_qg}' (ID: {parent_block_id_for_qg}).")
         
-        # RAGQuestionGenerator expects a list of dicts, each with "chunk_text"
-        # Here, we are providing the combined context as a single "chunk" to the generator.
-        # Alternatively, pass context_chunks_data directly if QG can handle multiple small dicts.
         context_list_for_generator = [{"chunk_text": full_context_for_qg}]
         
         generated_questions = await self.question_generator.generate_questions(
             context_chunks=context_list_for_generator,
             num_questions=1, 
-            question_type="conceptual", # Can be made adaptive
+            question_type="conceptual", 
             difficulty_level=difficulty 
         )
 
@@ -250,4 +236,3 @@ class QuestionSelector:
             "question_text": question_text,
             "context_for_evaluation": full_context_for_qg 
         }
-

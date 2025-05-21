@@ -18,49 +18,36 @@ def setup_environment():
 
 async def main_interactive_app():
     """
-    Main function to run the RAG pipeline, prompting for learner ID and context query,
-    and then running the interaction pipeline in interactive mode.
+    Main function to run the RAG pipeline with interactive input for answers.
     """
     print("Starting RAG System - Interactive Application Mode...")
     setup_environment() 
 
-    processed_log_path = config.PROCESSED_DOCS_LOG_FILE
-    
-    # Run Ingestion Phase first
-    weaviate_client = await pipeline.run_ingestion_pipeline(processed_log_path)
-
-    if not weaviate_client:
-        print("Ingestion phase failed or Weaviate client not available. Cannot proceed to interaction.")
-        return
-
     # --- Interactive Learner Session ---
     print("\n\n--- Interactive Learner Session ---")
     
-    default_learner_id = pipeline.DEMO_LEARNER_ID
+    default_learner_id = pipeline.DEMO_LEARNER_ID # Get default from pipeline module
     learner_id_input = input(f"Enter your Learner ID (default: '{default_learner_id}'): ").strip()
     learner_id = learner_id_input if learner_id_input else default_learner_id
     print(f"Using Learner ID: {learner_id}")
-
-    default_context_query = pipeline.DEFAULT_QUERY_FOR_CONTEXT
-    query_for_context_input = input(f"Enter a topic/query to find context for a question (default: '{default_context_query}'): ").strip()
-    query_for_context = query_for_context_input if query_for_context_input else default_context_query
-    print(f"Using query for context: '{query_for_context}'")
     
-    # Now call the interaction pipeline in interactive mode
-    await pipeline.run_interaction_pipeline(
-        client=weaviate_client,
-        learner_id=learner_id,
-        query_for_context=query_for_context,
-        interactive_mode=True # Explicitly set to True
+    # The QuestionSelector will now determine the topic and question.
+    # The 'query_for_context' input is no longer directly needed here.
+    
+    # Run the full pipeline, which now includes adaptive question selection
+    # and will prompt for an answer if interactive_mode is True.
+    await pipeline.run_full_pipeline(
+        interactive_mode=True,
+        initial_learner_id=learner_id
     )
     
     print("\n--- End of Interactive Session ---")
-    await asyncio.sleep(0.25)
+    # The sleep for resource cleanup is now in pipeline.run_full_pipeline
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main_interactive_app()) # Call the new interactive main function
+        asyncio.run(main_interactive_app())
     except KeyboardInterrupt:
         print("\nApplication interrupted by user. Exiting.")
     except Exception as e:
