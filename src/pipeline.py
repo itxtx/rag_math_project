@@ -33,12 +33,27 @@ async def run_ingestion_pipeline(processed_log_path: str):
     Returns the Weaviate client instance if successful, or None.
     """
     print("\n--- Phase 1: Data Ingestion & Storage (LaTeX Only) ---")
-    print("\nStep 1.1: Loading and Parsing LaTeX Documents...")
     
+    client = None # Define client here to ensure it's available for schema check later
+    try:
+        client = vector_store_manager.get_weaviate_client()
+        print("Weaviate client obtained for ingestion phase.")
+        # Ensure schema exists *before* deciding if there are new docs to process for ingestion,
+        # so that Phase 2 can run even if no new docs are ingested.
+        vector_store_manager.create_weaviate_schema(client)
+        print("Weaviate schema ensured for ingestion phase.")
+
+    except Exception as e:
+        print(f"Could not connect to Weaviate or ensure schema: {e}")
+        import traceback
+        traceback.print_exc()
+        return None # Cannot proceed without a client and schema
+
+    print("\nStep 1.1: Loading and Parsing LaTeX Documents...")
     latex_documents_path = config.DATA_DIR_RAW_LATEX
     if not os.path.isdir(latex_documents_path):
         print(f"ERROR: LaTeX documents directory not found at {latex_documents_path}.")
-        return None
+        return client # Return client so Phase 2 might still run on existing data
 
     try:
         print(f"Attempting to load only LaTeX documents from {latex_documents_path} (skipping already processed)...")
@@ -51,17 +66,11 @@ async def run_ingestion_pipeline(processed_log_path: str):
         print(f"ERROR: Failed during LaTeX document loading/parsing phase: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return client # Return client so Phase 2 might still run
 
     if not parsed_docs_data:
         print("No new LaTeX documents to process for ingestion.")
-        try:
-            client = vector_store_manager.get_weaviate_client()
-            print("Weaviate client obtained. No new documents were ingested in this run.")
-            return client
-        except Exception as e:
-            print(f"Could not connect to Weaviate: {e}")
-            return None
+        return client # Return existing client
             
     print(f"Successfully parsed {len(parsed_docs_data)} new LaTeX documents.")
 
@@ -69,19 +78,14 @@ async def run_ingestion_pipeline(processed_log_path: str):
     all_conceptual_blocks = concept_tagger.tag_all_documents(parsed_docs_data)
     if not all_conceptual_blocks:
         if parsed_docs_data:
-            print("ERROR: New LaTeX documents were parsed, but no conceptual blocks were identified. Exiting ingestion.")
-            return None
+            print("ERROR: New LaTeX documents were parsed, but no conceptual blocks were identified. Skipping ingestion of new docs.")
+            return client 
         print("Warning: No conceptual blocks identified.")
     else:
         print(f"Identified {len(all_conceptual_blocks)} conceptual blocks from new LaTeX documents.")
 
     if not all_conceptual_blocks: 
-        try: 
-            client = vector_store_manager.get_weaviate_client()
-            return client
-        except Exception as e:
-            print(f"Could not connect to Weaviate: {e}")
-            return None
+        return client
 
     print("\nStep 1.3: Text Chunking...")
     final_text_chunks = chunker.chunk_conceptual_blocks(
@@ -90,44 +94,38 @@ async def run_ingestion_pipeline(processed_log_path: str):
         chunk_overlap=DEFAULT_CHUNK_OVERLAP
     )
     if not final_text_chunks:
-        print("ERROR: No text chunks were created from the new LaTeX conceptual blocks. Exiting ingestion.")
-        return None
+        print("ERROR: No text chunks were created from the new LaTeX conceptual blocks. Skipping ingestion of new docs.")
+        return client
     print(f"Created {len(final_text_chunks)} final text chunks from new LaTeX content.")
 
-    print("\nStep 1.4 & 1.5: Initialize Weaviate, Embed and Store Chunks...")
+    print("\nStep 1.4 & 1.5: Embed and Store Chunks...") # Client already initialized
     try:
-        client = vector_store_manager.get_weaviate_client()
         vector_store_manager.embed_and_store_chunks(client, final_text_chunks)
         print(f"Data ingestion complete for new LaTeX content. Chunks stored in Weaviate class: {vector_store_manager.WEAVIATE_CLASS_NAME}")
         
         newly_ingested_filenames = list(set([doc['filename'] for doc in parsed_docs_data if 'filename' in doc]))
         document_loader.update_processed_docs_log(processed_log_path, newly_ingested_filenames)
-        return client
-    except ConnectionError as e:
-        print(f"ERROR: Could not connect to Weaviate: {e}. Please ensure Weaviate is running.")
-        return None
     except Exception as e:
-        print(f"ERROR: Error during Weaviate initialization or data storage: {e}")
+        print(f"ERROR: Error during Weaviate data storage for new LaTeX content: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        # Don't return None here, client might still be valid for Phase 2 on old data
+    
+    return client
 
 
 async def run_interaction_pipeline(
     client, 
     learner_id: str, 
     query_for_context: str,
-    interactive_mode: bool = False # New flag to control input
+    interactive_mode: bool = False 
     ):
-    """
-    Runs retrieval, question generation, and optionally interactive answer submission.
-    """
     print("\n\n--- Phase 2 & 3: Retrieval, Question Generation & Learner Interaction ---")
     if not client:
         print("Weaviate client not available. Cannot proceed.")
         return
 
-    pm = None # Initialize pm to None for finally block
+    pm = None 
     try:
         print("\nInitializing components for interaction phase...")
         doc_retriever = retriever.Retriever(
@@ -155,7 +153,7 @@ async def run_interaction_pipeline(
 
         if not retrieved_chunks_for_qg:
             print("No relevant chunks retrieved for question generation context.")
-            return
+            return # pm.close_db() will be called in finally
         
         print(f"Successfully retrieved {len(retrieved_chunks_for_qg)} chunk(s) for question generation context.")
         context_for_qg = "\n\n".join([chunk.get("chunk_text", "") for chunk in retrieved_chunks_for_qg])
@@ -184,10 +182,8 @@ async def run_interaction_pipeline(
         if interactive_mode:
             learner_actual_answer = input("Your Answer: ").strip()
         else:
-            # Fallback to a simulated answer if not interactive for this demo part
-            learner_actual_answer = "A vector space is a set of vectors that can be added together and multiplied by scalars, following certain axioms like closure under addition and scalar multiplication." # SIMULATED_LEARNER_ANSWER_GOOD
+            learner_actual_answer = "A vector space is a set of vectors that can be added together and multiplied by scalars, following certain axioms like closure under addition and scalar multiplication."
             print(f"Using Simulated Answer (non-interactive mode): \"{learner_actual_answer}\"")
-
 
         if learner_actual_answer:
             handler_response = await ans_handler.submit_answer(
@@ -208,8 +204,6 @@ async def run_interaction_pipeline(
                 print(f"    Total Attempts: {updated_knowledge.get('total_attempts')}")
                 print(f"    Correct Attempts: {updated_knowledge.get('correct_attempts')}")
                 print(f"    Last Answered Correctly: {'Yes' if updated_knowledge.get('last_answered_correctly') else 'No'}")
-            else:
-                print(f"  Could not retrieve updated knowledge for concept '{question_concept_id}'.")
         else:
             print("No answer provided by learner, skipping submission and evaluation.")
 
@@ -223,9 +217,6 @@ async def run_interaction_pipeline(
 
 
 async def run_full_pipeline(interactive_mode: bool = False):
-    """
-    Runs the complete RAG pipeline.
-    """
     print("Starting RAG System - Full Pipeline Execution...")
     
     processed_log_path = config.PROCESSED_DOCS_LOG_FILE
@@ -235,9 +226,9 @@ async def run_full_pipeline(interactive_mode: bool = False):
     if weaviate_client:
         await run_interaction_pipeline(
             client=weaviate_client, 
-            learner_id=DEMO_LEARNER_ID, # Could also be prompted for in app.py
+            learner_id=DEMO_LEARNER_ID, 
             query_for_context=DEFAULT_QUERY_FOR_CONTEXT,
-            interactive_mode=interactive_mode # Pass the flag
+            interactive_mode=interactive_mode 
             )
     else:
         print("Ingestion phase failed or Weaviate client not available. Skipping interaction phase.")
@@ -252,6 +243,4 @@ if __name__ == '__main__':
         print(f"pipeline.py: Found .env file at {dotenv_path}, loading.")
         load_dotenv(dotenv_path)
     
-    # Example: Run in non-interactive mode by default if run directly
-    # Change to True to test interactive input() from pipeline.py
     asyncio.run(run_full_pipeline(interactive_mode=False)) 

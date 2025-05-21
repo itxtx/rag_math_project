@@ -9,13 +9,17 @@ import time
 from src import config 
 from src.data_ingestion import vector_store_manager
 import weaviate 
+from sentence_transformers import SentenceTransformer # Import for spec
 
-mock_st_model_instance_vsm = MagicMock(spec=vector_store_manager.SentenceTransformer) 
+# --- Mock setup for SentenceTransformer ---
+mock_st_model_instance_vsm = MagicMock(spec=SentenceTransformer) 
 mock_st_model_instance_vsm.get_sentence_embedding_dimension.return_value = 384 
 mock_st_model_instance_vsm.encode.return_value = np.array([0.1] * 384, dtype=np.float32)
 
-mock_sentence_transformer_class_vsm = MagicMock(spec=vector_store_manager.SentenceTransformer)
+mock_sentence_transformer_class_vsm = MagicMock(spec=SentenceTransformer)
 mock_sentence_transformer_class_vsm.return_value = mock_st_model_instance_vsm
+# --- End of mock setup ---
+
 
 @patch('src.data_ingestion.vector_store_manager.SentenceTransformer', new=mock_sentence_transformer_class_vsm)
 class TestVectorStoreManager(unittest.TestCase):
@@ -28,19 +32,19 @@ class TestVectorStoreManager(unittest.TestCase):
         
         self.client_mock_instance.schema = MagicMock()
         
-        # Default setup for schema.get (simulating schema not found)
         mock_404_response = MagicMock()
         mock_404_response.status_code = 404
         self.simulated_404_exception = weaviate.exceptions.UnexpectedStatusCodeException(
             message="Simulated Schema Not Found from setUp", response=mock_404_response
         )
+        # Default for schema.get is to raise 404, simulating schema not found
         self.client_mock_instance.schema.get.side_effect = self.simulated_404_exception
         
-        # Default setup for schema.exists (simulating schema not found)
+        # Default for schema.exists is False, simulating schema not found
         self.client_mock_instance.schema.exists = MagicMock(return_value=False)
         
         self.client_mock_instance.schema.create_class = MagicMock(return_value=None)
-        self.client_mock_instance.schema.property = MagicMock() # For property.create
+        self.client_mock_instance.schema.property = MagicMock() 
         self.client_mock_instance.schema.property.create = MagicMock()
 
 
@@ -74,14 +78,17 @@ class TestVectorStoreManager(unittest.TestCase):
         self.assertEqual(self.client_mock_instance.is_ready.call_count, 3)
 
     def test_create_weaviate_schema_new(self):
-        # setUp already configures schema.exists to return False
-        # and schema.get to raise 404.
+        # setUp configures schema.exists to return False by default
         self.client_mock_instance.schema.exists.return_value = False
+        # schema.get is already configured in setUp to raise 404
 
         vector_store_manager.create_weaviate_schema(self.client_mock_instance)
         
         self.client_mock_instance.schema.exists.assert_called_with(vector_store_manager.WEAVIATE_CLASS_NAME)
-        self.client_mock_instance.schema.get.assert_not_called() # Should not be called if schema doesn't exist
+        # If schema.exists is false, schema.get should NOT be called by create_weaviate_schema's main logic
+        # before attempting to create. The original code had a get() call first.
+        # The corrected vector_store_manager.create_weaviate_schema uses schema.exists() first.
+        self.client_mock_instance.schema.get.assert_not_called() 
         self.client_mock_instance.schema.create_class.assert_called_once()
         created_class_arg = self.client_mock_instance.schema.create_class.call_args[0][0]
         self.assertEqual(created_class_arg['class'], vector_store_manager.WEAVIATE_CLASS_NAME)
@@ -90,32 +97,38 @@ class TestVectorStoreManager(unittest.TestCase):
 
     def test_create_weaviate_schema_exists(self):
         # Configure mocks for this specific test: schema exists
-        self.client_mock_instance.schema.exists.return_value = True
+        self.client_mock_instance.schema.exists.return_value = True # Schema exists
+        
         # If schema exists, .get() will be called to check properties.
-        # It should NOT raise an exception here.
-        self.client_mock_instance.schema.get.side_effect = None 
-        self.client_mock_instance.schema.get.return_value = {
+        # It should NOT raise an exception here for this test path.
+        self.client_mock_instance.schema.get.side_effect = None # Remove the 404 exception
+        self.client_mock_instance.schema.get.return_value = { # Simulate existing schema
             "class": vector_store_manager.WEAVIATE_CLASS_NAME,
             "properties": [
                 {"name": "chunk_id", "dataType": ["uuid"]},
-                {"name": "parent_block_id", "dataType": ["text"]}, # Assume it exists
+                {"name": "parent_block_id", "dataType": ["text"]}, 
                 {"name": "doc_id", "dataType": ["text"]},
                 {"name": "filename", "dataType": ["text"]},
-                # Add other properties defined in the schema to prevent attempts to add them
+                # Add all properties defined in class_obj to prevent attempts to add them
+                {"name": "source_path", "dataType": ["text"]},
+                {"name": "original_doc_type", "dataType": ["text"]},
+                {"name": "concept_type", "dataType": ["text"]},
+                {"name": "concept_name", "dataType": ["text"]},
+                {"name": "chunk_text", "dataType": ["text"]},
+                {"name": "parent_block_content", "dataType": ["text"]},
+                {"name": "sequence_in_block", "dataType": ["int"]},
             ]
         }
-        # Ensure property.create is not called if all props exist
-        self.client_mock_instance.schema.property.create.reset_mock()
-
+        self.client_mock_instance.schema.property.create.reset_mock() # Reset this mock
 
         vector_store_manager.create_weaviate_schema(self.client_mock_instance)
 
         self.client_mock_instance.schema.exists.assert_called_with(vector_store_manager.WEAVIATE_CLASS_NAME)
-        self.client_mock_instance.schema.get.assert_called_with(vector_store_manager.WEAVIATE_CLASS_NAME) # Should be called
+        self.client_mock_instance.schema.get.assert_called_with(vector_store_manager.WEAVIATE_CLASS_NAME) 
         self.client_mock_instance.schema.create_class.assert_not_called()
-        self.client_mock_instance.schema.property.create.assert_not_called() # Should not try to add existing props
+        self.client_mock_instance.schema.property.create.assert_not_called() 
 
-
+    # ... (rest of the tests for generate_standard_embedding, embed_chunk_data, embed_and_store_chunks) ...
     def test_generate_standard_embedding(self):
         text = "This is a test sentence."
         embedding = vector_store_manager.generate_standard_embedding(text)
