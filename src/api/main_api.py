@@ -215,13 +215,14 @@ async def submit_learner_answer(
             learner_answer=request.learner_answer
         )
         
-        # The handler_response contains accuracy_score, feedback, and now 'correct_answer'.
+        # The handler_response contains accuracy_score, feedback, and now 'correct answer'.
         # IMPORTANT: Ensure your EvaluationResult Pydantic model (in src/api/models.py)
         # has a field named 'correct_answer' (e.g., correct_answer: Optional[str] = None)
         eval_result = EvaluationResult(
             accuracy_score=handler_response.get("accuracy_score", 0.0),
             feedback=handler_response.get("feedback", "Evaluation feedback not available."),
-            correct_answer=handler_response.get("correct_answer") # Added correct_answer
+            # Changed from "correct_answer" to "correct answer" to match LLM response
+            correct_answer=handler_response.get("correct answer")
         )
         
         return AnswerSubmissionResponse(

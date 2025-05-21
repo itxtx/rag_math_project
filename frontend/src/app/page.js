@@ -11,8 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress'; // For loading indicator
 
-// You might need to add a simple icon for the theme toggle, e.g., from Lucide React
-// npm install lucide-react
+// Lucide React icons
 import { Sun, Moon } from 'lucide-react';
 
 // Main App component
@@ -26,6 +25,7 @@ function App() {
   const [error, setError] = useState(null); // Stores any error messages
   const [loading, setLoading] = useState(false); // Indicates if an API call is in progress
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false); // Controls the visibility of the error dialog
+  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true); // Controls visibility of Learner ID dialog
   const [theme, setTheme] = useState('light'); // State for managing the current theme (light/dark)
 
   // Base URL for your FastAPI backend
@@ -77,6 +77,7 @@ function App() {
 
       const data = await response.json();
       setQuestion(data); // Set the received question data
+      setIsLearnerIdDialogOpen(false); // Close the learner ID dialog on successful start
     } catch (err) {
       console.error('Error starting interaction:', err);
       setError(err.message); // Set the error message
@@ -128,7 +129,7 @@ function App() {
       // Store both feedback and correct_answer_suggestion
       setFeedback({
         feedbackText: data.evaluation.feedback,
-        correctAnswer: data.evaluation['correct answer'] || null, // Access using bracket notation due to space
+        correctAnswer: data.evaluation['correct_answer'] || data.evaluation['correct answer'] || null, // Access using bracket notation for both possibilities
       });
     } catch (err) {
       console.error('Error submitting answer:', err);
@@ -140,88 +141,90 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 flex items-center justify-center p-4 font-inter relative">
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4 font-inter relative">
       {/* Theme Toggle Button */}
       <Button
         onClick={toggleTheme}
         variant="outline"
         size="icon"
-        className="absolute top-4 left-4 rounded-full shadow-md bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-200 dark:border-gray-600"
+        className="absolute top-4 left-4 rounded-full shadow-md bg-card hover:bg-accent text-foreground border-border"
       >
         {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
       </Button>
 
       <div className="w-full max-w-2xl space-y-6">
         {/* Application Title */}
-        <h1 className="text-4xl font-extrabold text-center text-gray-800 dark:text-gray-200 drop-shadow-md">
+        <h1 className="text-4xl font-extrabold text-foreground drop-shadow-md">
           Adaptive Learning System
         </h1>
 
-        {/* Learner ID Input Card */}
-        <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Get Started</CardTitle>
-            <CardDescription className="text-gray-500 dark:text-gray-400">Enter your unique learner ID to begin your learning journey.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid w-full items-center gap-1.5">
-              <Label htmlFor="learnerId" className="text-gray-700 dark:text-gray-200">Learner ID</Label>
+        {/* Learner ID Input Dialog */}
+        <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
+          <AlertDialogContent className="rounded-xl shadow-lg bg-card border-border">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-2xl font-bold text-card-foreground">Get Started</AlertDialogTitle>
+              <AlertDialogDescription className="text-muted-foreground">
+                Enter your unique learner ID to begin your learning journey.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="grid w-full items-center gap-1.5 mb-4">
+              <Label htmlFor="learnerIdDialog" className="text-card-foreground">Learner ID</Label>
               <Input
                 type="text"
-                id="learnerId"
+                id="learnerIdDialog"
                 placeholder="e.g., learner-123"
                 value={learnerId}
                 onChange={(e) => setLearnerId(e.target.value)}
-                className="rounded-md focus:ring-2 focus:ring-blue-300 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+                className="rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border"
                 disabled={loading}
               />
             </div>
-          </CardContent>
-          <CardFooter className="flex justify-end">
-            <Button
-              onClick={handleStartInteraction}
-              disabled={!learnerId || loading}
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
-            >
-              {loading ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Starting...
-                </>
-              ) : (
-                'Start Interaction'
-              )}
-            </Button>
-          </CardFooter>
-        </Card>
+            <AlertDialogFooter>
+              <Button
+                onClick={handleStartInteraction}
+                disabled={!learnerId || loading}
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+              >
+                {loading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Starting...
+                  </>
+                ) : (
+                  'Start Interaction'
+                )}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Loading Progress Bar */}
         {loading && (
-          <Progress value={100} className="w-full animate-pulse h-2 bg-blue-200 dark:bg-blue-700" />
+          <Progress value={100} className="w-full animate-pulse h-2 bg-primary" />
         )}
 
         {/* Question Display Card */}
         {question && (
-          <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <Card className="w-full rounded-xl shadow-lg border border-border bg-card">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Current Question</CardTitle>
-              <CardDescription className="text-gray-500 dark:text-gray-400">Reflect on the concept and provide your best answer.</CardDescription>
+              <CardTitle className="text-2xl font-bold text-card-foreground">Current Question</CardTitle>
+              <CardDescription className="text-muted-foreground">Reflect on the concept and provide your best answer.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                <p className="text-gray-800 dark:text-gray-200 text-lg leading-relaxed">{question.question_text}</p>
+              <div className="bg-muted p-4 rounded-lg border border-border">
+                <p className="text-foreground text-lg leading-relaxed">{question.question_text}</p>
               </div>
               <div className="grid w-full items-center gap-1.5">
-                <Label htmlFor="answer" className="text-gray-700 dark:text-gray-200">Your Answer</Label>
+                <Label htmlFor="answer" className="text-card-foreground">Your Answer</Label>
                 <Textarea
                   id="answer"
                   placeholder="Type your answer here..."
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
-                  className="min-h-[100px] rounded-md focus:ring-2 focus:ring-blue-300 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+                  className="min-h-[100px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border"
                   disabled={loading}
                 />
               </div>
@@ -230,11 +233,11 @@ function App() {
               <Button
                 onClick={handleSubmitAnswer}
                 disabled={loading || !answer.trim()}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
               >
                 {loading ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -250,37 +253,46 @@ function App() {
 
         {/* Feedback Display Card */}
         {feedback && (
-          <Card className="w-full rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <Card className="w-full rounded-xl shadow-lg border border-border bg-card">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-gray-700 dark:text-gray-200">Evaluation Feedback</CardTitle>
-              <CardDescription className="text-gray-500 dark:text-gray-400">Here's how you did on the last question.</CardDescription>
+              <CardTitle className="text-2xl font-bold text-card-foreground">Evaluation Feedback</CardTitle>
+              <CardDescription className="text-muted-foreground">Here's how you did on the last question.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
-                <p className="text-blue-800 dark:text-blue-200 text-lg leading-relaxed">
+              <div className="bg-muted p-4 rounded-lg border border-border">
+                <p className="text-foreground text-lg leading-relaxed">
                   <span className="font-semibold">Feedback:</span> {feedback.feedbackText}
                 </p>
                 {feedback.correctAnswer && (
-                  <p className="text-blue-800 dark:text-blue-200 text-lg leading-relaxed mt-2">
+                  <p className="text-foreground text-lg leading-relaxed mt-2">
                     <span className="font-semibold">Correct Answer:</span> {feedback.correctAnswer}
                   </p>
                 )}
               </div>
             </CardContent>
+            <CardFooter className="flex justify-end">
+              <Button
+                onClick={handleStartInteraction} // This button will fetch the next question
+                disabled={loading}
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+              >
+                {loading ? 'Loading Next Question...' : 'Next Question'}
+              </Button>
+            </CardFooter>
           </Card>
         )}
 
         {/* Error Dialog */}
         <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
-          <AlertDialogContent className="rounded-xl shadow-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+          <AlertDialogContent className="rounded-xl shadow-lg bg-card border-border">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-red-600 dark:text-red-400">Error</AlertDialogTitle>
-              <AlertDialogDescription className="text-gray-700 dark:text-gray-300">
+              <AlertDialogTitle className="text-destructive">Error</AlertDialogTitle>
+              <AlertDialogDescription className="text-muted-foreground">
                 {error}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setIsErrorDialogOpen(false)} className="bg-red-500 hover:bg-red-600 text-white rounded-lg">
+              <AlertDialogAction onClick={() => setIsErrorDialogOpen(false)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-lg">
                 Close
               </AlertDialogAction>
             </AlertDialogFooter>
