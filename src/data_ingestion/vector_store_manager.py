@@ -168,11 +168,16 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
             embedding_vector = embed_chunk_data(chunk_data)
             if embedding_vector is None:
                 skipped_due_to_embedding_failure_count += 1; continue
+                     
+                        
+            source_file_path = chunk_data.get("source", "Unknown source") # "source" key from chunker
+            file_name = chunk_data.get("filename", os.path.basename(source_file_path) if source_file_path != "Unknown source" else "unknown_filename")
+
 
             data_object = {
                 "chunk_id": current_chunk_id_str,
                 "doc_id": chunk_data.get("doc_id", "unknown_doc_id"), 
-                "source_path": chunk_data.get("source_path", "Unknown source"),
+                "source_path": source_file_path, # Use corrected variable
                 "original_doc_type": chunk_data.get("original_doc_type", "unknown"),
                 "concept_type": chunk_data.get("concept_type", "general_content"),
                 "concept_name": chunk_data.get("concept_name"),
@@ -180,7 +185,7 @@ def embed_and_store_chunks(client: weaviate.Client, final_text_chunks: list[dict
                 "parent_block_id": chunk_data.get("parent_block_id"), 
                 "parent_block_content": chunk_data.get("parent_block_content", ""),
                 "sequence_in_block": chunk_data.get("sequence_in_block", 0),
-                "filename": chunk_data.get("filename", os.path.basename(chunk_data.get("source_path", ""))) # Add filename
+                "filename": file_name # Use corrected variable
             }
             data_object = {k: v for k, v in data_object.items() if v is not None}
 

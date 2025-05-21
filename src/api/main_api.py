@@ -4,8 +4,9 @@ import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Query 
 from typing import Dict, Any, Optional, List as PyList 
 from pydantic import BaseModel 
-from contextlib import asynccontextmanager # For lifespan events
-
+from contextlib import asynccontextmanager 
+from fastapi.middleware.cors import CORSMiddleware # <<< ADDED IMPORT FOR CORS
+import json
 from src import config
 from src.api.models import ( 
     LearnerInteractionStartRequest, 
@@ -25,7 +26,6 @@ from src.interaction.answer_handler import AnswerHandler
 from src.adaptive_engine.question_selector import QuestionSelector
 
 # --- Global RAG System Components ---
-# This class will hold our initialized components.
 class RAGSystemComponents:
     def __init__(self):
         print("Initializing RAG System Components for API...")
@@ -72,21 +72,14 @@ class RAGSystemComponents:
             print(f"FATAL ERROR: Could not initialize RAG system components: {e}")
             import traceback
             traceback.print_exc()
-            # Store the exception to be re-raised by the dependency if needed
             self.initialization_error = e
-            # raise RuntimeError(f"Failed to initialize RAG components: {e}") from e
         else:
             self.initialization_error = None
 
-
-# This dictionary will hold our components. It's populated by the lifespan manager.
-# Using a dictionary allows for a simple way to pass state managed by lifespan.
 app_state: Dict[str, Any] = {}
-
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    # Code to run on startup
     print("API Lifespan: Startup sequence initiated.")
     dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
     if os.path.exists(dotenv_path):
@@ -101,32 +94,47 @@ async def lifespan(app_instance: FastAPI):
         app_state["rag_components"] = RAGSystemComponents()
         if app_state["rag_components"].initialization_error:
              print(f"API Lifespan: ERROR during RAG component initialization - {app_state['rag_components'].initialization_error}")
-             # Decide if the app should still start or raise an error to prevent it.
-             # For now, it will start but get_rag_components will raise 503.
     except Exception as e:
         print(f"API Lifespan: CRITICAL ERROR during startup RAG component initialization - {e}")
-        app_state["rag_components"] = None # Ensure it's None if init fails catastrophically
+        app_state["rag_components"] = None 
 
     print("API Lifespan: Startup sequence complete.")
     yield
-    # Code to run on shutdown
     print("API Lifespan: Shutdown sequence initiated.")
     components = app_state.get("rag_components")
     if components and components.profile_manager_singleton:
         components.profile_manager_singleton.close_db()
     print("API Lifespan: Resources cleaned up. Shutdown sequence complete.")
 
-
-# --- FastAPI App Initialization with Lifespan ---
 app = FastAPI(
     title="Adaptive RAG Learning System API",
     description="API for interacting with the RAG-based adaptive learning system.",
     version="0.1.0",
-    lifespan=lifespan # Register the lifespan context manager
+    lifespan=lifespan 
 )
 
+# --- ADDED CORS Middleware ---
+# Define allowed origins (adjust as necessary for your frontend)
+origins = [
+    "http://localhost",         # Common for local development
+    "http://localhost:3000",    # Common for React dev server
+    "http://localhost:8080",    # If frontend is served on same port by chance
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    # Add your frontend's actual origin if it's different and known
+]
 
-# --- Dependency for getting RAG components ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allows specific origins
+    # allow_origins=["*"], # Allows all origins (less secure, use for broad testing only)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
+# --- END OF CORS Middleware ---
+
+
 async def get_rag_components() -> RAGSystemComponents:
     components = app_state.get("rag_components")
     if components is None or components.initialization_error:
@@ -136,8 +144,6 @@ async def get_rag_components() -> RAGSystemComponents:
         raise HTTPException(status_code=503, detail=error_detail)
     return components
 
-# --- API Endpoints ---
-
 class TopicResponse(BaseModel): 
     topic_id: str
     source_file: str
@@ -145,17 +151,20 @@ class TopicResponse(BaseModel):
 @app.get("/api/v1/topics", 
            response_model=PyList[TopicResponse], 
            summary="List Available Topics",
-           description="Retrieves a list of available top-level topics (documents) from the knowledge base.",
            responses={503: {"model": ErrorResponse, "description": "Service unavailable."}})
 async def list_available_topics(
     components: RAGSystemComponents = Depends(get_rag_components)
 ):
     try:
         topics = components.question_selector.get_available_topics()
-        if not topics: # Attempt to reload if curriculum map is empty
+        if not topics: 
             print("API /topics: Curriculum map was empty, attempting reload.")
             components.question_selector._load_curriculum_map() 
             topics = components.question_selector.get_available_topics()
+        
+        # --- ADDED LOGGING ---
+        print(f"API /topics: Returning topics: {json.dumps(topics, indent=2)}")
+        # --- END OF LOGGING ---
         return [TopicResponse(**topic) for topic in topics]
     except Exception as e:
         print(f"API Error in /topics: {e}")
@@ -193,7 +202,7 @@ async def start_learner_interaction(
             question_text=next_question_info["question_text"],
             context_for_evaluation=next_question_info["context_for_evaluation"]
         )
-    except HTTPException as http_exc: # Re-raise FastAPI's HTTPException
+    except HTTPException as http_exc: 
         raise http_exc
     except Exception as e:
         print(f"API Error in /interaction/start: {e}")
@@ -252,3 +261,4 @@ if __name__ == "__main__":
         load_dotenv(dotenv_path_main)
     
     uvicorn.run("src.api.main_api:app", host="0.0.0.0", port=8000, reload=True)
+

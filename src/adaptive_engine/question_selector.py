@@ -30,7 +30,7 @@ class QuestionSelector:
         self.question_generator = question_generator
         
         self.curriculum_map: List[Dict[str, Any]] = [] 
-        self._load_curriculum_map() # Load once at init
+        self._load_curriculum_map() 
         
         print(f"QuestionSelector initialized. Loaded {len(self.curriculum_map)} unique conceptual blocks into curriculum map.")
 
@@ -39,6 +39,7 @@ class QuestionSelector:
         all_chunks_meta = self.retriever.get_all_chunks_metadata(
             properties=["parent_block_id", "concept_name", "concept_type", 
                         "source_path", "original_doc_type", "doc_id", 
+                        "filename", # <<< ADDED filename HERE
                         "chunk_id", "sequence_in_block"]
         )
 
@@ -53,36 +54,50 @@ class QuestionSelector:
             if not parent_id: continue
             
             if parent_id not in temp_map:
-                # Store the first encountered metadata for this parent_block_id
+                doc_id_val = chunk_meta.get("doc_id")
+                source_path_val = chunk_meta.get("source_path")
+                filename_val = chunk_meta.get("filename")
+
+                if not doc_id_val and source_path_val: # Fallback for doc_id
+                    doc_id_val = os.path.splitext(os.path.basename(source_path_val))[0]
+                if not filename_val and source_path_val: # Fallback for filename
+                    filename_val = os.path.basename(source_path_val)
+
+
                 temp_map[parent_id] = {
                     "concept_id": parent_id, 
                     "concept_name": chunk_meta.get("concept_name", "Unnamed Concept Block"),
                     "concept_type": chunk_meta.get("concept_type", "unknown"),
-                    "source_path": chunk_meta.get("source_path", "unknown"),
+                    "source_path": source_path_val or "unknown",
                     "original_doc_type": chunk_meta.get("original_doc_type", "unknown"),
-                    "doc_id": chunk_meta.get("doc_id", os.path.splitext(os.path.basename(chunk_meta.get("source_path","unknown")))[0] ) # Fallback for doc_id
+                    "doc_id": doc_id_val or "unknown_doc", 
+                    "filename": filename_val or "unknown_file.ext" # Store filename
                 }
         
         self.curriculum_map = list(temp_map.values())
-        # Sort by doc_id then concept_name for some predictability (optional)
         self.curriculum_map.sort(key=lambda x: (x.get("doc_id", ""), x.get("concept_name", "")))
         print(f"QuestionSelector: Built curriculum map with {len(self.curriculum_map)} unique conceptual blocks.")
 
     def get_available_topics(self) -> List[Dict[str, str]]:
-        """Returns a list of unique document IDs (topics) and their source paths."""
+        """Returns a list of unique document IDs (topics) and their source filenames."""
         if not self.curriculum_map:
-            self._load_curriculum_map() # Attempt to load if empty
+            self._load_curriculum_map() 
 
-        topics = {} # Use dict to store unique doc_id -> source_path
+        topics = {} 
         for block in self.curriculum_map:
             doc_id = block.get("doc_id")
-            source_path = block.get("source_path")
+            # Use the stored 'filename' if available, otherwise derive from source_path
+            filename = block.get("filename") 
+            if not filename and block.get("source_path") and block.get("source_path") != "unknown":
+                filename = os.path.basename(block.get("source_path"))
+            
             if doc_id and doc_id not in topics:
-                topics[doc_id] = {"topic_id": doc_id, "source_file": os.path.basename(source_path or "Unknown")}
+                topics[doc_id] = {"topic_id": doc_id, "source_file": filename or "Unknown Source File"}
         return list(topics.values())
 
 
     async def _determine_difficulty(self, learner_id: str, concept_id: Optional[str]) -> str:
+        # ... (rest of the method) ...
         difficulty = "intermediate" 
         if concept_id:
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
@@ -98,11 +113,12 @@ class QuestionSelector:
         return difficulty
 
     async def _select_concept_for_review(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # ... (rest of the method) ...
         print(f"QuestionSelector: Checking for concepts to review for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
         if not self.curriculum_map: return None
 
         candidate_blocks = self.curriculum_map
-        if target_doc_id: # Filter by topic if provided
+        if target_doc_id: 
             candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
             print(f"  Filtered to {len(candidate_blocks)} blocks for topic '{target_doc_id}'.")
 
@@ -126,17 +142,17 @@ class QuestionSelector:
         return None
 
     async def _select_new_concept(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # ... (rest of the method) ...
         print(f"QuestionSelector: Selecting a new concept for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
         if not self.curriculum_map: return None
 
         candidate_blocks = self.curriculum_map
-        if target_doc_id: # Filter by topic
+        if target_doc_id: 
             candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
             if not candidate_blocks:
                  print(f"  No conceptual blocks found for topic '{target_doc_id}' in curriculum map.")
-                 return None # Cannot select new concept if topic has no blocks
+                 return None 
             print(f"  Filtered to {len(candidate_blocks)} blocks for new concept selection in topic '{target_doc_id}'.")
-
 
         potential_new_concepts = []
         for concept_block in candidate_blocks:
@@ -159,18 +175,17 @@ class QuestionSelector:
         print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}).")
         return selected_new
 
-
     async def select_next_question(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # ... (rest of the method, no changes needed here for this specific fix) ...
         print(f"\nQuestionSelector: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
-        self.profile_manager.create_profile(learner_id) # Ensure profile exists
+        self.profile_manager.create_profile(learner_id) 
 
-        if not self.curriculum_map: # Attempt to reload if empty (e.g. first call after init failed)
+        if not self.curriculum_map: 
             print("QuestionSelector: Curriculum map is empty, attempting to reload.")
             self._load_curriculum_map()
             if not self.curriculum_map:
                 print("QuestionSelector: Curriculum map still empty after reload. Cannot select question.")
                 return None
-
 
         selected_concept_block_info: Optional[Dict[str, Any]] = None 
         is_review_selection = False
@@ -230,4 +245,3 @@ class QuestionSelector:
             "question_text": question_text,
             "context_for_evaluation": full_context_for_qg 
         }
-
