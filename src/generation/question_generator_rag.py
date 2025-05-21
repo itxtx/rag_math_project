@@ -27,21 +27,12 @@ class RAGQuestionGenerator:
 
     def _build_prompt(self, 
                       context_chunks: List[Dict], 
-                      num_questions: int = 3, 
+                      num_questions: int = 1, 
                       question_type: str = "conceptual",
-                      difficulty_level: str = "intermediate" # New parameter
+                      difficulty_level: str = "intermediate"
                       ) -> str:
         """
         Builds the prompt for the LLM based on the provided context chunks.
-
-        Args:
-            context_chunks: A list of dictionaries, where each dictionary is a retrieved text chunk.
-            num_questions: The desired number of questions to generate.
-            question_type: The type of questions to generate.
-            difficulty_level: The desired difficulty ("beginner", "intermediate", "advanced").
-
-        Returns:
-            A string representing the prompt to be sent to the LLM.
         """
         if not context_chunks:
             return ""
@@ -52,29 +43,38 @@ class RAGQuestionGenerator:
             print("Warning: No valid text content found in context_chunks to build prompt.")
             return ""
 
+        # --- Refined Prompt Engineering ---
         difficulty_instruction = ""
         if difficulty_level == "beginner":
-            difficulty_instruction = "The question should be straightforward, focusing on direct recall or basic understanding of the main facts or definitions in the context."
+            difficulty_instruction = "The question should be straightforward, focusing on direct recall of key facts or definitions explicitly stated in the context. Aim for clarity and simplicity."
         elif difficulty_level == "advanced":
-            difficulty_instruction = "The question should be challenging, requiring synthesis of information, critical thinking, or application of concepts from the context to new scenarios. It may involve multiple steps or deeper analysis."
+            difficulty_instruction = "The question should be challenging and potentially longer, requiring synthesis of information, critical thinking, or application of concepts from the context to implied or new scenarios. It may involve multiple steps or deeper analysis. Avoid overly simple or direct recall questions."
         else: # intermediate (default)
-            difficulty_instruction = "The question should test comprehension and ability to connect ideas within the context, beyond simple recall."
+            difficulty_instruction = "The question should test comprehension and the ability to connect ideas within the context, going beyond simple recall but not overly complex. It can be moderately long."
 
+        phrasing_constraint = ""
+        if question_type.lower() not in ["conceptual", "definition"]: # For most question types
+            phrasing_constraint = "Avoid starting the question with phrases like 'According to the text...' or 'Based on the provided context...'. Instead, formulate the question directly."
+        else: # For conceptual/definitional, such phrasing might be acceptable if it helps clarity
+            phrasing_constraint = "If asking for a definition or a core concept explanation, you may use phrases like 'According to the definition provided...' if it enhances clarity, but prefer direct questions where possible."
 
-        prompt = f"""Based on the following context, please generate {num_questions} distinct and insightful {question_type} question(s) at a {difficulty_level} difficulty level.
-{difficulty_instruction}
-Each question should be answerable primarily from the provided text.
-Avoid questions that are too simple (yes/no) unless specifically asking for a definition or confirmation of a fact stated (especially for beginner level).
+        prompt = f"""You are an expert at creating educational questions.
+        Based on the following context, please generate {num_questions} distinct and insightful {question_type} question(s).
+        The question(s) should be at a {difficulty_level} difficulty level.
+        {difficulty_instruction}
+        {phrasing_constraint}
+        Ensure each question is specific, clear, and answerable primarily from the provided text. Aim for questions that encourage thoughtful engagement with the material.
+        
+        Context:
+        \"\"\"
+        {context_str}
+        \"\"\"
 
-Context:
-\"\"\"
-{context_str}
-\"\"\"
-
-Generate exactly {num_questions} question(s), each on a new line, starting with a number and a period (e.g., "1. Question text"):
-"""
+        Generate exactly {num_questions} question(s), each on a new line, starting with a number and a period (e.g., "1. Question text"):
+        """
         for i in range(1, num_questions + 1):
             prompt += f"{i}. \n" 
+        # --- End of Refined Prompt Engineering ---
         
         return prompt
 
@@ -123,7 +123,6 @@ Generate exactly {num_questions} question(s), each on a new line, starting with 
                         return None
             except aiohttp.ClientResponseError as e:
                 error_body_text = "Could not read error body (already attempted)."
-                # response_text_for_error was already read
                 print(f"Error calling LLM API (HTTP Status {e.status}): {e.message}\nResponse Body: {response_text_for_error}")
                 return None
             except Exception as e:
@@ -157,13 +156,10 @@ Generate exactly {num_questions} question(s), each on a new line, starting with 
 
     async def generate_questions(self,
                                  context_chunks: List[Dict],
-                                 num_questions: int = 1, # Default to 1 for adaptive selection
+                                 num_questions: int = 1, 
                                  question_type: str = "conceptual",
-                                 difficulty_level: str = "intermediate" # New parameter
+                                 difficulty_level: str = "intermediate" 
                                  ) -> List[str]:
-        """
-        Generates questions based on the provided context chunks and difficulty.
-        """
         if not context_chunks:
             print("No context chunks provided, cannot generate questions.")
             return []
@@ -185,7 +181,7 @@ Generate exactly {num_questions} question(s), each on a new line, starting with 
             return []
 
 async def demo():
-    print("--- RAG Question Generator Demo (with Difficulty) ---")
+    print("--- RAG Question Generator Demo (Refined Prompts) ---")
     
     generator = RAGQuestionGenerator() 
 
@@ -194,17 +190,17 @@ async def demo():
         {"chunk_id": "c2", "chunk_text": "General relativity, published in 1915, is a theory of gravitation. It describes gravity not as a force, but as a curvature of spacetime caused by mass and energy."}
     ]
     
-    print("\nGenerating 1 'beginner' question:")
+    print("\nGenerating 1 'beginner' factual question:")
     questions_beginner = await generator.generate_questions(sample_chunks, num_questions=1, question_type="factual", difficulty_level="beginner")
-    if questions_beginner: print(f"  Q_Beginner: {questions_beginner[0]}")
+    if questions_beginner: print(f"  Q_Beginner_Factual: {questions_beginner[0]}")
 
-    print("\nGenerating 1 'intermediate' question:")
+    print("\nGenerating 1 'intermediate' conceptual question:")
     questions_intermediate = await generator.generate_questions(sample_chunks, num_questions=1, question_type="conceptual", difficulty_level="intermediate")
-    if questions_intermediate: print(f"  Q_Intermediate: {questions_intermediate[0]}")
+    if questions_intermediate: print(f"  Q_Intermediate_Conceptual: {questions_intermediate[0]}")
 
-    print("\nGenerating 1 'advanced' question:")
+    print("\nGenerating 1 'advanced' analytical question:")
     questions_advanced = await generator.generate_questions(sample_chunks, num_questions=1, question_type="analytical", difficulty_level="advanced")
-    if questions_advanced: print(f"  Q_Advanced: {questions_advanced[0]}")
+    if questions_advanced: print(f"  Q_Advanced_Analytical: {questions_advanced[0]}")
 
 
     print("\n--- RAG Question Generator Demo Finished ---")

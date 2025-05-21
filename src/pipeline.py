@@ -2,7 +2,7 @@
 import os
 import asyncio
 import json
-import time # Import time for sleep
+import time 
 
 from src.data_ingestion import document_loader
 from src.data_ingestion import concept_tagger
@@ -15,30 +15,17 @@ from src.evaluation import answer_evaluator
 from src.learner_model import knowledge_tracker 
 from src.interaction import answer_handler 
 from src.adaptive_engine import question_selector 
-from typing import Optional
 from src import config
+from typing import Optional
 
-# Constants
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 150
-DEFAULT_QUERY_FOR_CONTEXT = "What is a vector space?"
-DEFAULT_NUM_RETRIEVED_CHUNKS_FOR_QUESTION_CONTEXT = 1
-DEFAULT_NUM_QUESTIONS_TO_GENERATE = 1
-DEFAULT_QUESTION_TYPE = "conceptual"
-DEFAULT_SEARCH_TYPE = "hybrid"
 DEMO_LEARNER_ID = "learner_pipeline_interactive_001"
-# How long to wait after ingestion for Weaviate to index (in seconds)
-WEAVIATE_INDEXING_WAIT_TIME = 10 # Increased from previous implicit waits
+WEAVIATE_INDEXING_WAIT_TIME = 5 
 
 
 async def run_ingestion_pipeline(processed_log_path: str):
-    """
-    Runs the data ingestion part of the pipeline (Phase 1).
-    Processes new LaTeX documents and stores them in Weaviate.
-    Returns the Weaviate client instance if successful, or None.
-    """
     print("\n--- Phase 1: Data Ingestion & Storage (LaTeX Only) ---")
-    
     client = None 
     try:
         client = vector_store_manager.get_weaviate_client()
@@ -47,8 +34,6 @@ async def run_ingestion_pipeline(processed_log_path: str):
         print("Weaviate schema ensured for ingestion phase.")
     except Exception as e:
         print(f"Could not connect to Weaviate or ensure schema: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
     print("\nStep 1.1: Loading and Parsing LaTeX Documents...")
@@ -66,8 +51,6 @@ async def run_ingestion_pipeline(processed_log_path: str):
         parsed_docs_data = [doc for doc in all_parsed_docs if doc and doc.get("original_type") == "latex"]
     except Exception as e:
         print(f"ERROR: Failed during LaTeX document loading/parsing phase: {e}")
-        import traceback
-        traceback.print_exc()
         return client 
 
     if not parsed_docs_data:
@@ -80,7 +63,7 @@ async def run_ingestion_pipeline(processed_log_path: str):
     all_conceptual_blocks = concept_tagger.tag_all_documents(parsed_docs_data)
     if not all_conceptual_blocks:
         if parsed_docs_data:
-            print("ERROR: New LaTeX documents were parsed, but no conceptual blocks were identified. Skipping ingestion of new docs.")
+            print("ERROR: New LaTeX documents were parsed, but no conceptual blocks were identified. Skipping ingestion.")
             return client 
         print("Warning: No conceptual blocks identified.")
     else:
@@ -96,33 +79,27 @@ async def run_ingestion_pipeline(processed_log_path: str):
         chunk_overlap=DEFAULT_CHUNK_OVERLAP
     )
     if not final_text_chunks:
-        print("ERROR: No text chunks were created from the new LaTeX conceptual blocks. Skipping ingestion of new docs.")
+        print("ERROR: No text chunks were created from the new LaTeX conceptual blocks. Skipping ingestion.")
         return client
     print(f"Created {len(final_text_chunks)} final text chunks from new LaTeX content.")
 
     print("\nStep 1.4 & 1.5: Embed and Store Chunks...")
     try:
         vector_store_manager.embed_and_store_chunks(client, final_text_chunks)
-        print(f"Data ingestion complete for new LaTeX content. Chunks stored in Weaviate class: {vector_store_manager.WEAVIATE_CLASS_NAME}")
-        
+        print(f"Data ingestion complete for new LaTeX content.")
         newly_ingested_filenames = list(set([doc['filename'] for doc in parsed_docs_data if 'filename' in doc]))
         document_loader.update_processed_docs_log(processed_log_path, newly_ingested_filenames)
     except Exception as e:
-        print(f"ERROR: Error during Weaviate data storage for new LaTeX content: {e}")
-        import traceback
-        traceback.print_exc()
-    
+        print(f"ERROR: Error during Weaviate data storage: {e}")
     return client
 
 
 async def run_interaction_pipeline(
     client, 
     learner_id: str, 
-    interactive_mode: bool = False 
+    interactive_mode: bool = False,
+    target_topic_id: Optional[str] = None # New parameter
     ):
-    """
-    Runs retrieval, question selection, generation, and optionally interactive answer submission.
-    """
     print("\n\n--- Phase 2 & 3: Retrieval, Question Selection, Generation & Learner Interaction ---")
     if not client:
         print("Weaviate client not available. Cannot proceed.")
@@ -131,12 +108,8 @@ async def run_interaction_pipeline(
     pm = None 
     try:
         print("\nInitializing components for interaction phase...")
-        doc_retriever = retriever.Retriever(
-            weaviate_client=client,
-            weaviate_class_name=vector_store_manager.WEAVIATE_CLASS_NAME
-        )
+        doc_retriever = retriever.Retriever(weaviate_client=client)
         q_generator = question_generator_rag.RAGQuestionGenerator()
-        
         profile_db_path = os.path.join(config.DATA_DIR, f"{learner_id}_profile.sqlite3")
         pm = profile_manager.LearnerProfileManager(db_path=profile_db_path)
         
@@ -151,8 +124,8 @@ async def run_interaction_pipeline(
         ans_handler = answer_handler.AnswerHandler(evaluator=ans_evaluator, tracker=knowledge_track)
         print("Interaction components initialized.")
 
-        print(f"\nStep 2.X: Selecting next question for learner '{learner_id}' using adaptive selector...")
-        next_question_info = await q_selector.select_next_question(learner_id)
+        print(f"\nStep 2.X: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_topic_id}'." if target_topic_id else "."))
+        next_question_info = await q_selector.select_next_question(learner_id, target_doc_id=target_topic_id) # Pass topic_id
 
         if not next_question_info:
             print("QuestionSelector could not select a next question. Ending interaction phase.")
@@ -177,58 +150,43 @@ async def run_interaction_pipeline(
             learner_actual_answer = "A vector space is a set of vectors that can be added together and multiplied by scalars, following certain axioms like closure under addition and scalar multiplication."
             print(f"Using Simulated Answer (non-interactive mode): \"{learner_actual_answer}\"")
 
-
         if learner_actual_answer:
             handler_response = await ans_handler.submit_answer(
-                learner_id=learner_id,
-                question_id=question_concept_id, 
-                question_text=current_question_text,
-                retrieved_context=context_for_evaluation, 
+                learner_id=learner_id, question_id=question_concept_id, 
+                question_text=current_question_text, retrieved_context=context_for_evaluation, 
                 learner_answer=learner_actual_answer
             )
-            print("\n--- Evaluation & Tracking Results ---")
-            print(f"  Feedback from Evaluator: {handler_response.get('feedback')}")
-            print(f"  Accuracy Score (0-1): {handler_response.get('accuracy_score')}")
-            
+            print("\n--- Evaluation & Tracking Results ---") # ... (print results) ...
+            print(f"  Feedback: {handler_response.get('feedback')}")
+            print(f"  Accuracy: {handler_response.get('accuracy_score')}")
             updated_knowledge = pm.get_concept_knowledge(learner_id, question_concept_id)
-            if updated_knowledge:
-                print(f"  Updated Knowledge for '{concept_name}' (ID: {question_concept_id}):")
-                print(f"    Current Score (0-10): {updated_knowledge.get('current_score')}")
-                print(f"    Total Attempts: {updated_knowledge.get('total_attempts')}")
-                print(f"    Correct Attempts: {updated_knowledge.get('correct_attempts')}")
-                print(f"    Last Answered Correctly: {'Yes' if updated_knowledge.get('last_answered_correctly') else 'No'}")
-            else:
-                print(f"  Could not retrieve updated knowledge for concept '{question_concept_id}'.")
+            if updated_knowledge: print(f"  Updated Score: {updated_knowledge.get('current_score')}")
+
 
     except Exception as e:
         print(f"Error during interaction pipeline: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        if pm:
-            pm.close_db()
+        if pm: pm.close_db()
 
 
-async def run_full_pipeline(interactive_mode: bool = False, initial_learner_id: Optional[str] = None):
-    """
-    Runs the complete RAG pipeline.
-    """
+async def run_full_pipeline(interactive_mode: bool = False, 
+                            initial_learner_id: Optional[str] = None,
+                            target_topic_id: Optional[str] = None): # New param
     print("Starting RAG System - Full Pipeline Execution...")
-    
     processed_log_path = config.PROCESSED_DOCS_LOG_FILE
-    
     weaviate_client = await run_ingestion_pipeline(processed_log_path)
 
     if weaviate_client:
-        print(f"\nWaiting {WEAVIATE_INDEXING_WAIT_TIME} seconds for Weaviate to index before proceeding to interaction phase...")
-        await asyncio.sleep(WEAVIATE_INDEXING_WAIT_TIME) # Use asyncio.sleep for async functions
-        # time.sleep(WEAVIATE_INDEXING_WAIT_TIME) # This would block the event loop
-
+        print(f"\nWaiting {WEAVIATE_INDEXING_WAIT_TIME} seconds for Weaviate to index...")
+        await asyncio.sleep(WEAVIATE_INDEXING_WAIT_TIME)
         learner_id_to_use = initial_learner_id if initial_learner_id else DEMO_LEARNER_ID
         await run_interaction_pipeline(
             client=weaviate_client, 
             learner_id=learner_id_to_use,
-            interactive_mode=interactive_mode 
+            interactive_mode=interactive_mode,
+            target_topic_id=target_topic_id # Pass it down
             )
     else:
         print("Ingestion phase failed or Weaviate client not available. Skipping interaction phase.")
@@ -242,5 +200,4 @@ if __name__ == '__main__':
         from dotenv import load_dotenv
         print(f"pipeline.py: Found .env file at {dotenv_path}, loading.")
         load_dotenv(dotenv_path)
-    
     asyncio.run(run_full_pipeline(interactive_mode=False)) 
