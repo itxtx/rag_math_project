@@ -196,4 +196,13 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    # ... (uvicorn run command) ...
+    import datetime 
+    print("Starting FastAPI server with Uvicorn...")
+    dotenv_path_main = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    if os.path.exists(dotenv_path_main):
+        print(f"Uvicorn Main: Found .env file at {dotenv_path_main}, loading.")
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path_main)
+    
+    uvicorn.run("src.api.main_api:app", host="0.0.0.0", port=8000, reload=True)
+
