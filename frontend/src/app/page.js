@@ -351,13 +351,14 @@ function App() {
                 </ReactMarkdown>
 
                 {feedback.correctAnswer && (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                    className="mt-2"
-                  >
-                    {`**Correct Answer:** ${feedback.correctAnswer}`}
-                  </ReactMarkdown>
+                  <div className="mt-2"> {/* Moved className="mt-2" to a wrapping div */}
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {`**Correct Answer:** ${feedback.correctAnswer}`}
+                    </ReactMarkdown>
+                  </div>
                 )}
               </div>
             </CardContent>
