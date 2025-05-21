@@ -160,17 +160,16 @@ body {
   vertical-align: middle;
   text-shadow: none;
   display: inline-block;
-  /* Added transform to potentially force hardware acceleration and fix ghosting */
-  transform: translateZ(0);
-  /* Added font smoothing for better rendering consistency */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  /* Added backface-visibility for composite layer issues */
-  backface-visibility: hidden;
-  /* Added isolation to create a new stacking context */
-  isolation: isolate;
-  /* Added z-index to ensure it's on top */
-  z-index: 1;
+  transform: translateZ(0); /* Force hardware acceleration */
+  -webkit-font-smoothing: antialiased; /* Better font rendering */
+  -moz-osx-font-smoothing: grayscale; /* Better font rendering */
+  backface-visibility: hidden; /* Prevent flickering */
+  isolation: isolate; /* Create a new stacking context */
+  z-index: 1; /* Ensure it's on top */
+  /* Added will-change to hint browser about upcoming changes */
+  will-change: transform, opacity;
+  /* Added perspective to potentially help with 3D rendering issues */
+  perspective: 1000px;
 }
 
 .katex-display {
@@ -178,14 +177,14 @@ body {
   text-align: center;
   margin-top: 1em;
   margin-bottom: 1em;
-  /* Added font smoothing and backface-visibility for block math */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   backface-visibility: hidden;
-  /* Added isolation to create a new stacking context */
   isolation: isolate;
-  /* Added z-index to ensure it's on top */
   z-index: 1;
+  /* Added will-change and perspective for block math */
+  will-change: transform, opacity;
+  perspective: 1000px;
 }
 
 /* Additional styling for markdown body if needed (retained from previous) */

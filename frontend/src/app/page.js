@@ -5,14 +5,15 @@ import ReactMarkdown from 'react-markdown'; // Import ReactMarkdown
 import remarkMath from 'remark-math'; // Import remark-math for parsing math
 import rehypeKatex from 'rehype-katex'; // Import rehype-katex for rendering math
 
-// Shadcn UI components (assuming they are set up in your project)
+// Shadcn UI components
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent, CardFooter, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Progress } from '@/components/ui/progress'; // For loading indicator
+import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Import Select components
 
 // Lucide React icons
 import { Sun, Moon } from 'lucide-react';
@@ -20,19 +21,23 @@ import { Sun, Moon } from 'lucide-react';
 // Main App component
 function App() {
   // State variables for managing the application's data and UI
-  const [learnerId, setLearnerId] = useState(''); // Stores the learner's ID
-  const [question, setQuestion] = useState(null); // Stores the current question object from the API
-  const [answer, setAnswer] = useState(''); // Stores the learner's typed answer
-  // feedback now stores an object with both feedback text and correct answer
+  const [learnerId, setLearnerId] = useState('');
+  const [question, setQuestion] = useState(null);
+  const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState(null);
-  const [error, setError] = useState(null); // Stores any error messages
-  const [loading, setLoading] = useState(false); // Indicates if an API call is in progress
-  const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false); // Controls the visibility of the error dialog
-  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true); // Controls visibility of Learner ID dialog
-  const [theme, setTheme] = useState('light'); // State for managing the current theme (light/dark)
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
+  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true);
+  const [theme, setTheme] = useState('light');
+
+  // New state for topic selection
+  const [availableTopics, setAvailableTopics] = useState([]);
+  const [selectedTopicId, setSelectedTopicId] = useState('');
+  const [topicsLoading, setTopicsLoading] = useState(true);
+  const [topicsError, setTopicsError] = useState(null);
 
   // Base URL for your FastAPI backend
-  // IMPORTANT: Adjust this if your FastAPI server is running on a different host or port.
   const API_BASE_URL = 'http://localhost:8000/api/v1';
 
   // Effect to apply the 'dark' class to the html element based on the theme state
@@ -53,11 +58,40 @@ function App() {
     link.crossOrigin = 'anonymous';
     document.head.appendChild(link);
 
-    // Cleanup function to remove the link when the component unmounts
     return () => {
       document.head.removeChild(link);
     };
-  }, []); // Empty dependency array means this effect runs once on mount
+  }, []);
+
+  // Effect to fetch available topics on component mount
+  useEffect(() => {
+    const fetchTopics = async () => {
+      setTopicsLoading(true);
+      setTopicsError(null);
+      try {
+        const response = await fetch(`${API_BASE_URL}/topics`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Failed to fetch topics.');
+        }
+        const data = await response.json();
+        setAvailableTopics(data);
+        // Optionally pre-select the first topic if available
+        if (data.length > 0) {
+          setSelectedTopicId(data[0].topic_id);
+        }
+      } catch (err) {
+        console.error('Error fetching topics:', err);
+        setTopicsError(err.message);
+        setError(`Failed to load topics: ${err.message}`);
+        setIsErrorDialogOpen(true);
+      } finally {
+        setTopicsLoading(false);
+      }
+    };
+
+    fetchTopics();
+  }, []); // Run once on mount
 
   /**
    * Toggles the current theme between 'light' and 'dark'.
@@ -71,37 +105,39 @@ function App() {
    * Sends a request to the /interaction/start endpoint to get the next question.
    */
   const handleStartInteraction = async () => {
-    setLoading(true); // Set loading state to true
-    setError(null); // Clear any previous errors
-    setQuestion(null); // Clear previous question
-    setAnswer(''); // Clear previous answer
-    setFeedback(null); // Clear previous feedback
+    setLoading(true);
+    setError(null);
+    setQuestion(null);
+    setAnswer('');
+    setFeedback(null);
 
     try {
-      // Make a POST request to the start interaction endpoint
+      // API change: topic_id is now in the request body, not a query parameter.
       const response = await fetch(`${API_BASE_URL}/interaction/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ learner_id: learnerId }), // Send the learner ID in the request body
+        body: JSON.stringify({
+          learner_id: learnerId,
+          topic_id: selectedTopicId || null, // Send selectedTopicId in the body
+        }),
       });
 
-      // Check if the response was successful (status code 2xx)
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to start interaction.');
       }
 
       const data = await response.json();
-      setQuestion(data); // Set the received question data
+      setQuestion(data);
       setIsLearnerIdDialogOpen(false); // Close the learner ID dialog on successful start
     } catch (err) {
       console.error('Error starting interaction:', err);
-      setError(err.message); // Set the error message
-      setIsErrorDialogOpen(true); // Open the error dialog
+      setError(err.message);
+      setIsErrorDialogOpen(true);
     } finally {
-      setLoading(false); // Reset loading state
+      setLoading(false);
     }
   };
 
@@ -110,19 +146,17 @@ function App() {
    * Sends the learner's answer to the /interaction/submit_answer endpoint for evaluation.
    */
   const handleSubmitAnswer = async () => {
-    // Prevent submission if no question is loaded
     if (!question) {
       setError('No question to answer.');
       setIsErrorDialogOpen(true);
       return;
     }
 
-    setLoading(true); // Set loading state to true
-    setError(null); // Clear any previous errors
-    setFeedback(null); // Clear previous feedback
+    setLoading(true);
+    setError(null);
+    setFeedback(null);
 
     try {
-      // Make a POST request to the submit answer endpoint
       const response = await fetch(`${API_BASE_URL}/interaction/submit_answer`, {
         method: 'POST',
         headers: {
@@ -137,24 +171,22 @@ function App() {
         }),
       });
 
-      // Check if the response was successful
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to submit answer.');
       }
 
       const data = await response.json();
-      // Store both feedback and correct_answer_suggestion
       setFeedback({
         feedbackText: data.evaluation.feedback,
-        correctAnswer: data.evaluation['correct_answer'] || data.evaluation['correct answer'] || null, // Access using bracket notation for both possibilities
+        correctAnswer: data.evaluation['correct_answer'] || data.evaluation['correct answer'] || null,
       });
     } catch (err) {
       console.error('Error submitting answer:', err);
-      setError(err.message); // Set the error message
-      setIsErrorDialogOpen(true); // Open the error dialog
+      setError(err.message);
+      setIsErrorDialogOpen(true);
     } finally {
-      setLoading(false); // Reset loading state
+      setLoading(false);
     }
   };
 
@@ -171,36 +203,58 @@ function App() {
       </Button>
 
       <div className="w-full max-w-2xl space-y-6">
-        {/* Removed Application Title */}
-        {/* <h1 className="text-4xl font-extrabold text-foreground drop-shadow-md">
-          Adaptive Learning System
-        </h1> */}
-
-        {/* Learner ID Input Dialog */}
+        {/* Learner ID & Topic Selection Dialog */}
         <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
           <AlertDialogContent className="rounded-xl shadow-lg bg-card border-border">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-2xl font-bold text-card-foreground">Get Started</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground">
-                Enter your unique learner ID to begin your learning journey.
+                Enter your unique learner ID and select a topic to begin your learning journey.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="grid w-full items-center gap-1.5 mb-4">
-              <Label htmlFor="learnerIdDialog" className="text-card-foreground">Learner ID</Label>
-              <Input
-                type="text"
-                id="learnerIdDialog"
-                placeholder="e.g., learner-123"
-                value={learnerId}
-                onChange={(e) => setLearnerId(e.target.value)}
-                className="rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border"
-                disabled={loading}
-              />
+            <div className="grid w-full items-center gap-4">
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="learnerIdDialog" className="text-card-foreground">Learner ID</Label>
+                <Input
+                  type="text"
+                  id="learnerIdDialog"
+                  placeholder="e.g., learner-123"
+                  value={learnerId}
+                  onChange={(e) => setLearnerId(e.target.value)}
+                  className="rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border"
+                  disabled={loading || topicsLoading}
+                />
+              </div>
+              <div className="flex flex-col space-y-1.5">
+                <Label htmlFor="topicSelect" className="text-card-foreground">Select Topic</Label>
+                <Select
+                  onValueChange={setSelectedTopicId}
+                  value={selectedTopicId}
+                  disabled={loading || topicsLoading || availableTopics.length === 0}
+                >
+                  <SelectTrigger id="topicSelect" className="rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border">
+                    <SelectValue placeholder={topicsLoading ? "Loading topics..." : topicsError ? "Error loading topics" : "Select a topic"} />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-md bg-popover text-popover-foreground border-border">
+                    {availableTopics.length === 0 && !topicsLoading && !topicsError && (
+                      <SelectItem value="no-topics" disabled>No topics available</SelectItem>
+                    )}
+                    {topicsError && (
+                      <SelectItem value="error-loading" disabled>{`Error: ${topicsError}`}</SelectItem>
+                    )}
+                    {availableTopics.map((topic) => (
+                      <SelectItem key={topic.topic_id} value={topic.topic_id}>
+                        {topic.source_file.replace('.tex', '').replace(/_/g, ' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <AlertDialogFooter>
               <Button
                 onClick={handleStartInteraction}
-                disabled={!learnerId || loading}
+                disabled={!learnerId || loading || topicsLoading || !selectedTopicId}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
               >
                 {loading ? (
@@ -234,9 +288,8 @@ function App() {
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body"
-                key={question.question_text} // Added key to force re-render if text changes
+                key={question.question_text}
               >
-                {/* Render question text as Markdown with KaTeX support */}
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
                   rehypePlugins={[rehypeKatex]}
@@ -288,9 +341,8 @@ function App() {
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body"
-                key={feedback.feedbackText + (feedback.correctAnswer || '')} // Added key to force re-render
+                key={feedback.feedbackText + (feedback.correctAnswer || '')}
               >
-                {/* Render feedback text as Markdown with KaTeX support */}
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
                   rehypePlugins={[rehypeKatex]}
@@ -302,7 +354,7 @@ function App() {
                   <ReactMarkdown
                     remarkPlugins={[remarkMath]}
                     rehypePlugins={[rehypeKatex]}
-                    className="mt-2" // Only margin top needed here
+                    className="mt-2"
                   >
                     {`**Correct Answer:** ${feedback.correctAnswer}`}
                   </ReactMarkdown>
@@ -311,7 +363,7 @@ function App() {
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button
-                onClick={handleStartInteraction} // This button will fetch the next question
+                onClick={handleStartInteraction}
                 disabled={loading}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
               >
