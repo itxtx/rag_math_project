@@ -153,10 +153,10 @@ function App() {
       </Button>
 
       <div className="w-full max-w-2xl space-y-6">
-        {/* Application Title */}
-        <h1 className="text-4xl font-extrabold text-foreground drop-shadow-md">
+        {/* Removed Application Title */}
+        {/* <h1 className="text-4xl font-extrabold text-foreground drop-shadow-md">
           Adaptive Learning System
-        </h1>
+        </h1> */}
 
         {/* Learner ID Input Dialog */}
         <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
@@ -214,7 +214,7 @@ function App() {
               <CardDescription className="text-muted-foreground">Reflect on the concept and provide your best answer.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-muted p-4 rounded-lg border border-border">
+              <div className="p-4 rounded-lg border border-border"> {/* Removed bg-muted */}
                 <p className="text-foreground text-lg leading-relaxed">{question.question_text}</p>
               </div>
               <div className="grid w-full items-center gap-1.5">
@@ -224,7 +224,7 @@ function App() {
                   placeholder="Type your answer here..."
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
-                  className="min-h-[100px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border"
+                  className="min-h-[200px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border" // Increased min-h to 200px
                   disabled={loading}
                 />
               </div>
