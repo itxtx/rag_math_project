@@ -23,9 +23,6 @@ const cleanLatexString = (text) => {
   if (typeof text !== 'string') {
     return text;
   }
-  // This regex looks for LaTeX expressions (e.g., $...$ or $$...$$)
-  // that are incorrectly wrapped in single backticks (e.g., `$formula$`)
-  // and removes those surrounding backticks.
   return text.replace(/`(\${1,2}[^`]*?\${1,2})`/g, '$1');
 };
 
@@ -34,13 +31,15 @@ const cleanLatexString = (text) => {
 function App() {
   // State variables
   const [learnerId, setLearnerId] = useState('');
-  const [question, setQuestion] = useState(null);
+  const [question, setQuestion] = useState(null); // Active question being answered
+  const [rawQuestionResponse, setRawQuestionResponse] = useState(null); // Full API response for current/next question
+  const [conceptContext, setConceptContext] = useState(null); // Context to display before a question
   const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
-  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true); // Dialog open by default
+  const [isLearnerIdDialogOpen, setIsLearnerIdDialogOpen] = useState(true);
   const [theme, setTheme] = useState('light');
 
   const [availableTopics, setAvailableTopics] = useState([]);
@@ -48,10 +47,8 @@ function App() {
   const [topicsLoading, setTopicsLoading] = useState(true);
   const [topicsError, setTopicsError] = useState(null);
 
-  // Base URL for your FastAPI backend
-  const API_BASE_URL = 'http://localhost:8000/api/v1'; // Ensure this is accessible
+  const API_BASE_URL = 'http://localhost:8000/api/v1';
 
-  // Effect to apply theme
   useEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -60,7 +57,6 @@ function App() {
     }
   }, [theme]);
 
-  // Effect to load KaTeX CSS
   useEffect(() => {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
@@ -69,13 +65,12 @@ function App() {
     link.crossOrigin = 'anonymous';
     document.head.appendChild(link);
     return () => {
-      if (document.head.contains(link)) { // Check if the link is still in head before removing
+      if (document.head.contains(link)) {
         document.head.removeChild(link);
       }
     };
   }, []);
 
-  // Effect to fetch available topics
   useEffect(() => {
     const fetchTopics = async () => {
       setTopicsLoading(true);
@@ -88,7 +83,7 @@ function App() {
         }
         const data = await response.json();
         setAvailableTopics(data);
-        if (data.length > 0 && !selectedTopicId) { 
+        if (data.length > 0 && !selectedTopicId) {
           setSelectedTopicId(data[0].topic_id);
         }
       } catch (err) {
@@ -99,23 +94,23 @@ function App() {
       }
     };
     fetchTopics();
-  }, [API_BASE_URL]); // Removed selectedTopicId from dependency array
+  }, [API_BASE_URL]);
 
-  // Theme toggle function
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
-  // Handle start interaction
   const handleStartInteraction = useCallback(async () => {
     if (!learnerId.trim() || !selectedTopicId) {
-        setError("Learner ID and Topic must be provided.");
-        setIsErrorDialogOpen(true);
-        return;
+      setError("Learner ID and Topic must be provided.");
+      setIsErrorDialogOpen(true);
+      return;
     }
     setLoading(true);
     setError(null);
     setQuestion(null);
+    setConceptContext(null);
+    setRawQuestionResponse(null);
     setAnswer('');
     setFeedback(null);
 
@@ -133,8 +128,16 @@ function App() {
         throw new Error(errorData.detail || 'Failed to start interaction.');
       }
       const data = await response.json();
-      setQuestion(data);
-      setIsLearnerIdDialogOpen(false); // Close dialog on successful start
+      setRawQuestionResponse(data); // Store the full response
+
+      if (data.context_for_new_concept && data.context_for_new_concept.content_markdown) {
+        setConceptContext(data.context_for_new_concept); // Show context first
+        setQuestion(null); // Ensure question is not shown yet
+      } else {
+        setQuestion(data); // No context, show question directly
+        setConceptContext(null);
+      }
+      setIsLearnerIdDialogOpen(false);
     } catch (err) {
       console.error('Error starting interaction:', err);
       setError(err.message);
@@ -144,7 +147,13 @@ function App() {
     }
   }, [learnerId, selectedTopicId, API_BASE_URL]);
 
-  // Handle submit answer
+  const handleProceedToQuestion = useCallback(() => {
+    if (rawQuestionResponse) {
+      setQuestion(rawQuestionResponse); // Set the active question from the stored full response
+    }
+    setConceptContext(null); // Hide context view
+  }, [rawQuestionResponse]);
+
   const handleSubmitAnswer = useCallback(async () => {
     if (!question || !question.question_id) {
       setError('No question to answer or question ID is missing.');
@@ -156,11 +165,9 @@ function App() {
       setIsErrorDialogOpen(true);
       return;
     }
-
     setLoading(true);
     setError(null);
     setFeedback(null);
-
     try {
       const response = await fetch(`${API_BASE_URL}/interaction/submit_answer`, {
         method: 'POST',
@@ -168,7 +175,7 @@ function App() {
         body: JSON.stringify({
           learner_id: learnerId,
           question_id: question.question_id,
-          question_text: question.question_text, 
+          question_text: question.question_text,
           context_for_evaluation: question.context_for_evaluation,
           learner_answer: answer,
         }),
@@ -191,7 +198,6 @@ function App() {
     }
   }, [learnerId, question, answer, API_BASE_URL]);
 
-  // Memoized cleaned question text
   const cleanedQuestionText = useMemo(() => {
     if (question && question.question_text) {
       return cleanLatexString(question.question_text);
@@ -199,7 +205,13 @@ function App() {
     return "";
   }, [question]);
 
-  // Memoized cleaned feedback text
+  const cleanedConceptContextMarkdown = useMemo(() => {
+    if (conceptContext && conceptContext.content_markdown) {
+      return cleanLatexString(conceptContext.content_markdown);
+    }
+    return "";
+  }, [conceptContext]);
+
   const cleanedFeedback = useMemo(() => {
     if (!feedback) return null;
     return {
@@ -208,23 +220,21 @@ function App() {
     };
   }, [feedback]);
 
-
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4 font-inter relative">
       <Button
         onClick={toggleTheme}
         variant="outline"
         size="icon"
-        className="absolute top-4 left-4 rounded-full bg-card hover:bg-accent text-foreground border-border" // Removed shadow-md
+        className="absolute top-4 left-4 rounded-full bg-card hover:bg-accent text-foreground border-border"
         aria-label="Toggle theme"
       >
         {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
       </Button>
 
       <div className="w-full max-w-2xl space-y-6">
-        {/* Learner ID & Topic Selection Dialog (Initial Setup) */}
         <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
-          <AlertDialogContent className="rounded-xl bg-card border-border"> {/* Removed shadow-lg */}
+          <AlertDialogContent className="rounded-xl bg-card border-border">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-2xl font-bold text-card-foreground">Get Started</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground">
@@ -275,7 +285,7 @@ function App() {
                 disabled={!learnerId.trim() || loading || topicsLoading || !selectedTopicId || availableTopics.length === 0}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
-                {loading && !question ? ( 
+                {loading && !conceptContext && !question ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -293,9 +303,44 @@ function App() {
 
         {loading && <Progress value={undefined} className="w-full h-2 bg-primary animate-pulse" />}
 
+        {/* Concept Context Display */}
+        {!loading && conceptContext && (
+          <Card className="w-full rounded-xl border border-border bg-card">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold text-card-foreground">
+                Context: {conceptContext.topic_name || "Review Material"}
+              </CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Please review the following information before answering the question.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div
+                className="p-4 rounded-lg border border-border text-foreground text-base leading-relaxed markdown-body bg-background/30 max-h-[50vh] overflow-y-auto"
+                key={(conceptContext.topic_name || "") + cleanedConceptContextMarkdown.substring(0,10)} 
+              >
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {cleanedConceptContextMarkdown}
+                </ReactMarkdown>
+              </div>
+            </CardContent>
+            <CardFooter className="flex justify-end">
+              <Button
+                onClick={handleProceedToQuestion}
+                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+              >
+                Proceed to Question
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
 
-        {question && (
-          <Card className="w-full rounded-xl border border-border bg-card"> {/* Removed shadow-lg */}
+        {/* Question Display */}
+        {!loading && question && !conceptContext && (
+          <Card className="w-full rounded-xl border border-border bg-card">
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-card-foreground">Question {question.question_number || ''}</CardTitle>
               <CardDescription className="text-muted-foreground">Provide your answer below.</CardDescription>
@@ -303,7 +348,7 @@ function App() {
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30"
-                key={question.question_id} 
+                key={question.question_id}
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
@@ -330,7 +375,7 @@ function App() {
                 disabled={loading || !answer.trim()}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
-                {loading && feedback === null ? ( 
+                {loading && feedback === null ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -346,8 +391,9 @@ function App() {
           </Card>
         )}
 
-        {cleanedFeedback && (
-          <Card className="w-full rounded-xl border border-border bg-card mt-6"> {/* Removed shadow-lg */}
+        {/* Feedback Display */}
+        {!loading && cleanedFeedback && !conceptContext && (
+          <Card className="w-full rounded-xl border border-border bg-card mt-6">
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-card-foreground">Evaluation Feedback</CardTitle>
             </CardHeader>
@@ -377,7 +423,7 @@ function App() {
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button
-                onClick={handleStartInteraction} 
+                onClick={handleStartInteraction}
                 disabled={loading}
                 className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
               >
@@ -387,9 +433,8 @@ function App() {
           </Card>
         )}
 
-        {/* Error Dialog */}
         <AlertDialog open={isErrorDialogOpen} onOpenChange={setIsErrorDialogOpen}>
-          <AlertDialogContent className="rounded-xl bg-card border-border"> {/* Removed shadow-lg */}
+          <AlertDialogContent className="rounded-xl bg-card border-border">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-destructive font-semibold">Error</AlertDialogTitle>
               <AlertDialogDescription className="text-muted-foreground py-2">

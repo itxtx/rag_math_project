@@ -12,9 +12,10 @@ from src.api.models import (
     LearnerInteractionStartRequest, 
     QuestionResponse, 
     AnswerSubmissionRequest, AnswerSubmissionResponse,
-    EvaluationResult, ErrorResponse # EvaluationResult now has correct_answer
+    EvaluationResult, ErrorResponse
 )
 
+# Import RAG system components
 from src.data_ingestion import vector_store_manager 
 from src.learner_model.profile_manager import LearnerProfileManager
 from src.retrieval.retriever import Retriever
@@ -28,7 +29,6 @@ app_state: Dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    # ... (lifespan function remains the same as fastapi_app_v1) ...
     print("API Lifespan: Startup sequence initiated.")
     dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
     if os.path.exists(dotenv_path):
@@ -38,6 +38,7 @@ async def lifespan(app_instance: FastAPI):
         print("API Lifespan: Environment variables from .env potentially loaded.")
     else:
         print(f"API Lifespan: .env file not found at {dotenv_path}.")
+    
     try:
         app_state["rag_components"] = RAGSystemComponents() # Defined below
         if app_state["rag_components"].initialization_error:
@@ -45,6 +46,7 @@ async def lifespan(app_instance: FastAPI):
     except Exception as e:
         print(f"API Lifespan: CRITICAL ERROR during startup RAG component initialization - {e}")
         app_state["rag_components"] = None 
+
     print("API Lifespan: Startup sequence complete.")
     yield
     print("API Lifespan: Shutdown sequence initiated.")
@@ -62,15 +64,15 @@ app = FastAPI(
 )
 
 origins = [
-    "http://localhost", "http://localhost:3000", "http://localhost:8080",
-    "http://127.0.0.1:3000", "http://127.0.0.1:8000",
+    "http://localhost", "http://localhost:3000", "http://localhost:8080", "http://localhost:5173", # Added 5173 for Vite
+    "http://127.0.0.1:3000", "http://127.0.0.1:8000", "http://127.0.0.1:5173",
 ]
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
-class RAGSystemComponents: # Definition of RAGSystemComponents
+class RAGSystemComponents: 
     def __init__(self):
         print("Initializing RAG System Components for API...")
         try:
@@ -108,7 +110,6 @@ class TopicResponse(BaseModel):
 
 @app.get("/api/v1/topics", response_model=PyList[TopicResponse])
 async def list_available_topics(components: RAGSystemComponents = Depends(get_rag_components)):
-    # ... (endpoint remains the same) ...
     try:
         topics = components.question_selector.get_available_topics()
         if not topics: 
@@ -121,29 +122,42 @@ async def list_available_topics(components: RAGSystemComponents = Depends(get_ra
         raise HTTPException(status_code=500, detail=f"Internal server error listing topics: {str(e)}")
 
 
-@app.post("/api/v1/interaction/start", response_model=QuestionResponse)
+@app.post("/api/v1/interaction/start", 
+            response_model=QuestionResponse, 
+            summary="Start Learner Interaction (Adaptive or by Topic)",
+            responses={
+                404: {"model": ErrorResponse, "description": "No suitable question found."},
+                503: {"model": ErrorResponse, "description": "Service unavailable."}
+            })
 async def start_learner_interaction(
     request: LearnerInteractionStartRequest, 
     components: RAGSystemComponents = Depends(get_rag_components)
 ):
-    # ... (endpoint remains the same) ...
     print(f"API: Received request to start interaction for learner_id: {request.learner_id}, topic_id: {request.topic_id}")
     try:
         next_question_info = await components.question_selector.select_next_question(
-            learner_id=request.learner_id, target_doc_id=request.topic_id 
+            learner_id=request.learner_id,
+            target_doc_id=request.topic_id 
         )
-        if not next_question_info or "error" in next_question_info: # Check for error key
+        if not next_question_info or "error" in next_question_info: 
             detail_msg = next_question_info.get("error", "Could not select a next question.") if next_question_info else "Could not select a next question."
             raise HTTPException(status_code=404, detail=detail_msg)
         
+        # Map the dictionary from QuestionSelector to the QuestionResponse Pydantic model
         return QuestionResponse(
             question_id=next_question_info["concept_id"], 
             concept_name=next_question_info["concept_name"],
             question_text=next_question_info["question_text"],
-            context_for_evaluation=next_question_info["context_for_evaluation"]
+            context_for_evaluation=next_question_info["context_for_evaluation"],
+            # Ensure the flag is passed from the selector's output to the API response
+            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False) 
         )
-    except HTTPException as http_exc: raise http_exc
+    except HTTPException as http_exc: 
+        raise http_exc
     except Exception as e:
+        print(f"API Error in /interaction/start: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error selecting question: {str(e)}")
 
 
@@ -152,6 +166,7 @@ async def submit_learner_answer(
     request: AnswerSubmissionRequest, 
     components: RAGSystemComponents = Depends(get_rag_components)
 ):
+    # ... (endpoint remains the same) ...
     print(f"API: Received answer submission from learner_id: {request.learner_id} for question_id: {request.question_id}")
     try:
         handler_response = await components.answer_handler.submit_answer(
@@ -164,7 +179,7 @@ async def submit_learner_answer(
         eval_result = EvaluationResult( 
             accuracy_score=handler_response.get("accuracy_score", 0.0),
             feedback=handler_response.get("feedback", "Evaluation feedback not available."),
-            correct_answer=handler_response.get("correct_answer_suggestion") # Ensure this key matches what AnswerHandler returns
+            correct_answer=handler_response.get("correct_answer_suggestion") 
         )
         return AnswerSubmissionResponse(
             learner_id=request.learner_id,
@@ -179,16 +194,6 @@ async def health_check():
     import datetime 
     return {"status": "healthy", "timestamp": datetime.datetime.utcnow().isoformat()}
 
-
 if __name__ == "__main__":
     import uvicorn
-    import datetime 
-    print("Starting FastAPI server with Uvicorn...")
-    dotenv_path_main = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-    if os.path.exists(dotenv_path_main):
-        print(f"Uvicorn Main: Found .env file at {dotenv_path_main}, loading.")
-        from dotenv import load_dotenv
-        load_dotenv(dotenv_path_main)
-    
-    uvicorn.run("src.api.main_api:app", host="0.0.0.0", port=8000, reload=True)
-
+    # ... (uvicorn run command) ...
