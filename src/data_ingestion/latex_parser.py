@@ -1,6 +1,7 @@
 # src/data_ingestion/latex_parser.py
 import os
 import re
+import sys # For recursion limit, though not changing it globally by default
 from pylatexenc.latexwalker import LatexWalker, LatexCharsNode, LatexCommentNode, LatexGroupNode, LatexMacroNode, LatexMathNode, LatexEnvironmentNode, get_default_latex_context_db
 from pylatexenc.latex2text import LatexNodes2Text, MacroTextSpec 
 from pylatexenc.macrospec import MacroSpec, MacroStandardArgsParser, LatexContextDb
@@ -15,46 +16,35 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     """
     print("DEBUG _preprocess_custom_latex_commands: Starting preprocessing...")
     processed_content = latex_content
-    # Stores {'\\cmd': 'replacement_text'}
     custom_commands_to_replace = {} 
 
     # \DeclareMathOperator{\cmd}{replacement_text}
-    # Example: \DeclareMathOperator{\Ker}{Ker}  -> replaces usage of \Ker with Ker
     declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
     for match in declaremath_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip() 
-        custom_commands_to_replace[f"\\{cmd_name}"] = replacement # Store with backslash
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement
         print(f"DEBUG _preprocess: Found DeclareMathOperator: \\{cmd_name} -> {replacement}")
 
     # Simple \newcommand{\cmd}{replacement_text} (no arguments in definition part)
-    # Example: \newcommand{\R}{\mathbb{R}} -> replaces usage of \R with \mathbb{R}
     newcommand_simple_pattern = re.compile(r"\\newcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in newcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
-        # Avoid overwriting if already defined by DeclareMathOperator (which is usually more specific for operators)
         if f"\\{cmd_name}" not in custom_commands_to_replace:
             custom_commands_to_replace[f"\\{cmd_name}"] = replacement
             print(f"DEBUG _preprocess: Found simple newcommand: \\{cmd_name} -> {replacement}")
         else:
-            print(f"DEBUG _preprocess: newcommand for \\{cmd_name} skipped (already defined, possibly by DeclareMathOperator).")
+            print(f"DEBUG _preprocess: newcommand for \\{cmd_name} skipped (already defined).")
     
     # Simple \renewcommand{\cmd}{replacement_text} (no arguments in definition part)
     renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in renewcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
-        custom_commands_to_replace[f"\\{cmd_name}"] = replacement # renewcommand should override
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement 
         print(f"DEBUG _preprocess: Found simple renewcommand: \\{cmd_name} -> {replacement}")
 
-    # Manually add specific tricky ones from user list if regex is hard,
-    # ensuring replacements are re.sub-safe by doubling backslashes in the replacement part.
-    # These are for commands that are defined as aliases to other LaTeX.
-    
-    # Commands that expand to \operatorname{...}
-    # The preprocessor changes \cmd to \operatorname{...} in the text.
-    # Then pylatexenc parses \operatorname normally.
     manual_operatorname_defs = {
         '\\kerphi': r'\operatorname{ker}\phi',
         '\\imphi': r'\operatorname{im}\phi',
@@ -63,10 +53,10 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         '\\degpoly': r'\operatorname{deg}'
     }
     for cmd, definition in manual_operatorname_defs.items():
-        # Check if the command definition is likely present to avoid adding unused replacements
-        # This is a heuristic. A more robust method would parse definitions first.
-        if cmd in latex_content and definition.split('{')[0] in latex_content: # e.g. \operatorname
-             custom_commands_to_replace[cmd] = definition.replace('\\', '\\\\') # Escape for re.sub
+        if cmd in latex_content and definition.split('{')[0] in latex_content: 
+             # For these manually defined replacements, ensure they are already re.sub safe
+             # or make them so. Here, they contain \ which needs to be \\ for re.sub's repl.
+             custom_commands_to_replace[cmd] = definition.replace('\\', '\\\\') 
              print(f"DEBUG _preprocess: Added manual operatorname-like cmd: {cmd} -> {custom_commands_to_replace[cmd]}")
 
 
@@ -76,25 +66,31 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         
         for cmd_key in sorted_cmd_keys:
             replacement_text = custom_commands_to_replace[cmd_key]
-            # If replacement_text came from custom_commands_to_replace, it might already be escaped (for manual ones)
-            # or not (for regex-derived ones).
-            # The safest is to ensure it's correctly escaped for re.sub's replacement string.
-            # If replacement_text is like "Ker" or "Im", no change.
-            # If it's like "\mathbb{R}", it needs to become "\\mathbb{R}".
-            # If it's already "\\operatorname{ker}\\phi", it should stay that way.
             
-            # A simple strategy: if it starts with a single backslash, double it.
-            # This handles \mathbb{R} -> \\mathbb{R}.
-            # It assumes manually added ones like \\operatorname are already correct for re.sub.
-            if replacement_text.startswith('\\') and not replacement_text.startswith('\\\\'):
+            # Ensure all backslashes in replacement_text are escaped for re.sub,
+            # unless it's already correctly escaped (e.g., from manual_operatorname_defs).
+            # The manual ones are already made `\\\\` for `\`.
+            # For those from regex (like `\mathbb{R}`), they are single `\`.
+            # So, if it's not from manual_operatorname_defs (which are already `\\\\`), then escape.
+            # A simpler, more general approach: if it's not already `\\\\`, make it `\\\\`.
+            # This might be too aggressive if `replacement_text` is just "Ker".
+            
+            # Refined logic: if replacement_text was from manual_operatorname_defs, it's already `\\\\`.
+            # Otherwise, it's from regex and needs `\` -> `\\\\`.
+            if cmd_key not in manual_operatorname_defs: # If derived from regex and contains '\'
                 final_replacement_text = replacement_text.replace('\\', '\\\\')
-            else:
-                final_replacement_text = replacement_text 
+            else: # Already correctly escaped for re.sub if from manual_operatorname_defs
+                final_replacement_text = replacement_text
             
-            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])" # Match whole command
+            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])" 
             
             # print(f"DEBUG _preprocess: Replacing '{cmd_key}' with '{final_replacement_text}'")
-            processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
+            try:
+                processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
+            except re.error as e_re:
+                print(f"ERROR during re.sub for cmd_key='{cmd_key}', replacement='{final_replacement_text}': {e_re}")
+                # Skip this problematic replacement and continue
+                continue
         print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
     else:
         print("DEBUG _preprocess_custom_latex_commands: No simple custom commands found for preprocessing.")
@@ -108,8 +104,23 @@ def custom_latex_to_text(latex_str: str) -> str:
         print("DEBUG custom_latex_to_text: LaTeX string is empty or whitespace.")
         return ""
     
+    # --- Try increasing recursion limit locally for LatexWalker if needed ---
+    # original_recursion_limit = sys.getrecursionlimit()
+    # try:
+    #     if original_recursion_limit < 3000: # Example threshold
+    #         sys.setrecursionlimit(3000) 
+    #         print(f"DEBUG custom_latex_to_text: Temporarily increased recursion limit to {sys.getrecursionlimit()}")
+    # except RuntimeError: # Some environments might restrict this
+    #     print("WARN: Could not increase recursion limit.")
+    # --- End of recursion limit adjustment ---
+
     lw = LatexWalker(latex_str) 
     parsing_result = lw.get_latex_nodes() 
+
+    # if original_recursion_limit < sys.getrecursionlimit(): # Reset if changed
+    #     sys.setrecursionlimit(original_recursion_limit)
+    #     print(f"DEBUG custom_latex_to_text: Reset recursion limit to {original_recursion_limit}")
+
 
     if parsing_result is None: nodelist = []
     else: nodelist, _, _ = parsing_result; nodelist = nodelist or []
@@ -128,8 +139,6 @@ def custom_latex_to_text(latex_str: str) -> str:
             print(f"DEBUG __init__: CustomLatexNodes2Text initialized.")
 
             custom_arg_macros_text_specs = []
-            
-            # Commands that take arguments, to be handled by MacroTextSpec
             custom_arg_macros_text_specs.extend([
                 MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),          
                 MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"), 
@@ -137,11 +146,11 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),    
                 MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"), 
                 MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),  
-                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), # From user list: \newcommand{\norm}[1]{\text{N}(#1)}
+                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), 
                 MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"), 
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
                 MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),         
-                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"), # For \powerset[1]
+                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"), 
                 MacroTextSpec("dual", simplify_repl=r"%(1)s^*"),
                 MacroTextSpec("Lp", simplify_repl=r"L^{%(1)s}"),
                 MacroTextSpec("lp", simplify_repl=r"\ell^{%(1)s}"),
@@ -150,11 +159,11 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("inner", simplify_repl=r"\langle %(1)s, %(2)s \rangle"),
                 MacroTextSpec("conj", simplify_repl=r"\overline{%(1)s}"),
                 MacroTextSpec("herm", simplify_repl=r"%(1)s^H"),
-                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}") # From \renewcommand{\vec}[1]{\mathbf{#1}}
+                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}") 
             ])
 
             if custom_arg_macros_text_specs:
-                category_name = 'custom_argument_macros_text_cat_v4' # Ensure unique category name
+                category_name = 'custom_argument_macros_text_cat_v4' 
                 self.latex_context_db.add_context_category(
                     category_name, 
                     macros=custom_arg_macros_text_specs,
@@ -164,32 +173,27 @@ def custom_latex_to_text(latex_str: str) -> str:
 
 
         def convert_node(self, node):
-            # ... (convert_node logic remains the same as the previous version in the Canvas) ...
+            # ... (convert_node logic remains the same) ...
             if node is None: return ""
             if node.isNodeType(LatexCharsNode): return node.chars
             if node.isNodeType(LatexMathNode): return node.latex_verbatim()
-
             if node.isNodeType(LatexMacroNode):
                 print(f"DEBUG convert_node: Encountered LatexMacroNode with macroname: '{node.macroname}'")
-                
                 if node.macroname in ['textit', 'textbf', 'emph']: 
                     if node.nodeargs and len(node.nodeargs) > 0 and \
                        node.nodeargs[0] is not None and hasattr(node.nodeargs[0], 'nodelist'):
                         return self.nodelist_to_text(node.nodeargs[0].nodelist)
                     return "" 
-
                 defining_macros_to_remove = [
-                    'title', 'author', 'date', 'maketitle', 
-                    'documentclass', 'usepackage', 'label', 'ref', 'cite', 'pagestyle', 
-                    'thispagestyle', 'includegraphics', 'figureheight', 'figurewidth', 
-                    'caption', 'tableofcontents', 'listoffigures', 'listoftables',
-                    'appendix', 'bibliographystyle', 'bibliography', 'hspace', 'vspace', 
-                    'hfill', 'vfill', 'centering', 'noindent', 'indent', 'newpage', 
+                    'title', 'author', 'date', 'maketitle', 'documentclass', 'usepackage', 
+                    'label', 'ref', 'cite', 'pagestyle', 'thispagestyle', 'includegraphics', 
+                    'figureheight', 'figurewidth', 'caption', 'tableofcontents', 'listoffigures', 
+                    'listoftables', 'appendix', 'bibliographystyle', 'bibliography', 'hspace', 
+                    'vspace', 'hfill', 'vfill', 'centering', 'noindent', 'indent', 'newpage', 
                     'clearpage', 'linebreak', 'nolinebreak', 'setlength', 'addtolength', 
-                    'setcounter', 'addtocounter', 'selectfont', 'item',
-                    'newtheorem', 'newenvironment', 'renewenvironment',
-                    'newcommand', 'renewcommand', 'providecommand', 
-                    'DeclareMathOperator', 'DeclareRobustCommand', 
+                    'setcounter', 'addtocounter', 'selectfont', 'item', 'newtheorem', 
+                    'newenvironment', 'renewenvironment', 'newcommand', 'renewcommand', 
+                    'providecommand', 'DeclareMathOperator', 'DeclareRobustCommand', 
                     'geometry', 'setstretch', 'linespread', 'hyphenation', 'url', 'href', 
                     'graphicspath', 'input', 'include', 'RequirePackage', 'LoadClass', 
                     'ProcessOptions', 'PassOptionsToPackage', 'newif', 'ifdefined', 'ifx', 
@@ -200,38 +204,29 @@ def custom_latex_to_text(latex_str: str) -> str:
                 if node.macroname in defining_macros_to_remove:
                     print(f"DEBUG convert_node: Removing defining/layout macro '{node.macroname}' by returning empty string.")
                     return "" 
-                
                 print(f"DEBUG convert_node: For macro '{node.macroname}', calling super().convert_node() for dispatch.")
                 return super().convert_node(node)
-
             if node.isNodeType(LatexCommentNode): return ""
-            
             if node.isNodeType(LatexEnvironmentNode):
                 if node.environmentname == 'document':
                     print("DEBUG convert_node: Processing 'document' environment content.")
                     return self.nodelist_to_text(node.nodelist)
-                
                 if node.environmentname in ['itemize', 'enumerate', 'description']:
                     print(f"DEBUG convert_node: Letting super handle environment '{node.environmentname}'.")
                     return super().convert_node(node)
-
                 environments_to_process_content = [
-                    'abstract', 'center', 
-                    'figure', 'table', 'theorem', 'lemma', 'proof', 'definition', 
-                    'corollary', 'example', 'remark'
+                    'abstract', 'center', 'figure', 'table', 'theorem', 'lemma', 'proof', 
+                    'definition', 'corollary', 'example', 'remark'
                 ]
                 if node.environmentname in environments_to_process_content:
                     print(f"DEBUG convert_node: Processing content of environment '{node.environmentname}'.")
-                    return self.nodelist_to_text(node.nodelist)
-
+                    return self.nodelist_to_text(node.nodelist) # Removed extra newlines
                 environments_to_remove = ['comment']
                 if node.environmentname in environments_to_remove:
                     print(f"DEBUG convert_node: Removing environment '{node.environmentname}'.")
                     return ""
-                
                 print(f"DEBUG convert_node: Environment '{node.environmentname}' not explicitly handled, calling super.")
                 return super().convert_node(node)
-
             if node.isNodeType(LatexGroupNode): return self.nodelist_to_text(node.nodelist)
             return super().convert_node(node)
 
@@ -261,8 +256,7 @@ def custom_latex_to_text(latex_str: str) -> str:
             stripped_line = line.strip()
             list_marker_match = re.match(r"^(\s*)([\*\-]\s*|\d+\.\s*)(.*)", stripped_line)
             if list_marker_match:
-                marker = list_marker_match.group(2).strip() 
-                item_content = list_marker_match.group(3).strip()
+                marker = list_marker_match.group(2).strip(); item_content = list_marker_match.group(3).strip()
                 if marker.endswith('.'): processed_lines.append(f"{marker} {item_content}")
                 else: processed_lines.append(f"{marker} {item_content}")
             elif stripped_line: processed_lines.append(stripped_line)
@@ -301,6 +295,11 @@ def parse_latex_file(file_path: str) -> str:
             
         return text_representation
 
+    except RecursionError as re_err: # Specifically catch RecursionError
+        print(f"ERROR: Recursion depth exceeded while parsing LaTeX file {file_path}. This file is too complex for the current parser limits or has problematic syntax. Error: {re_err}")
+        import traceback
+        traceback.print_exc()
+        return "" # Return empty for this file
     except FileNotFoundError:
         print(f"ERROR: LaTeX file not found: {file_path}")
         return ""
