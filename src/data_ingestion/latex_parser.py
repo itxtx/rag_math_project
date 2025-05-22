@@ -12,55 +12,72 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     Preprocesses LaTeX content to expand some simple custom command definitions
     (\DeclareMathOperator and simple \newcommand/\renewcommand without arguments 
     in their definition) before main parsing.
-    
-    --- CURRENTLY BYPASSED FOR DEBUGGING RECURSION ERROR ---
     """
-    print("DEBUG _preprocess_custom_latex_commands: BYPASSING ALL PREPROCESSING FOR RECURSION TEST.")
-    return latex_content # Return original content without any changes
+    print("DEBUG _preprocess_custom_latex_commands: Starting preprocessing...")
+    processed_content = latex_content
+    # Stores {'\\cmd': 'replacement_text'}
+    custom_commands_to_replace = {} 
 
-    # --- Original Preprocessing Logic (commented out for now) ---
-    # print("DEBUG _preprocess_custom_latex_commands: Starting preprocessing...")
-    # processed_content = latex_content
-    # custom_commands_to_replace = {} 
+    # Regex for \DeclareMathOperator{\cmd}{replacement_text}
+    # Example: \DeclareMathOperator{\Ker}{Ker}  -> replaces usage of \Ker with Ker
+    declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
+    for match in declaremath_pattern.finditer(latex_content):
+        cmd_name = match.group(1)
+        replacement = match.group(2).strip() 
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement # Store with backslash
+        print(f"DEBUG _preprocess: Found DeclareMathOperator for pre-replacement: \\{cmd_name} -> {replacement}")
 
-    # declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
-    # for match in declaremath_pattern.finditer(latex_content):
-    #     cmd_name = match.group(1)
-    #     replacement = match.group(2).strip() 
-    #     custom_commands_to_replace[f"\\{cmd_name}"] = replacement
-    #     # print(f"DEBUG _preprocess: Found DeclareMathOperator for pre-replacement: \\{cmd_name} -> {replacement}")
-
-    # newcommand_simple_pattern = re.compile(r"\\newcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
-    # for match in newcommand_simple_pattern.finditer(latex_content):
-    #     cmd_name = match.group(1)
-    #     replacement = match.group(2).strip()
-    #     custom_commands_to_replace[f"\\{cmd_name}"] = replacement
-    #     # print(f"DEBUG _preprocess: Found simple newcommand for pre-replacement: \\{cmd_name} -> {replacement}")
+    # Regex for simple \newcommand{\cmd}{replacement_text} (no arguments in definition part)
+    # Example: \newcommand{\R}{\mathbb{R}} -> replaces usage of \R with \mathbb{R}
+    newcommand_simple_pattern = re.compile(r"\\newcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
+    for match in newcommand_simple_pattern.finditer(latex_content):
+        cmd_name = match.group(1)
+        replacement = match.group(2).strip()
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement
+        print(f"DEBUG _preprocess: Found simple newcommand for pre-replacement: \\{cmd_name} -> {replacement}")
     
-    # renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
-    # for match in renewcommand_simple_pattern.finditer(latex_content):
-    #     cmd_name = match.group(1)
-    #     replacement = match.group(2).strip()
-    #     custom_commands_to_replace[f"\\{cmd_name}"] = replacement
-    #     # print(f"DEBUG _preprocess: Found simple renewcommand for pre-replacement: \\{cmd_name} -> {replacement}")
+    # Regex for simple \renewcommand{\cmd}{replacement_text} (no arguments in definition part)
+    renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
+    for match in renewcommand_simple_pattern.finditer(latex_content):
+        cmd_name = match.group(1)
+        replacement = match.group(2).strip()
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement
+        print(f"DEBUG _preprocess: Found simple renewcommand for pre-replacement: \\{cmd_name} -> {replacement}")
 
-    # custom_commands_to_replace['\\kerphi'] = r'\operatorname{ker}\phi'.replace('\\', '\\\\')
-    # custom_commands_to_replace['\\imphi'] = r'\operatorname{im}\phi'.replace('\\', '\\\\')
+    # Manually add specific tricky ones if regex is hard, ensuring replacements are re.sub-safe
+    # For r'\operatorname{ker}\phi', the replacement string for re.sub should be '\\operatorname{ker}\\phi'
+    # These are for specific commands that might not be caught by general patterns or need specific formatting.
+    if r'\kerphi' in latex_content: # Check if defined to avoid adding if not present
+        custom_commands_to_replace['\\kerphi'] = r'\operatorname{ker}\phi'.replace('\\', '\\\\')
+    if r'\imphi' in latex_content:
+        custom_commands_to_replace['\\imphi'] = r'\operatorname{im}\phi'.replace('\\', '\\\\')
 
-    # if custom_commands_to_replace:
-    #     print(f"DEBUG _preprocess: Applying {len(custom_commands_to_replace)} simple command pre-replacements.")
-    #     sorted_cmd_keys = sorted(custom_commands_to_replace.keys(), key=len, reverse=True)
+
+    if custom_commands_to_replace:
+        print(f"DEBUG _preprocess: Applying {len(custom_commands_to_replace)} simple command pre-replacements.")
+        # Sort by length of command name (descending) to replace longer commands first
+        # This helps avoid issues like replacing \im before \imop if both were simple text replacements.
+        sorted_cmd_keys = sorted(custom_commands_to_replace.keys(), key=len, reverse=True)
         
-    #     for cmd_key in sorted_cmd_keys:
-    #         replacement_text = custom_commands_to_replace[cmd_key]
-    #         final_replacement_text = replacement_text.replace('\\', '\\\\')
-    #         pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])"
-    #         processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
-    #     print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
-    # else:
-    #     print("DEBUG _preprocess_custom_latex_commands: No simple custom commands found for preprocessing.")
+        for cmd_key in sorted_cmd_keys:
+            replacement_text = custom_commands_to_replace[cmd_key]
+            # Escape backslashes in the replacement text for re.sub, unless it's already escaped (like manual ones)
+            # A simple heuristic: if it starts with a backslash but not double, double it.
+            if replacement_text.startswith('\\') and not replacement_text.startswith('\\\\'):
+                final_replacement_text = replacement_text.replace('\\', '\\\\')
+            else:
+                final_replacement_text = replacement_text # Assume already correctly escaped or no backslashes
+            
+            # Pattern: exact command, not followed by other letters (to avoid partial match)
+            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])"
+            
+            # print(f"DEBUG _preprocess: Replacing '{cmd_key}' with '{final_replacement_text}'")
+            processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
+        print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
+    else:
+        print("DEBUG _preprocess_custom_latex_commands: No simple custom commands found for preprocessing.")
         
-    # return processed_content
+    return processed_content
 
 
 def custom_latex_to_text(latex_str: str) -> str:
@@ -90,6 +107,7 @@ def custom_latex_to_text(latex_str: str) -> str:
 
             custom_arg_macros_text_specs = []
             
+            # Commands from the user's list that take arguments
             custom_arg_macros_text_specs.extend([
                 MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),          
                 MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"), 
@@ -97,6 +115,9 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),    
                 MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"), 
                 MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),  
+                MacroTextSpec("norm", simplify_repl=r"\left\lVert%(1)s\right\rVert"), # For \norm{...}
+                # Note: \newcommand{\norm}[1]{\text{N}(#1)} is different. If that's active, this spec needs change.
+                # Assuming \left\lVert#1\right\rVert is the desired one for \norm.
                 MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"), 
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
                 MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),         
@@ -106,32 +127,20 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("lp", simplify_repl=r"\ell^{%(1)s}"),
                 MacroTextSpec("linop", simplify_repl=r"\mathcal{L}(%(1)s, %(2)s)"),
                 MacroTextSpec("boundedlinop", simplify_repl=r"\mathcal{L}(%(1)s)"),
-                MacroTextSpec("norm", simplify_repl=r"\left\lVert%(1)s\right\rVert"), 
                 MacroTextSpec("inner", simplify_repl=r"\langle %(1)s, %(2)s \rangle"),
                 MacroTextSpec("conj", simplify_repl=r"\overline{%(1)s}"),
                 MacroTextSpec("herm", simplify_repl=r"%(1)s^H"),
-                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}") 
+                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}") # From \renewcommand{\vec}[1]{\mathbf{#1}}
             ])
 
             if custom_arg_macros_text_specs:
-                category_name = 'custom_argument_macros_text_cat' 
-                
-                # --- CORRECTED CATEGORY AND MACRO ADDITION ---
+                category_name = 'custom_argument_macros_text_cat_v2' # Ensure unique category name
                 # Add the category and its macros in a single call.
-                # If the category already exists from a previous instantiation (unlikely here, but good practice),
-                # this will add to it. If it's new, it will be created and prepended.
-                # However, for a fresh LatexContextDb, it won't exist.
-                # If self.latex_context_db is shared across multiple CustomLatexNodes2Text instances
-                # (not the case here as each call to custom_latex_to_text creates a new converter),
-                # then checking if category exists before adding it would be important.
-                # For this structure, a single add_context_category is fine.
-                
                 self.latex_context_db.add_context_category(
                     category_name, 
                     macros=custom_arg_macros_text_specs,
                     prepend=True # This ensures this category is checked first
                 )
-                # --- END CORRECTION ---
                 print(f"DEBUG __init__: Category '{category_name}' (prepended) now has {len(custom_arg_macros_text_specs)} MacroTextSpecs for argument-taking commands.")
 
 
@@ -149,6 +158,9 @@ def custom_latex_to_text(latex_str: str) -> str:
                         return self.nodelist_to_text(node.nodeargs[0].nodelist)
                     return "" 
 
+                # Macros whose *definitions* should be removed from output.
+                # Their *usage* is handled by MacroTextSpec (for arg-taking ones)
+                # or by the preprocessor (for simple no-arg ones).
                 defining_macros_to_remove = [
                     'title', 'author', 'date', 'maketitle', 
                     'documentclass', 'usepackage', 'label', 'ref', 'cite', 'pagestyle', 
@@ -242,11 +254,11 @@ def parse_latex_file(file_path: str) -> str:
             return ""
         
         print("DEBUG parse_latex_file: Starting custom command preprocessing...")
-        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) 
+        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) # RE-ENABLED
         if latex_content_preprocessed != latex_content_original: 
             print("DEBUG parse_latex_file: Content was modified by preprocessor.")
         else:
-            print("DEBUG parse_latex_file: Content was NOT modified by preprocessor (preprocessing is currently bypassed).")
+            print("DEBUG parse_latex_file: Content was NOT modified by preprocessor.") # This will be false if preprocessor runs
             
         text_representation = custom_latex_to_text(latex_content_preprocessed)
         
