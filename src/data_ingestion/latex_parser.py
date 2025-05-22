@@ -13,7 +13,7 @@ except ImportError:
     config = None # Will be handled in __main__
 
 # --- Configuration for Recursion Limit ---
-TARGET_RECURSION_LIMIT = 1000
+TARGET_RECURSION_LIMIT = 15000
 
 # --- Set of defining/layout macros to remove during text conversion ---
 DEFINING_MACROS_TO_REMOVE = {
@@ -49,9 +49,15 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
     for match in declaremath_pattern.finditer(latex_content):
         cmd_name = match.group(1)
-        replacement = match.group(2).strip()
-        # The replacement for DeclareMathOperator is the operator name itself,
-        # unlikely to cause brace imbalance issues here.
+        replacement_text = match.group(2).strip()
+        # If replacement is just text (like "sin"), wrap it with \operatorname
+        # to ensure it's treated as a math operator.
+        # If it already contains commands, trust it.
+        if re.match(r"^[a-zA-Z]+$", replacement_text):
+            replacement = f"\\operatorname{{{replacement_text}}}"
+        else:
+            replacement = replacement_text # Assume it's already valid LaTeX like \mathrm{Hom}
+
         custom_commands_to_replace[f"\\{cmd_name}"] = replacement
         print(f"DEBUG _preprocess: Found DeclareMathOperator: \\{cmd_name} -> {replacement}")
 
@@ -61,13 +67,12 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         cmd_name = match.group(1)
         replacement = match.group(2).strip() # Definition text
 
-        # Check for brace balance in the captured replacement text
         if replacement.count('{') != replacement.count('}'):
             print(f"WARN _preprocess: Captured definition for \\{cmd_name} ('{replacement}') in newcommand seems to have unbalanced braces. Skipping this pre-replacement.")
-            continue # Skip to the next match
+            continue
 
         dict_key = f"\\{cmd_name}"
-        if dict_key not in custom_commands_to_replace: # Avoid overriding e.g. DeclareMathOperator
+        if dict_key not in custom_commands_to_replace:
             custom_commands_to_replace[dict_key] = replacement
             print(f"DEBUG _preprocess: Found simple newcommand: {dict_key} -> {replacement}")
 
@@ -75,19 +80,16 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in renewcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
-        replacement = match.group(2).strip() # Definition text
+        replacement = match.group(2).strip()
 
-        # Check for brace balance in the captured replacement text
         if replacement.count('{') != replacement.count('}'):
             print(f"WARN _preprocess: Captured definition for \\{cmd_name} ('{replacement}') in renewcommand seems to have unbalanced braces. Skipping this pre-replacement.")
-            continue # Skip to the next match
+            continue
 
         dict_key = f"\\{cmd_name}"
-        custom_commands_to_replace[dict_key] = replacement # renewcommand should override
+        custom_commands_to_replace[dict_key] = replacement
         print(f"DEBUG _preprocess: Found simple renewcommand: {dict_key} -> {replacement}")
 
-    # Manual definitions override any found by regex if keys match.
-    # These are assumed to be correctly balanced.
     manual_defs_to_replace = {
         '\\kerphi': r'\operatorname{ker}\phi',
         '\\imphi': r'\operatorname{im}\phi',
@@ -96,9 +98,7 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         '\\degpoly': r'\operatorname{deg}'
     }
     for cmd, definition in manual_defs_to_replace.items():
-        if cmd in latex_content: # Check if command is present before adding
-             # This ensures manual defs take precedence if a problematic one was skipped above
-             # or if a non-problematic one was found.
+        if cmd in latex_content:
              custom_commands_to_replace[cmd] = definition
              print(f"DEBUG _preprocess: Added/updated manual cmd: {cmd} -> {definition}")
 
@@ -175,7 +175,7 @@ def custom_latex_to_text(latex_str: str) -> str:
 
     class CustomLatexNodes2Text(LatexNodes2Text):
         def __init__(self, **kwargs):
-            super().__init__(math_mode="verbatim", **kwargs)
+            super().__init__(math_mode="verbatim", **kwargs) # Crucial for preserving LaTeX in math
 
             if not hasattr(self, 'latex_context_db') or self.latex_context_db is None:
                 print("WARN: CustomLatexNodes2Text: self.latex_context_db not set by superclass or is None. Initializing a new default one.")
@@ -183,14 +183,15 @@ def custom_latex_to_text(latex_str: str) -> str:
 
             print(f"DEBUG CustomLatexNodes2Text __init__: Initialized.")
 
-            custom_arg_macros_text_specs = [
+            # Base list of argument-taking macros
+            custom_arg_macros_text_specs_list = [
                 MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),
                 MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"),
                 MacroTextSpec("fieldext", simplify_repl=r"%(1)s/%(2)s"),
                 MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),
                 MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"),
                 MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),
-                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"),
+                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), # Or \operatorname{N}
                 MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"),
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
                 MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),
@@ -205,35 +206,49 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("herm", simplify_repl=r"%(1)s^H"),
                 MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}")
             ]
+            
+            # Use a dictionary to manage specs and avoid duplicates, ensuring one spec per macroname
+            specs_map = {spec.macroname: spec for spec in custom_arg_macros_text_specs_list}
 
-            if custom_arg_macros_text_specs:
-                category_name = 'custom_argument_macros_for_text_conversion_v5' # Keep version consistent or increment if logic changes
+            # Add specs for simple, common macros to ensure they output their LaTeX form
+            # These will override preprocessor if preprocessor produces non-LaTeX or different LaTeX
+            # For these, macroname is the command name without backslash.
+            simple_latex_macros = {
+                "Q": r"\mathbb{Q}", "C": r"\mathbb{C}", "K": r"\mathbb{K}",
+                "F": r"\mathbb{F}", "N": r"\mathbb{N}", "Z": r"\mathbb{Z}",
+                "R": r"\mathbb{R}",
+                "A": r"\mathcal{A}", # Assuming \A maps to \mathcal{A}
+                "V": r"\mathcal{V}", # Assuming \V maps to \mathcal{V}
+                # Add other common symbols if needed
+                "alpha": r"\alpha", "beta": r"\beta", "gamma": r"\gamma", # etc. for greek letters
+            }
+            for name, repl_latex in simple_latex_macros.items():
+                if name not in specs_map: # Add if not already defined (e.g. as an arg-taking macro)
+                    specs_map[name] = MacroTextSpec(name, simplify_repl=repl_latex)
+                else:
+                    print(f"DEBUG CustomLatexNodes2Text: Macro '{name}' already had a spec, not overriding with simple LaTeX version.")
+
+            final_custom_arg_specs = list(specs_map.values())
+
+            if final_custom_arg_specs:
+                category_name = 'custom_argument_macros_for_text_conversion_v6' # Incremented version
                 self.latex_context_db.add_context_category(
                     category_name,
-                    macros=custom_arg_macros_text_specs,
+                    macros=final_custom_arg_specs,
                     prepend=True
                 )
-                print(f"DEBUG CustomLatexNodes2Text __init__: Category '{category_name}' (prepended) now has {len(custom_arg_macros_text_specs)} MacroTextSpecs.")
+                print(f"DEBUG CustomLatexNodes2Text __init__: Category '{category_name}' (prepended) now has {len(final_custom_arg_specs)} MacroTextSpecs.")
 
             macros_to_remove_specs = [
-                MacroTextSpec("title", simplify_repl=""),
-                MacroTextSpec("author", simplify_repl=""),
-                MacroTextSpec("date", simplify_repl=""),
-                MacroTextSpec("maketitle", simplify_repl=""),
-                MacroTextSpec("documentclass", simplify_repl=""),
-                MacroTextSpec("usepackage", simplify_repl=""),
-                MacroTextSpec("label", simplify_repl=""),
-                MacroTextSpec("ref", simplify_repl=""),
-                MacroTextSpec("cite", simplify_repl=""),
-                MacroTextSpec("graphicspath", simplify_repl=""),
-                MacroTextSpec("includegraphics", simplify_repl=""),
-                MacroTextSpec("caption", simplify_repl=""),
-                MacroTextSpec("newcommand", simplify_repl=""),
-                MacroTextSpec("renewcommand", simplify_repl=""),
-                MacroTextSpec("providecommand", simplify_repl=""),
-                MacroTextSpec("DeclareMathOperator", simplify_repl=""),
-                MacroTextSpec("newenvironment", simplify_repl=""),
-                MacroTextSpec("renewenvironment", simplify_repl=""),
+                MacroTextSpec("title", simplify_repl=""), MacroTextSpec("author", simplify_repl=""),
+                MacroTextSpec("date", simplify_repl=""), MacroTextSpec("maketitle", simplify_repl=""),
+                MacroTextSpec("documentclass", simplify_repl=""), MacroTextSpec("usepackage", simplify_repl=""),
+                MacroTextSpec("label", simplify_repl=""), MacroTextSpec("ref", simplify_repl=""),
+                MacroTextSpec("cite", simplify_repl=""), MacroTextSpec("graphicspath", simplify_repl=""),
+                MacroTextSpec("includegraphics", simplify_repl=""), MacroTextSpec("caption", simplify_repl=""),
+                MacroTextSpec("newcommand", simplify_repl=""), MacroTextSpec("renewcommand", simplify_repl=""),
+                MacroTextSpec("providecommand", simplify_repl=""), MacroTextSpec("DeclareMathOperator", simplify_repl=""),
+                MacroTextSpec("newenvironment", simplify_repl=""), MacroTextSpec("renewenvironment", simplify_repl=""),
                 MacroTextSpec("newtheorem", simplify_repl=""),
             ]
             if macros_to_remove_specs:
@@ -252,42 +267,83 @@ def custom_latex_to_text(latex_str: str) -> str:
 
             if node.isNodeType(LatexCharsNode):
                 return node.chars
+            
             if node.isNodeType(LatexMathNode):
-                return node.latex_verbatim()
+                # node.delimiters stores the opening and closing delimiters, e.g., ('$', '$') or ('\\[', '\\]')
+                # node.nodelist contains the parsed content *inside* the delimiters.
+                # self.nodelist_to_text(node.nodelist) will convert this content.
+                # Since math_mode='verbatim', this should give the LaTeX of the content.
+                math_content_str = self.nodelist_to_text(node.nodelist)
+                
+                if node.delimiters == ('\\[', '\\]'):
+                    return f"$${math_content_str}$$"
+                elif node.delimiters == ('$', '$'):
+                    return f"${math_content_str}$"
+                else:
+                    # Fallback for other delimiters or if delimiters are None (e.g. from macro expansion)
+                    # If it's already valid LaTeX math, it should be fine.
+                    # This path could be hit if a macro expands to math content without explicit delimiters.
+                    # node.latex_verbatim() might be more robust here if available and gives full original string.
+                    # However, math_content_str is from nodelist_to_text, which respects math_mode='verbatim'.
+                    # If math_content_str is already $...$ or $$...$$, we don't want to double wrap.
+                    # This case is tricky. For now, assume math_content_str is the core LaTeX.
+                    # A check could be added: if not (math_content_str.startswith('$') and math_content_str.endswith('$'))
+                    # This is imperfect. Let's trust math_content_str for now.
+                    return math_content_str
+
+
             if node.isNodeType(LatexMacroNode):
-                # print(f"DEBUG convert_node: Encountered LatexMacroNode with macroname: '{node.macroname}'")
+                # print(f"DEBUG convert_node: Macro '{node.macroname}'")
                 if node.macroname in ['textit', 'textbf', 'emph']:
                     if node.nodeargs and len(node.nodeargs) > 0 and \
                        node.nodeargs[0] is not None and hasattr(node.nodeargs[0], 'nodelist'):
                         return self.nodelist_to_text(node.nodeargs[0].nodelist)
                     return ""
+                # The MacroTextSpecs for removal and custom handling should be triggered by super().convert_node()
+                # The DEFINING_MACROS_TO_REMOVE set is a fallback.
                 if node.macroname in DEFINING_MACROS_TO_REMOVE:
-                    # This check is a bit redundant if MacroTextSpec("...", simplify_repl="") is working correctly
-                    # for all items in DEFINING_MACROS_TO_REMOVE.
-                    # However, it can act as a fallback or catch macros not explicitly in macros_to_remove_specs.
-                    # The MacroTextSpec method is generally preferred for cleaner integration with pylatexenc.
-                    print(f"DEBUG convert_node: Direct removal of macro '{node.macroname}' via DEFINING_MACROS_TO_REMOVE set.")
+                    # Check if a specific MacroTextSpec handled it first (super() would not be called if this returns early)
+                    # This path should ideally not be hit for macros covered by MacroTextSpec("", simplify_repl="")
+                    print(f"DEBUG convert_node: Direct removal of macro '{node.macroname}' via DEFINING_MACROS_TO_REMOVE set (may indicate MacroTextSpec for removal was not hit or defined).")
                     return ""
                 return super().convert_node(node)
 
             if node.isNodeType(LatexCommentNode):
                 return ""
+            
             if node.isNodeType(LatexEnvironmentNode):
-                if node.environmentname == 'document':
+                env_name = node.environmentname
+                # Common LaTeX math environments
+                math_env_names = { 
+                    'equation', 'equation*', 'align', 'align*', 'alignat', 'alignat*',
+                    'gather', 'gather*', 'multline', 'multline*', 'flalign', 'flalign*',
+                    'displaymath' # although \[...\] is usually LatexMathNode
+                }
+
+                if env_name in math_env_names:
+                    env_content_str = self.nodelist_to_text(node.nodelist)
+                    # Reconstruct the full environment and wrap with $$ to ensure it's display math
+                    # and to be consistent with how \[...\] is handled.
+                    return f"$$\\begin{{{env_name}}}\n{env_content_str}\n\\end{{{env_name}}}$$"
+                
+                if env_name == 'document':
                     return self.nodelist_to_text(node.nodelist)
-                if node.environmentname in ['itemize', 'enumerate', 'description']:
-                    return super().convert_node(node)
+                
+                if env_name in ['itemize', 'enumerate', 'description']:
+                    return super().convert_node(node) # Let pylatexenc handle list formatting
 
                 environments_to_process_content = [
-                    'abstract', 'center', 'figure', 'table',
+                    'abstract', 'center', 'figure', 'table', # Note: figure/table content extraction is basic
                     'theorem', 'lemma', 'proof', 'definition', 'corollary', 'example', 'remark'
                 ]
-                if node.environmentname in environments_to_process_content:
+                if env_name in environments_to_process_content:
                     return self.nodelist_to_text(node.nodelist)
 
-                environments_to_remove = ['comment']
-                if node.environmentname in environments_to_remove:
+                environments_to_remove = ['comment'] # LaTeX 'comment' environment
+                if env_name in environments_to_remove:
                     return ""
+                
+                # Fallback for other environments
                 return super().convert_node(node)
 
             if node.isNodeType(LatexGroupNode):
@@ -308,6 +364,7 @@ def custom_latex_to_text(latex_str: str) -> str:
         processed_lines = []
         for line in lines:
             stripped_line = line.strip()
+            # Basic handling for lines that look like list items from default pylatexenc output
             list_marker_match = re.match(r"^(\s*)(?:[\*\-]\s+|\d+\.\s+)(.*)", stripped_line)
             if list_marker_match:
                 marker_part = stripped_line.split(None, 1)[0]
@@ -412,11 +469,15 @@ if __name__ == '__main__':
                 df.write("\\title{Dummy Title Test}\n\\author{Dummy Author}\n\\date{Today}\n")
                 df.write("\\usepackage{amsmath}\n")
                 df.write("\\newcommand{\\mycmd}{My Custom Command Text}\n")
-                df.write("\\newcommand{\\unbalancedcmd}{{unbalanced_content}}\n") # Test case for the fix
+                df.write("\\newcommand{\\Q}{\\mathbb{Q}}\n")
+                df.write("\\newcommand{\\abs}[1]{\\left| #1 \\right|}\n")
+                df.write("\\newcommand{\\unbalancedcmd}{{unbalanced_content}}\n")
                 df.write("\\DeclareMathOperator{\\TestOp}{TestOp}\n")
                 df.write("\\begin{document}\n")
                 df.write("\\maketitle\n")
-                df.write("Hello, world! This is a test. \\mycmd. \\unbalancedcmd. $\\TestOp(x) = y$.\n")
+                df.write("Hello, world! $\\Q$. Test $\\abs{-5}$. \\mycmd. \\unbalancedcmd. $\\TestOp(x) = y$.\n")
+                df.write("Display math: \\<y_bin_473>\\alpha + \\beta = \\gamma\\]\n")
+                df.write("\\begin{align*} x &= y + z \\\\ a &= b \\end{align*}\n")
                 df.write("\\section{Test Section}\nText in section.\n")
                 df.write("\\begin{itemize}\\item First item.\\item Second item.\\end{itemize}\n")
                 df.write("\\end{document}\n")
