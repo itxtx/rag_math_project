@@ -1,30 +1,57 @@
-# src/data_ingestion/latex_parser.py
 import os
 import re
-import sys 
+import sys
 from pylatexenc.latexwalker import LatexWalker, LatexCharsNode, LatexCommentNode, LatexGroupNode, LatexMacroNode, LatexMathNode, LatexEnvironmentNode, get_default_latex_context_db
-from pylatexenc.latex2text import LatexNodes2Text, MacroTextSpec 
-from pylatexenc.macrospec import MacroSpec, MacroStandardArgsParser, LatexContextDb
+from pylatexenc.latex2text import LatexNodes2Text, MacroTextSpec
+from pylatexenc.macrospec import MacroSpec, MacroStandardArgsParser, LatexContextDb # Not directly used, but good for context
+from typing import Dict # Added for type hinting
 
-from src import config
+# Attempt to import config, but allow script to run standalone for testing
+try:
+    from src import config
+except ImportError:
+    config = None # Will be handled in __main__
+
+# --- Configuration for Recursion Limit ---
+TARGET_RECURSION_LIMIT = 1000
+
+# --- Set of defining/layout macros to remove during text conversion ---
+DEFINING_MACROS_TO_REMOVE = {
+    'title', 'author', 'date', 'maketitle', 'documentclass', 'usepackage',
+    'label', 'ref', 'cite', 'pagestyle', 'thispagestyle', 'includegraphics',
+    'figureheight', 'figurewidth', 'caption', 'tableofcontents', 'listoffigures',
+    'listoftables', 'appendix', 'bibliographystyle', 'bibliography', 'hspace',
+    'vspace', 'hfill', 'vfill', 'centering', 'noindent', 'indent', 'newpage',
+    'clearpage', 'linebreak', 'nolinebreak', 'setlength', 'addtolength',
+    'setcounter', 'addtocounter', 'selectfont', 'item',
+    'newtheorem', 'newenvironment', 'renewenvironment', 'newcommand', 'renewcommand',
+    'providecommand', 'DeclareMathOperator', 'DeclareRobustCommand',
+    'geometry', 'setstretch', 'linespread', 'hyphenation', 'url', 'href',
+    'graphicspath', 'input', 'include', 'RequirePackage', 'LoadClass',
+    'ProcessOptions', 'PassOptionsToPackage', 'newif', 'ifdefined', 'ifx',
+    'fi', 'else', 'let', 'def', 'edef', 'gdef', 'xdef',
+    'AtBeginDocument', 'AtEndDocument', 'AtEndOfClass', 'AtEndOfPackage',
+    'ExplSyntaxOn', 'ExplSyntaxOff', 'ProvidesPackage', 'NeedsTeXFormat'
+}
 
 def _preprocess_custom_latex_commands(latex_content: str) -> str:
     """
     Preprocesses LaTeX content to expand simple custom command definitions
-    (\DeclareMathOperator and simple \newcommand/\renewcommand without arguments 
+    (\DeclareMathOperator and simple \newcommand/\renewcommand without arguments
     in their definition) before main parsing.
+    Skips preprocessing for newcommand/renewcommand if captured definition has unbalanced braces.
     """
     print("DEBUG _preprocess_custom_latex_commands: Starting preprocessing...")
     processed_content = latex_content
-    custom_commands_to_replace = {} 
+    custom_commands_to_replace: Dict[str, str] = {}
 
     # \DeclareMathOperator{\cmd}{replacement_text}
     declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
     for match in declaremath_pattern.finditer(latex_content):
         cmd_name = match.group(1)
-        replacement = match.group(2).strip() 
-        # For DeclareMathOperator, the replacement is usually literal text, e.g., "Ker", "Im"
-        # These do not need further backslash escaping for re.sub's replacement string.
+        replacement = match.group(2).strip()
+        # The replacement for DeclareMathOperator is the operator name itself,
+        # unlikely to cause brace imbalance issues here.
         custom_commands_to_replace[f"\\{cmd_name}"] = replacement
         print(f"DEBUG _preprocess: Found DeclareMathOperator: \\{cmd_name} -> {replacement}")
 
@@ -32,99 +59,142 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     newcommand_simple_pattern = re.compile(r"\\newcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in newcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
-        replacement = match.group(2).strip()
-        dict_key = f"\\{cmd_name}" # Construct key separately
-        if dict_key not in custom_commands_to_replace:
-            # Replacement might contain LaTeX like \mathbb{R}. These backslashes need to be doubled for re.sub.
-            custom_commands_to_replace[dict_key] = replacement.replace('\\', '\\\\')
-            # Corrected f-string for printing
-            print(f"DEBUG _preprocess: Found simple newcommand: {dict_key} -> {custom_commands_to_replace[dict_key]}")
-        else:
-            print(f"DEBUG _preprocess: newcommand for {dict_key} skipped (already defined).")
-    
+        replacement = match.group(2).strip() # Definition text
+
+        # Check for brace balance in the captured replacement text
+        if replacement.count('{') != replacement.count('}'):
+            print(f"WARN _preprocess: Captured definition for \\{cmd_name} ('{replacement}') in newcommand seems to have unbalanced braces. Skipping this pre-replacement.")
+            continue # Skip to the next match
+
+        dict_key = f"\\{cmd_name}"
+        if dict_key not in custom_commands_to_replace: # Avoid overriding e.g. DeclareMathOperator
+            custom_commands_to_replace[dict_key] = replacement
+            print(f"DEBUG _preprocess: Found simple newcommand: {dict_key} -> {replacement}")
+
     # Simple \renewcommand{\cmd}{replacement_text} (no arguments in definition part)
     renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in renewcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
-        replacement = match.group(2).strip()
-        dict_key = f"\\{cmd_name}" # Construct key separately
-        # Replacement might contain LaTeX. These backslashes need to be doubled for re.sub.
-        custom_commands_to_replace[dict_key] = replacement.replace('\\', '\\\\')
-        # Corrected f-string for printing
-        print(f"DEBUG _preprocess: Found simple renewcommand: {dict_key} -> {custom_commands_to_replace[dict_key]}")
+        replacement = match.group(2).strip() # Definition text
 
+        # Check for brace balance in the captured replacement text
+        if replacement.count('{') != replacement.count('}'):
+            print(f"WARN _preprocess: Captured definition for \\{cmd_name} ('{replacement}') in renewcommand seems to have unbalanced braces. Skipping this pre-replacement.")
+            continue # Skip to the next match
+
+        dict_key = f"\\{cmd_name}"
+        custom_commands_to_replace[dict_key] = replacement # renewcommand should override
+        print(f"DEBUG _preprocess: Found simple renewcommand: {dict_key} -> {replacement}")
+
+    # Manual definitions override any found by regex if keys match.
+    # These are assumed to be correctly balanced.
     manual_defs_to_replace = {
-        '\\kerphi': r'\\operatorname{ker}\\phi', # Already escaped for re.sub
-        '\\imphi': r'\\operatorname{im}\\phi',   # Already escaped for re.sub
-        '\\Gal': r'\\operatorname{Gal}',       # Already escaped for re.sub
-        '\\Aut': r'\\operatorname{Aut}',       # Already escaped for re.sub
-        '\\degpoly': r'\\operatorname{deg}'    # Already escaped for re.sub
+        '\\kerphi': r'\operatorname{ker}\phi',
+        '\\imphi': r'\operatorname{im}\phi',
+        '\\Gal': r'\operatorname{Gal}',
+        '\\Aut': r'\operatorname{Aut}',
+        '\\degpoly': r'\operatorname{deg}'
     }
-    for cmd, definition_escaped_for_resub in manual_defs_to_replace.items():
-        if cmd in latex_content: 
-             custom_commands_to_replace[cmd] = definition_escaped_for_resub
-             print(f"DEBUG _preprocess: Added manual cmd: {cmd} -> {custom_commands_to_replace[cmd]}")
+    for cmd, definition in manual_defs_to_replace.items():
+        if cmd in latex_content: # Check if command is present before adding
+             # This ensures manual defs take precedence if a problematic one was skipped above
+             # or if a non-problematic one was found.
+             custom_commands_to_replace[cmd] = definition
+             print(f"DEBUG _preprocess: Added/updated manual cmd: {cmd} -> {definition}")
 
 
     if custom_commands_to_replace:
         print(f"DEBUG _preprocess: Applying {len(custom_commands_to_replace)} simple command pre-replacements.")
         sorted_cmd_keys = sorted(custom_commands_to_replace.keys(), key=len, reverse=True)
-        
+
         for cmd_key in sorted_cmd_keys:
-            final_replacement_text = custom_commands_to_replace[cmd_key]
-            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])" 
-            
+            literal_replacement_text = custom_commands_to_replace[cmd_key]
+            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])"
             try:
-                processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
+                processed_content = re.sub(pattern_to_replace, lambda m: literal_replacement_text, processed_content)
             except re.error as e_re:
-                print(f"ERROR during re.sub for cmd_key='{cmd_key}', replacement='{final_replacement_text}': {e_re}")
-                continue 
+                print(f"ERROR during re.sub for cmd_key='{cmd_key}', replacement='{literal_replacement_text}': {e_re}")
+                continue
         print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
     else:
         print("DEBUG _preprocess_custom_latex_commands: No simple custom commands found for preprocessing.")
-        
+
     return processed_content
 
 
 def custom_latex_to_text(latex_str: str) -> str:
+    """
+    Converts a LaTeX string to a cleaner textual representation using pylatexenc.
+    Handles custom commands and environments.
+    """
     print(f"DEBUG custom_latex_to_text: Input LaTeX string (first 200 chars after potential preprocessing): '{latex_str[:200]}...'")
     if not latex_str.strip():
         print("DEBUG custom_latex_to_text: LaTeX string is empty or whitespace.")
         return ""
-    
-    lw = LatexWalker(latex_str) 
-    parsing_result = lw.get_latex_nodes() 
 
-    if parsing_result is None: nodelist = []
-    else: nodelist, _, _ = parsing_result; nodelist = nodelist or []
-    
+    original_recursion_limit = sys.getrecursionlimit()
+    effective_recursion_limit = max(original_recursion_limit, TARGET_RECURSION_LIMIT)
+
+    nodelist = []
+    parsing_error_occurred = False
+    try:
+        if original_recursion_limit < effective_recursion_limit:
+            sys.setrecursionlimit(effective_recursion_limit)
+            print(f"DEBUG custom_latex_to_text: Temporarily increased recursion limit from {original_recursion_limit} to {sys.getrecursionlimit()}")
+
+        latex_context = get_default_latex_context_db()
+        lw = LatexWalker(latex_str, latex_context=latex_context)
+        parsing_result = lw.get_latex_nodes(pos=0)
+
+        if parsing_result is None:
+             nodelist = []
+        else:
+            nodelist = parsing_result[0] if parsing_result[0] is not None else []
+
+    except RecursionError as re_err_inner:
+        print(f"ERROR (inner): Recursion depth exceeded ({sys.getrecursionlimit()}) during LatexWalker.get_latex_nodes() for content starting with '{latex_str[:100]}...'. Error: {re_err_inner}")
+        parsing_error_occurred = True
+        return ""
+    except Exception as e_walker:
+        print(f"ERROR (inner): Exception during LatexWalker.get_latex_nodes() for content starting with '{latex_str[:100]}...'. Error: {type(e_walker).__name__}: {e_walker}")
+        import traceback
+        traceback.print_exc()
+        parsing_error_occurred = True
+        return ""
+    finally:
+        if sys.getrecursionlimit() != original_recursion_limit:
+            sys.setrecursionlimit(original_recursion_limit)
+            print(f"DEBUG custom_latex_to_text: Reset recursion limit to {original_recursion_limit}")
+
+    if parsing_error_occurred:
+        return ""
+
     print(f"DEBUG custom_latex_to_text: Initial nodelist length: {len(nodelist)}")
-    if nodelist: print(f"DEBUG custom_latex_to_text: First node type: {type(nodelist[0]).__name__}")
+    if nodelist:
+        print(f"DEBUG custom_latex_to_text: First node type: {type(nodelist[0]).__name__ if nodelist else 'N/A'}")
 
     class CustomLatexNodes2Text(LatexNodes2Text):
         def __init__(self, **kwargs):
-            super().__init__(math_mode="verbatim", **kwargs) 
-            
-            if not hasattr(self, 'latex_context_db') or self.latex_context_db is None:
-                print("WARN: self.latex_context_db not set by superclass or is None. Initializing a new default one.")
-                self.latex_context_db = get_default_latex_context_db()
-            
-            print(f"DEBUG __init__: CustomLatexNodes2Text initialized.")
+            super().__init__(math_mode="verbatim", **kwargs)
 
-            custom_arg_macros_text_specs = []
-            
-            custom_arg_macros_text_specs.extend([
-                MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),          
-                MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"), 
-                MacroTextSpec("fieldext", simplify_repl=r"%(1)s/%(2)s"),    
-                MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),    
-                MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"), 
-                MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),  
-                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), 
-                MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"), 
+            if not hasattr(self, 'latex_context_db') or self.latex_context_db is None:
+                print("WARN: CustomLatexNodes2Text: self.latex_context_db not set by superclass or is None. Initializing a new default one.")
+                self.latex_context_db = get_default_latex_context_db()
+
+            print(f"DEBUG CustomLatexNodes2Text __init__: Initialized.")
+
+            custom_arg_macros_text_specs = [
+                MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),
+                MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"),
+                MacroTextSpec("fieldext", simplify_repl=r"%(1)s/%(2)s"),
+                MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),
+                MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"),
+                MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),
+                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"),
+                MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"),
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
-                MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),         
-                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"), 
+                MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),
+                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"),
                 MacroTextSpec("dual", simplify_repl=r"%(1)s^*"),
                 MacroTextSpec("Lp", simplify_repl=r"L^{%(1)s}"),
                 MacroTextSpec("lp", simplify_repl=r"\ell^{%(1)s}"),
@@ -133,122 +203,123 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("inner", simplify_repl=r"\langle %(1)s, %(2)s \rangle"),
                 MacroTextSpec("conj", simplify_repl=r"\overline{%(1)s}"),
                 MacroTextSpec("herm", simplify_repl=r"%(1)s^H"),
-                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}") 
-            ])
+                MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}")
+            ]
 
             if custom_arg_macros_text_specs:
-                category_name = 'custom_argument_macros_text_cat_v4' 
+                category_name = 'custom_argument_macros_for_text_conversion_v5' # Keep version consistent or increment if logic changes
                 self.latex_context_db.add_context_category(
-                    category_name, 
+                    category_name,
                     macros=custom_arg_macros_text_specs,
-                    prepend=True 
+                    prepend=True
                 )
-                print(f"DEBUG __init__: Category '{category_name}' (prepended) now has {len(custom_arg_macros_text_specs)} MacroTextSpecs for argument-taking commands.")
+                print(f"DEBUG CustomLatexNodes2Text __init__: Category '{category_name}' (prepended) now has {len(custom_arg_macros_text_specs)} MacroTextSpecs.")
+
+            macros_to_remove_specs = [
+                MacroTextSpec("title", simplify_repl=""),
+                MacroTextSpec("author", simplify_repl=""),
+                MacroTextSpec("date", simplify_repl=""),
+                MacroTextSpec("maketitle", simplify_repl=""),
+                MacroTextSpec("documentclass", simplify_repl=""),
+                MacroTextSpec("usepackage", simplify_repl=""),
+                MacroTextSpec("label", simplify_repl=""),
+                MacroTextSpec("ref", simplify_repl=""),
+                MacroTextSpec("cite", simplify_repl=""),
+                MacroTextSpec("graphicspath", simplify_repl=""),
+                MacroTextSpec("includegraphics", simplify_repl=""),
+                MacroTextSpec("caption", simplify_repl=""),
+                MacroTextSpec("newcommand", simplify_repl=""),
+                MacroTextSpec("renewcommand", simplify_repl=""),
+                MacroTextSpec("providecommand", simplify_repl=""),
+                MacroTextSpec("DeclareMathOperator", simplify_repl=""),
+                MacroTextSpec("newenvironment", simplify_repl=""),
+                MacroTextSpec("renewenvironment", simplify_repl=""),
+                MacroTextSpec("newtheorem", simplify_repl=""),
+            ]
+            if macros_to_remove_specs:
+                remove_category_name = 'macros_to_explicitly_remove_v2'
+                self.latex_context_db.add_context_category(
+                    remove_category_name,
+                    macros=macros_to_remove_specs,
+                    prepend=True
+                )
+                print(f"DEBUG CustomLatexNodes2Text __init__: Category '{remove_category_name}' (prepended) now has {len(macros_to_remove_specs)} MacroTextSpecs for removal.")
 
 
         def convert_node(self, node):
-            if node is None: return ""
-            if node.isNodeType(LatexCharsNode): return node.chars
-            if node.isNodeType(LatexMathNode): return node.latex_verbatim()
+            if node is None:
+                return ""
 
+            if node.isNodeType(LatexCharsNode):
+                return node.chars
+            if node.isNodeType(LatexMathNode):
+                return node.latex_verbatim()
             if node.isNodeType(LatexMacroNode):
-                print(f"DEBUG convert_node: Encountered LatexMacroNode with macroname: '{node.macroname}'")
-                
-                if node.macroname in ['textit', 'textbf', 'emph']: 
+                # print(f"DEBUG convert_node: Encountered LatexMacroNode with macroname: '{node.macroname}'")
+                if node.macroname in ['textit', 'textbf', 'emph']:
                     if node.nodeargs and len(node.nodeargs) > 0 and \
                        node.nodeargs[0] is not None and hasattr(node.nodeargs[0], 'nodelist'):
                         return self.nodelist_to_text(node.nodeargs[0].nodelist)
-                    return "" 
-
-                defining_macros_to_remove = [
-                    'title', 'author', 'date', 'maketitle', 
-                    'documentclass', 'usepackage', 'label', 'ref', 'cite', 'pagestyle', 
-                    'thispagestyle', 'includegraphics', 'figureheight', 'figurewidth', 
-                    'caption', 'tableofcontents', 'listoffigures', 'listoftables',
-                    'appendix', 'bibliographystyle', 'bibliography', 'hspace', 'vspace', 
-                    'hfill', 'vfill', 'centering', 'noindent', 'indent', 'newpage', 
-                    'clearpage', 'linebreak', 'nolinebreak', 'setlength', 'addtolength', 
-                    'setcounter', 'addtocounter', 'selectfont', 'item',
-                    'newtheorem', 'newenvironment', 'renewenvironment',
-                    'newcommand', 'renewcommand', 'providecommand', 
-                    'DeclareMathOperator', 'DeclareRobustCommand', 
-                    'geometry', 'setstretch', 'linespread', 'hyphenation', 'url', 'href', 
-                    'graphicspath', 'input', 'include', 'RequirePackage', 'LoadClass', 
-                    'ProcessOptions', 'PassOptionsToPackage', 'newif', 'ifdefined', 'ifx', 
-                    'fi', 'else', 'let', 'def', 'edef', 'gdef', 'xdef',
-                    'AtBeginDocument', 'AtEndDocument', 'AtEndOfClass', 'AtEndOfPackage',
-                    'ExplSyntaxOn', 'ExplSyntaxOff', 'ProvidesPackage', 'NeedsTeXFormat'
-                ]
-                if node.macroname in defining_macros_to_remove:
-                    print(f"DEBUG convert_node: Removing defining/layout macro '{node.macroname}' by returning empty string.")
-                    return "" 
-                
-                print(f"DEBUG convert_node: For macro '{node.macroname}', calling super().convert_node() for dispatch.")
+                    return ""
+                if node.macroname in DEFINING_MACROS_TO_REMOVE:
+                    # This check is a bit redundant if MacroTextSpec("...", simplify_repl="") is working correctly
+                    # for all items in DEFINING_MACROS_TO_REMOVE.
+                    # However, it can act as a fallback or catch macros not explicitly in macros_to_remove_specs.
+                    # The MacroTextSpec method is generally preferred for cleaner integration with pylatexenc.
+                    print(f"DEBUG convert_node: Direct removal of macro '{node.macroname}' via DEFINING_MACROS_TO_REMOVE set.")
+                    return ""
                 return super().convert_node(node)
 
-            if node.isNodeType(LatexCommentNode): return ""
-            
+            if node.isNodeType(LatexCommentNode):
+                return ""
             if node.isNodeType(LatexEnvironmentNode):
                 if node.environmentname == 'document':
-                    print("DEBUG convert_node: Processing 'document' environment content.")
                     return self.nodelist_to_text(node.nodelist)
-                
                 if node.environmentname in ['itemize', 'enumerate', 'description']:
-                    print(f"DEBUG convert_node: Letting super handle environment '{node.environmentname}'.")
                     return super().convert_node(node)
 
                 environments_to_process_content = [
-                    'abstract', 'center', 'figure', 'table', 'theorem', 'lemma', 'proof', 
-                    'definition', 'corollary', 'example', 'remark'
+                    'abstract', 'center', 'figure', 'table',
+                    'theorem', 'lemma', 'proof', 'definition', 'corollary', 'example', 'remark'
                 ]
                 if node.environmentname in environments_to_process_content:
-                    print(f"DEBUG convert_node: Processing content of environment '{node.environmentname}'.")
-                    return self.nodelist_to_text(node.nodelist) 
+                    return self.nodelist_to_text(node.nodelist)
+
                 environments_to_remove = ['comment']
                 if node.environmentname in environments_to_remove:
-                    print(f"DEBUG convert_node: Removing environment '{node.environmentname}'.")
                     return ""
-                
-                print(f"DEBUG convert_node: Environment '{node.environmentname}' not explicitly handled, calling super.")
                 return super().convert_node(node)
 
-            if node.isNodeType(LatexGroupNode): return self.nodelist_to_text(node.nodelist)
+            if node.isNodeType(LatexGroupNode):
+                return self.nodelist_to_text(node.nodelist)
+
             return super().convert_node(node)
 
-    document_node = None
-    if nodelist:
-        for i, node in enumerate(nodelist):
-            if node.isNodeType(LatexEnvironmentNode) and node.environmentname == 'document':
-                document_node = node
-                print(f"DEBUG custom_latex_to_text: Found 'document' environment at top-level node index {i}.")
-                break
-    
-    converter = CustomLatexNodes2Text()
-    text_content = "" 
+    if not nodelist:
+        print("DEBUG custom_latex_to_text: Nodelist is empty after parsing attempt.")
+        return ""
 
-    if document_node:
-        print("DEBUG custom_latex_to_text: Processing ONLY content of 'document' environment.")
-        text_content = converter.nodelist_to_text(document_node.nodelist)
-    else:
-        print("WARNING custom_latex_to_text: No top-level 'document' environment found. Will process full nodelist.")
-        text_content = converter.nodelist_to_text(nodelist) 
-    
-    if text_content: 
+    converter = CustomLatexNodes2Text()
+    text_content = converter.nodelist_to_text(nodelist)
+
+    if text_content:
         text_content = text_content.replace('\r\n', '\n').replace('\r', '\n')
         lines = text_content.split('\n')
         processed_lines = []
         for line in lines:
             stripped_line = line.strip()
-            list_marker_match = re.match(r"^(\s*)([\*\-]\s*|\d+\.\s*)(.*)", stripped_line)
+            list_marker_match = re.match(r"^(\s*)(?:[\*\-]\s+|\d+\.\s+)(.*)", stripped_line)
             if list_marker_match:
-                marker = list_marker_match.group(2).strip(); item_content = list_marker_match.group(3).strip()
-                if marker.endswith('.'): processed_lines.append(f"{marker} {item_content}")
-                else: processed_lines.append(f"{marker} {item_content}")
-            elif stripped_line: processed_lines.append(stripped_line)
+                marker_part = stripped_line.split(None, 1)[0]
+                item_content = list_marker_match.group(2).strip()
+                if item_content:
+                    processed_lines.append(f"{marker_part} {item_content}")
+            elif stripped_line:
+                processed_lines.append(stripped_line)
         text_content = "\n".join(processed_lines)
-        text_content = re.sub(r'\n{3,}', '\n\n', text_content) 
-        text_content = text_content.strip() 
-    
+        text_content = re.sub(r'\n{3,}', '\n\n', text_content)
+        text_content = text_content.strip()
+
     print(f"DEBUG custom_latex_to_text: Final text content (first 200 chars): '{text_content[:200]}...'")
     return text_content
 
@@ -261,74 +332,133 @@ def parse_latex_file(file_path: str) -> str:
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             latex_content_original = f.read()
-        
+
         if not latex_content_original.strip():
             print(f"LaTeX file is empty or contains only whitespace: {file_path}")
             return ""
-        
+
         print("DEBUG parse_latex_file: Starting custom command preprocessing...")
-        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) 
-        if latex_content_preprocessed != latex_content_original: 
+        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original)
+        if latex_content_preprocessed != latex_content_original:
             print("DEBUG parse_latex_file: Content was modified by preprocessor.")
         else:
             print("DEBUG parse_latex_file: Content was NOT modified by preprocessor.")
-            
+
         text_representation = custom_latex_to_text(latex_content_preprocessed)
-        
+
         if not text_representation.strip() and latex_content_original.strip():
-            print(f"INFO: custom_latex_to_text returned empty/whitespace for non-empty file: {file_path}")
-            
+            print(f"INFO: custom_latex_to_text returned empty/whitespace for non-empty file: {file_path}. This might be due to parsing errors or aggressive filtering.")
+
         return text_representation
 
-    except RecursionError as re_err: 
-        print(f"ERROR: Recursion depth exceeded while parsing LaTeX file {file_path}. This file is too complex for the current parser limits or has problematic syntax. Error: {re_err}")
-        import traceback
-        traceback.print_exc()
-        return "" 
+    except RecursionError as re_err:
+        print(f"ERROR: Recursion depth exceeded at parse_latex_file level for {file_path}. This is unexpected here. Error: {re_err}")
+        return ""
     except FileNotFoundError:
         print(f"ERROR: LaTeX file not found: {file_path}")
         return ""
     except Exception as e:
-        print(f"DEBUG: Error parsing LaTeX file {file_path}: {e}")
+        print(f"ERROR: Unexpected error parsing LaTeX file {file_path}: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
         return ""
 
 if __name__ == '__main__':
-    # ... (if __name__ == '__main__' block remains the same) ...
     class DummyConfig:
-        RAW_LATEX_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'raw_latex')
-        PARSED_LATEX_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'parsed_content', 'from_latex')
-    cfg = DummyConfig() 
-    raw_latex_dir_to_use = cfg.RAW_LATEX_DIR
-    if hasattr(config, 'DATA_DIR_RAW_LATEX') and os.path.exists(config.DATA_DIR_RAW_LATEX):
-        raw_latex_dir_to_use = config.DATA_DIR_RAW_LATEX
-    parsed_latex_output_dir_to_use = cfg.PARSED_LATEX_OUTPUT_DIR
-    if hasattr(config, 'DATA_DIR_PARSED_LATEX') and os.path.exists(config.DATA_DIR_PARSED_LATEX):
-         parsed_latex_output_dir_to_use = config.DATA_DIR_PARSED_LATEX
-    elif hasattr(config, 'PARSED_CONTENT_DIR'):
-         parsed_latex_output_dir_to_use = os.path.join(config.PARSED_CONTENT_DIR, 'from_latex')
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        RAW_LATEX_DIR = os.path.join(BASE_DIR, 'data', 'raw_latex')
+        PARSED_LATEX_OUTPUT_DIR = os.path.join(BASE_DIR, 'data', 'parsed_content', 'from_latex')
+
+    cfg_to_use = DummyConfig()
+
+    if config: # Use actual config if available
+        raw_latex_dir_to_use = getattr(config, 'DATA_DIR_RAW_LATEX', cfg_to_use.RAW_LATEX_DIR)
+        if hasattr(config, 'DATA_DIR_PARSED_LATEX'):
+            parsed_latex_output_dir_to_use = config.DATA_DIR_PARSED_LATEX
+        elif hasattr(config, 'PARSED_CONTENT_DIR'):
+            parsed_latex_output_dir_to_use = os.path.join(config.PARSED_CONTENT_DIR, 'from_latex')
+        else:
+            parsed_latex_output_dir_to_use = cfg_to_use.PARSED_LATEX_OUTPUT_DIR
+    else: # Fallback to dummy config
+        raw_latex_dir_to_use = cfg_to_use.RAW_LATEX_DIR
+        parsed_latex_output_dir_to_use = cfg_to_use.PARSED_LATEX_OUTPUT_DIR
+
     print(f"--- Processing all .tex files in: {raw_latex_dir_to_use} ---")
-    if not os.path.exists(raw_latex_dir_to_use): exit()
-    if not os.path.exists(parsed_latex_output_dir_to_use): os.makedirs(parsed_latex_output_dir_to_use)
-    tex_files_in_dir = [f for f in os.listdir(raw_latex_dir_to_use) if f.endswith(".tex")]
+    print(f"--- Parsed output will be saved to: {parsed_latex_output_dir_to_use} ---")
+
+    if not os.path.exists(raw_latex_dir_to_use):
+        print(f"ERROR: Raw LaTeX directory not found: {raw_latex_dir_to_use}")
+        sys.exit(1)
+    if not os.path.exists(parsed_latex_output_dir_to_use):
+        try:
+            os.makedirs(parsed_latex_output_dir_to_use)
+            print(f"Created output directory: {parsed_latex_output_dir_to_use}")
+        except OSError as e:
+            print(f"ERROR: Could not create output directory {parsed_latex_output_dir_to_use}: {e}")
+            sys.exit(1)
+
+    try:
+        tex_files_in_dir = [f for f in os.listdir(raw_latex_dir_to_use) if f.endswith(".tex")]
+    except FileNotFoundError:
+        print(f"ERROR: Raw LaTeX directory not found when listing files: {raw_latex_dir_to_use}")
+        sys.exit(1)
+
     if not tex_files_in_dir:
-        # ... (dummy file creation) ...
-        pass
+        print(f"No .tex files found in {raw_latex_dir_to_use}.")
+        dummy_file_path = os.path.join(raw_latex_dir_to_use, "dummy_example.tex")
+        try:
+            with open(dummy_file_path, "w", encoding="utf-8") as df:
+                df.write("\\documentclass{article}\n")
+                df.write("\\title{Dummy Title Test}\n\\author{Dummy Author}\n\\date{Today}\n")
+                df.write("\\usepackage{amsmath}\n")
+                df.write("\\newcommand{\\mycmd}{My Custom Command Text}\n")
+                df.write("\\newcommand{\\unbalancedcmd}{{unbalanced_content}}\n") # Test case for the fix
+                df.write("\\DeclareMathOperator{\\TestOp}{TestOp}\n")
+                df.write("\\begin{document}\n")
+                df.write("\\maketitle\n")
+                df.write("Hello, world! This is a test. \\mycmd. \\unbalancedcmd. $\\TestOp(x) = y$.\n")
+                df.write("\\section{Test Section}\nText in section.\n")
+                df.write("\\begin{itemize}\\item First item.\\item Second item.\\end{itemize}\n")
+                df.write("\\end{document}\n")
+            print(f"Created a dummy file for testing: {dummy_file_path}")
+            tex_files_in_dir = ["dummy_example.tex"]
+        except IOError as e:
+            print(f"Could not create dummy .tex file: {e}")
+
     processed_count = 0
-    for filename in tex_files_in_dir: 
+    successful_parses = 0
+    for filename in tex_files_in_dir:
+        if filename.startswith("._"):
+            print(f"Skipping AppleDouble file: {filename}")
+            continue
+
         file_path = os.path.join(raw_latex_dir_to_use, filename)
         print(f"\n--- Parsing: {filename} ---")
         parsed_content = parse_latex_file(file_path)
-        if parsed_content: 
+
+        if parsed_content and parsed_content.strip():
             print(f"--- Parsed Content from {filename} (first 500 chars) ---")
-            print(parsed_content[:500] + "..." if len(parsed_content) > 500 else parsed_content)
+            print(parsed_content[:500] + ("..." if len(parsed_content) > 500 else ""))
             output_filename = os.path.splitext(filename)[0] + "_parsed.txt"
             output_path = os.path.join(parsed_latex_output_dir_to_use, output_filename)
-            with open(output_path, "w", encoding="utf-8") as f_out: f_out.write(parsed_content)
-            print(f"Saved parsed LaTeX content to: {output_path}")
-            processed_count += 1
-        else: print(f"Could not parse or empty content for: {filename}")
-    if processed_count == 0 and tex_files_in_dir: print("\nWARNING: No .tex files were successfully parsed.")
-    elif not tex_files_in_dir: print(f"\nNo .tex files found in {raw_latex_dir_to_use} for demo.")
-    print(f"\n--- Finished processing. Parsed {processed_count} .tex files. ---")
+            try:
+                with open(output_path, "w", encoding="utf-8") as f_out:
+                    f_out.write(parsed_content)
+                print(f"Saved parsed LaTeX content to: {output_path}")
+                successful_parses += 1
+            except IOError as e:
+                print(f"ERROR: Could not write parsed content to {output_path}: {e}")
+        else:
+            print(f"Could not parse or empty content for: {filename}")
+        processed_count +=1
+
+    print(f"\n--- Finished processing {processed_count} files. ---")
+    if tex_files_in_dir:
+        print(f"Successfully parsed and saved {successful_parses} out of {len(tex_files_in_dir)} .tex files found.")
+        if successful_parses < len(tex_files_in_dir):
+             print("WARNING: Some .tex files could not be parsed or resulted in empty content.")
+    elif processed_count > 0 and successful_parses == 0 :
+        print("WARNING: No .tex files were successfully parsed (though some files were attempted).")
+    elif not tex_files_in_dir and processed_count == 0 :
+        print(f"No .tex files found in {raw_latex_dir_to_use} and no dummy file was processed.")
+
