@@ -33,21 +33,25 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     for match in newcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
-        if f"\\{cmd_name}" not in custom_commands_to_replace:
+        dict_key = f"\\{cmd_name}" # Construct key separately
+        if dict_key not in custom_commands_to_replace:
             # Replacement might contain LaTeX like \mathbb{R}. These backslashes need to be doubled for re.sub.
-            custom_commands_to_replace[f"\\{cmd_name}"] = replacement.replace('\\', '\\\\')
-            print(f"DEBUG _preprocess: Found simple newcommand: \\{cmd_name} -> {custom_commands_to_replace[f'\\{cmd_name}']}")
+            custom_commands_to_replace[dict_key] = replacement.replace('\\', '\\\\')
+            # Corrected f-string for printing
+            print(f"DEBUG _preprocess: Found simple newcommand: {dict_key} -> {custom_commands_to_replace[dict_key]}")
         else:
-            print(f"DEBUG _preprocess: newcommand for \\{cmd_name} skipped (already defined).")
+            print(f"DEBUG _preprocess: newcommand for {dict_key} skipped (already defined).")
     
     # Simple \renewcommand{\cmd}{replacement_text} (no arguments in definition part)
     renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in renewcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
+        dict_key = f"\\{cmd_name}" # Construct key separately
         # Replacement might contain LaTeX. These backslashes need to be doubled for re.sub.
-        custom_commands_to_replace[f"\\{cmd_name}"] = replacement.replace('\\', '\\\\')
-        print(f"DEBUG _preprocess: Found simple renewcommand: \\{cmd_name} -> {custom_commands_to_replace[f'\\{cmd_name}']}")
+        custom_commands_to_replace[dict_key] = replacement.replace('\\', '\\\\')
+        # Corrected f-string for printing
+        print(f"DEBUG _preprocess: Found simple renewcommand: {dict_key} -> {custom_commands_to_replace[dict_key]}")
 
     manual_defs_to_replace = {
         '\\kerphi': r'\\operatorname{ker}\\phi', # Already escaped for re.sub
@@ -57,9 +61,6 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         '\\degpoly': r'\\operatorname{deg}'    # Already escaped for re.sub
     }
     for cmd, definition_escaped_for_resub in manual_defs_to_replace.items():
-        # Check if the command definition is likely present to avoid adding unused replacements
-        # This is a heuristic; a more robust method would parse definitions first.
-        # The definition check here is simplified as the main check is `cmd in latex_content`
         if cmd in latex_content: 
              custom_commands_to_replace[cmd] = definition_escaped_for_resub
              print(f"DEBUG _preprocess: Added manual cmd: {cmd} -> {custom_commands_to_replace[cmd]}")
@@ -70,17 +71,14 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         sorted_cmd_keys = sorted(custom_commands_to_replace.keys(), key=len, reverse=True)
         
         for cmd_key in sorted_cmd_keys:
-            # The replacement_text from custom_commands_to_replace should now be correctly escaped for re.sub
             final_replacement_text = custom_commands_to_replace[cmd_key]
-            
             pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])" 
             
-            # print(f"DEBUG _preprocess: Replacing '{cmd_key}' with '{final_replacement_text}'")
             try:
                 processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
             except re.error as e_re:
                 print(f"ERROR during re.sub for cmd_key='{cmd_key}', replacement='{final_replacement_text}': {e_re}")
-                continue # Skip this problematic replacement
+                continue 
         print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
     else:
         print("DEBUG _preprocess_custom_latex_commands: No simple custom commands found for preprocessing.")
@@ -269,7 +267,7 @@ def parse_latex_file(file_path: str) -> str:
             return ""
         
         print("DEBUG parse_latex_file: Starting custom command preprocessing...")
-        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) # RE-ENABLED
+        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) 
         if latex_content_preprocessed != latex_content_original: 
             print("DEBUG parse_latex_file: Content was modified by preprocessor.")
         else:

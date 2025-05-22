@@ -193,9 +193,10 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
         
         self.assertTrue(any(ret_text in prompt_sent_to_llm for ret_text in retrieved_texts if ret_text),
                       "The prompt sent to LLM should contain text from a retrieved chunk.")
-        # Corrected assertion for the prompt string
-        self.assertIn(f"Generate exactly {num_questions_to_generate} question(s)", prompt_sent_to_llm) # Changed "questions" to "question(s)"
+        # --- CORRECTED ASSERTION ---
+        self.assertIn(f"Generate exactly {num_questions_to_generate} question(s)", prompt_sent_to_llm) 
+        # --- END CORRECTION ---
+        self.assertIn("factual questions", prompt_sent_to_llm)
         print("Assertions for generated questions and LLM call passed.")
-
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,6 @@
 # src/adaptive_engine/question_selector.py
 import random
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Set
 import os 
 
 from src.learner_model.profile_manager import LearnerProfileManager
@@ -10,9 +10,6 @@ from src import config
 
 LOW_SCORE_THRESHOLD = 5.0 
 PERFECT_SCORE_THRESHOLD = 9.0 
-# Context chunk limits for question generation
-# For a new concept, we might want very focused context (e.g., 1-2 core chunks).
-# For review, maybe slightly more is acceptable if the learner has some familiarity.
 NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX = 2 
 NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX = 3    
 
@@ -42,7 +39,8 @@ class QuestionSelector:
         all_chunks_meta = self.retriever.get_all_chunks_metadata(
             properties=["parent_block_id", "concept_name", "concept_type", 
                         "source_path", "original_doc_type", "doc_id", 
-                        "filename", "chunk_id", "sequence_in_block"]
+                        "filename", 
+                        "chunk_id", "sequence_in_block"]
         )
 
         if not all_chunks_meta:
@@ -90,11 +88,11 @@ class QuestionSelector:
                 topics[doc_id] = {"topic_id": doc_id, "source_file": filename or "Unknown Source File"}
         return list(topics.values())
 
+
     async def _determine_question_params(self, learner_id: str, concept_id: Optional[str]) -> Dict[str, Any]:
-        """Determines difficulty, question type, and style."""
         difficulty = "intermediate"
-        question_type = "conceptual" # Default
-        question_style = "standard"  # Default
+        question_type = "conceptual" 
+        question_style = "standard"  
 
         if concept_id:
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
@@ -103,7 +101,7 @@ class QuestionSelector:
                 attempts = knowledge.get("total_attempts", 0)
                 if attempts == 0: 
                     difficulty = "beginner"
-                    question_type = "factual" # Start with facts for new concepts
+                    question_type = "factual" 
                     question_style = random.choice(["standard", "fill_in_blank"])
                 elif score < LOW_SCORE_THRESHOLD: 
                     difficulty = "beginner"
@@ -112,16 +110,16 @@ class QuestionSelector:
                 elif score >= PERFECT_SCORE_THRESHOLD: 
                     difficulty = "advanced"
                     question_type = random.choice(["conceptual", "application", "reasoning"])
-                    question_style = random.choice(["standard", "complete_proof_step"]) # If context supports
-                else: # Intermediate score
+                    question_style = random.choice(["standard", "complete_proof_step"]) 
+                else: 
                     difficulty = "intermediate"
                     question_type = random.choice(["conceptual", "application"])
                     question_style = "standard"
-            else: # No record, treat as new
+            else: 
                 difficulty = "beginner"
                 question_type = "factual"
                 question_style = random.choice(["standard", "fill_in_blank"])
-        else: # No specific concept_id (e.g., selecting a brand new one generally)
+        else: 
             difficulty = "beginner"
             question_type = "factual"
             question_style = "standard"
@@ -130,50 +128,76 @@ class QuestionSelector:
         return {"difficulty": difficulty, "type": question_type, "style": question_style}
 
     async def _select_concept_for_review(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        # ... (logic remains same as question_selector_v2_curriculum) ...
         print(f"QuestionSelector: Checking for concepts to review for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
         if not self.curriculum_map: return None
+
         candidate_blocks = self.curriculum_map
         if target_doc_id: 
             candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
+            print(f"  Filtered to {len(candidate_blocks)} blocks for topic '{target_doc_id}'.")
+
         low_score_concepts = []
         for concept_block in candidate_blocks:
             concept_id = concept_block["concept_id"] 
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if knowledge and knowledge.get("current_score", 10.0) < LOW_SCORE_THRESHOLD and knowledge.get("total_attempts", 0) > 0:
-                concept_block_copy = concept_block.copy(); concept_block_copy["current_score"] = knowledge.get("current_score"); concept_block_copy["is_review"] = True
+                concept_block_copy = concept_block.copy() 
+                concept_block_copy["current_score"] = knowledge.get("current_score")
+                concept_block_copy["is_review"] = True
                 low_score_concepts.append(concept_block_copy)
+        
         if low_score_concepts:
             low_score_concepts.sort(key=lambda x: x.get("current_score", LOW_SCORE_THRESHOLD))
             selected_for_review = low_score_concepts[0] 
             print(f"QuestionSelector: Selected concept '{selected_for_review['concept_name']}' (ID: {selected_for_review['concept_id']}) for review (score: {selected_for_review['current_score']}).")
             return selected_for_review
+        
         print("QuestionSelector: No concepts found needing review based on current criteria.")
         return None
 
-
-    async def _select_new_concept(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        # ... (logic remains same as question_selector_v2_curriculum) ...
+    # --- ADDED last_attempted_doc_id parameter back ---
+    async def _select_new_concept(self, learner_id: str, target_doc_id: Optional[str] = None, last_attempted_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         print(f"QuestionSelector: Selecting a new concept for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
         if not self.curriculum_map: return None
+
         candidate_blocks = self.curriculum_map
         if target_doc_id: 
             candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
-            if not candidate_blocks: return None 
+            if not candidate_blocks:
+                 print(f"  No conceptual blocks found for topic '{target_doc_id}' in curriculum map.")
+                 return None 
+            print(f"  Filtered to {len(candidate_blocks)} blocks for new concept selection in topic '{target_doc_id}'.")
+
         potential_new_concepts = []
         for concept_block in candidate_blocks:
             concept_id = concept_block["concept_id"]
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if not knowledge or knowledge.get("total_attempts", 0) == 0: 
-                concept_block_copy = concept_block.copy(); concept_block_copy["is_review"] = False
+                concept_block_copy = concept_block.copy()
+                concept_block_copy["is_review"] = False
                 potential_new_concepts.append(concept_block_copy)
             elif knowledge.get("current_score", 0.0) < PERFECT_SCORE_THRESHOLD: 
-                concept_block_copy = concept_block.copy(); concept_block_copy["is_review"] = False 
+                concept_block_copy = concept_block.copy()
+                concept_block_copy["is_review"] = False 
                 potential_new_concepts.append(concept_block_copy)
-        if not potential_new_concepts: return None
+        
+        if not potential_new_concepts:
+            print("QuestionSelector: No new or unmastered concepts found based on current criteria.")
+            return None
+        
+        # Use last_attempted_doc_id for adjacency if provided
+        if last_attempted_doc_id and target_doc_id is None: # Only use if not already targeting a specific doc
+            same_doc_new_concepts = [c for c in potential_new_concepts if c.get("doc_id") == last_attempted_doc_id]
+            if same_doc_new_concepts:
+                print(f"QuestionSelector: Prioritizing new concepts from last document '{last_attempted_doc_id}'.")
+                selected_new = random.choice(same_doc_new_concepts)
+                print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}) from same document.")
+                return selected_new
+        
         selected_new = random.choice(potential_new_concepts) 
-        print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}).")
+        print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}) randomly from available candidates.")
         return selected_new
+
 
     async def select_next_question(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         print(f"\nQuestionSelector: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
@@ -184,28 +208,32 @@ class QuestionSelector:
             self._load_curriculum_map()
             if not self.curriculum_map:
                 print("QuestionSelector: Curriculum map still empty after reload. Cannot select question.")
-                return {"error": "No curriculum content available."} # Return error dict
+                return {"error": "No curriculum content available."} 
 
         selected_concept_block_info: Optional[Dict[str, Any]] = None 
         is_review_selection = False
+        last_doc_id_for_adjacency = None
+
 
         selected_concept_block_info = await self._select_concept_for_review(learner_id, target_doc_id)
         if selected_concept_block_info:
             is_review_selection = True
+            last_doc_id_for_adjacency = selected_concept_block_info.get("doc_id")
+
 
         if not selected_concept_block_info:
-            selected_concept_block_info = await self._select_new_concept(learner_id, target_doc_id)
+            # Pass last_doc_id_for_adjacency to _select_new_concept
+            selected_concept_block_info = await self._select_new_concept(learner_id, target_doc_id, last_attempted_doc_id=last_doc_id_for_adjacency)
             is_review_selection = False 
 
         if not selected_concept_block_info:
             msg = "Could not select any suitable concept (review or new)" + (f" for topic '{target_doc_id}'." if target_doc_id else ".")
             print(f"QuestionSelector: {msg}")
-            return {"error": msg, "suggestion": "Try a different topic or broaden search."} # Return error dict
+            return {"error": msg, "suggestion": "Try a different topic or broaden search."} 
 
         parent_block_id_for_qg = selected_concept_block_info["concept_id"] 
         concept_name_for_qg = selected_concept_block_info.get("concept_name", "N/A")
         
-        # Determine question parameters (difficulty, type, style)
         q_params = await self._determine_question_params(learner_id, parent_block_id_for_qg)
         difficulty = q_params["difficulty"]
         question_type = q_params["type"]
@@ -228,16 +256,14 @@ class QuestionSelector:
             print(f"QuestionSelector: {msg}")
             return {"error": msg}
 
-        # --- Present context for new, non-review concepts at beginner/intermediate difficulty ---
-        if not is_review_selection and difficulty in ["beginner", "intermediate"]:
+        is_new_context_presentation = (not is_review_selection and difficulty in ["beginner", "intermediate"])
+        if is_new_context_presentation:
             print("\n--- Context for New Concept ---")
             print(f"Topic: {concept_name_for_qg}")
             print("Please review the following information before answering the question:")
             print("--------------------------------------------------------------------")
             print(full_context_for_qg)
             print("--------------------------------------------------------------------")
-            # In a real app, you might wait for user acknowledgement here.
-            # For CLI, we'll just print it.
 
         print(f"QuestionSelector: Generating {difficulty} '{question_type}' question (style: {question_style}) for concept '{concept_name_for_qg}'.")
         
@@ -264,5 +290,5 @@ class QuestionSelector:
             "concept_name": concept_name_for_qg,
             "question_text": question_text,
             "context_for_evaluation": full_context_for_qg,
-            "is_new_concept_context_presented": (not is_review_selection and difficulty in ["beginner", "intermediate"]) # Flag for UI
+            "is_new_concept_context_presented": is_new_context_presentation 
         }
