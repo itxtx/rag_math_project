@@ -4,13 +4,14 @@ from typing import Optional, Dict, Any, List
 
 class LearnerInteractionStartRequest(BaseModel):
     learner_id: str = Field(..., description="Unique identifier for the learner.")
+    topic_id: Optional[str] = Field(None, description="Optional topic_id (doc_id) to focus question selection on a specific document.")
 
 class QuestionResponse(BaseModel):
     question_id: str = Field(..., description="Unique identifier for the question/concept.")
     concept_name: str = Field(..., description="Name of the concept the question is about.")
     question_text: str = Field(..., description="The text of the question presented to the learner.")
-    context_for_evaluation: str = Field(..., description="The context provided with the question, used for evaluation.")
-    # We might add difficulty_level here later if needed by the frontend
+    context_for_evaluation: str = Field(..., description="The context provided with the question, used for evaluation. This is also the context to display if is_new_concept_context_presented is true.")
+    is_new_concept_context_presented: Optional[bool] = Field(False, description="Flag indicating if the context (in context_for_evaluation) was just presented as new material to the learner.") # <<< ADDED FIELD
 
 class AnswerSubmissionRequest(BaseModel):
     learner_id: str = Field(..., description="Unique identifier for the learner.")
@@ -22,15 +23,12 @@ class AnswerSubmissionRequest(BaseModel):
 class EvaluationResult(BaseModel):
     accuracy_score: float = Field(..., ge=0.0, le=1.0, description="Accuracy score from 0.0 to 1.0.")
     feedback: str = Field(..., description="Textual feedback on the answer.")
-    # Optional: If your evaluator can provide a model/correct answer
-    # correct_answer_suggestion: Optional[str] = Field(None, description="A suggested correct answer or key points.")
+    correct_answer: Optional[str] = None 
 
 class AnswerSubmissionResponse(BaseModel):
     learner_id: str
-    question_id: str # This is the concept_id
+    question_id: str 
     evaluation: EvaluationResult
-    # We can add more details here, like updated knowledge scores, if needed by the client.
-    # For now, keeping it focused on the direct result of answer submission.
 
 class ErrorResponse(BaseModel):
     detail: str

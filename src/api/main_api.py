@@ -1,22 +1,22 @@
 # src/api/main_api.py
 import os
 import asyncio
-from fastapi import FastAPI, HTTPException, Depends
-from typing import Dict, Any, Optional
-import uvicorn
-
-
-# Assuming your project root is the parent of 'src' and is in PYTHONPATH
-# or you run this with `python -m src.api.main_api` from project root.
+from fastapi import FastAPI, HTTPException, Depends, Query 
+from typing import Dict, Any, Optional, List as PyList 
+from pydantic import BaseModel 
+from contextlib import asynccontextmanager 
+from fastapi.middleware.cors import CORSMiddleware
+import json
 from src import config
-from src.api.models import (
-    LearnerInteractionStartRequest, QuestionResponse,
+from src.api.models import ( 
+    LearnerInteractionStartRequest, 
+    QuestionResponse, 
     AnswerSubmissionRequest, AnswerSubmissionResponse,
     EvaluationResult, ErrorResponse
 )
 
 # Import RAG system components
-from src.data_ingestion import vector_store_manager # For Weaviate client
+from src.data_ingestion import vector_store_manager 
 from src.learner_model.profile_manager import LearnerProfileManager
 from src.retrieval.retriever import Retriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
@@ -25,150 +25,134 @@ from src.learner_model.knowledge_tracker import KnowledgeTracker
 from src.interaction.answer_handler import AnswerHandler
 from src.adaptive_engine.question_selector import QuestionSelector
 
-# --- FastAPI App Initialization ---
+app_state: Dict[str, Any] = {}
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    print("API Lifespan: Startup sequence initiated.")
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    if os.path.exists(dotenv_path):
+        print(f"API Lifespan: Found .env file at {dotenv_path}, loading.")
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path)
+        print("API Lifespan: Environment variables from .env potentially loaded.")
+    else:
+        print(f"API Lifespan: .env file not found at {dotenv_path}.")
+    
+    try:
+        app_state["rag_components"] = RAGSystemComponents() # Defined below
+        if app_state["rag_components"].initialization_error:
+             print(f"API Lifespan: ERROR during RAG component initialization - {app_state['rag_components'].initialization_error}")
+    except Exception as e:
+        print(f"API Lifespan: CRITICAL ERROR during startup RAG component initialization - {e}")
+        app_state["rag_components"] = None 
+
+    print("API Lifespan: Startup sequence complete.")
+    yield
+    print("API Lifespan: Shutdown sequence initiated.")
+    components = app_state.get("rag_components")
+    if components and components.profile_manager_singleton:
+        components.profile_manager_singleton.close_db()
+    print("API Lifespan: Resources cleaned up. Shutdown sequence complete.")
+
+
 app = FastAPI(
     title="Adaptive RAG Learning System API",
     description="API for interacting with the RAG-based adaptive learning system.",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan 
 )
 
-# --- Global RAG System Components ---
-# These will be initialized once when the application starts.
-# This is a simplified approach for a single-process application.
-# For production, consider dependency injection frameworks or more robust lifecycle management.
+origins = [
+    "http://localhost", "http://localhost:3000", "http://localhost:8080", "http://localhost:5173", # Added 5173 for Vite
+    "http://127.0.0.1:3000", "http://127.0.0.1:8000", "http://127.0.0.1:5173",
+]
+app.add_middleware(
+    CORSMiddleware, allow_origins=origins, allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
 
-class RAGSystemComponents:
+class RAGSystemComponents: 
     def __init__(self):
         print("Initializing RAG System Components for API...")
         try:
             self.weaviate_client = vector_store_manager.get_weaviate_client()
-            # Ensure schema exists on startup
             vector_store_manager.create_weaviate_schema(self.weaviate_client)
-            print("Weaviate client and schema ensured.")
-
-            self.profile_manager_singleton = LearnerProfileManager() # Uses default DB path from config
-            print("LearnerProfileManager initialized.")
-
-            self.retriever = Retriever(
-                weaviate_client=self.weaviate_client,
-                weaviate_class_name=vector_store_manager.WEAVIATE_CLASS_NAME
-            )
-            print("Retriever initialized.")
-
+            self.profile_manager_singleton = LearnerProfileManager()
+            self.retriever = Retriever(weaviate_client=self.weaviate_client)
             self.rag_question_generator = RAGQuestionGenerator()
-            print("RAGQuestionGenerator initialized.")
-
             self.question_selector = QuestionSelector(
                 profile_manager=self.profile_manager_singleton,
                 retriever=self.retriever,
                 question_generator=self.rag_question_generator
             )
-            print("QuestionSelector initialized.")
-
             self.answer_evaluator = AnswerEvaluator()
-            print("AnswerEvaluator initialized.")
-
-            self.knowledge_tracker = KnowledgeTracker(
-                profile_manager=self.profile_manager_singleton
-            )
-            print("KnowledgeTracker initialized.")
-
-            self.answer_handler = AnswerHandler(
-                evaluator=self.answer_evaluator,
-                tracker=self.knowledge_tracker
-            )
-            print("AnswerHandler initialized.")
+            self.knowledge_tracker = KnowledgeTracker(profile_manager=self.profile_manager_singleton)
+            self.answer_handler = AnswerHandler(evaluator=self.answer_evaluator, tracker=self.knowledge_tracker)
             print("RAG System Components successfully initialized for API.")
-
+            self.initialization_error = None
         except Exception as e:
             print(f"FATAL ERROR: Could not initialize RAG system components: {e}")
-            import traceback
-            traceback.print_exc()
-            # In a real app, you might want to prevent startup or enter a degraded mode.
-            # For now, some components might be None if initialization fails.
-            # FastAPI will likely fail to start if these are used in Depends and are None.
-            raise RuntimeError(f"Failed to initialize RAG components: {e}") from e
-
-# Global instance of components
-# This simple global instance is okay for demonstration.
-# For more complex apps, use FastAPI's dependency injection with `Depends`.
-# We will use a simple dependency function for now.
-rag_components_instance: Optional[RAGSystemComponents] = None
-
-@app.on_event("startup")
-async def startup_event():
-    """Load .env and initialize RAG components on application startup."""
-    global rag_components_instance
-    # Load .env (assuming it's in project root)
-    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-    if os.path.exists(dotenv_path):
-        print(f"API Startup: Found .env file at {dotenv_path}, loading.")
-        from dotenv import load_dotenv
-        load_dotenv(dotenv_path)
-        print("API Startup: Environment variables from .env potentially loaded.")
-    else:
-        print(f"API Startup: .env file not found at {dotenv_path}.")
-    
-    # Initialize components
-    try:
-        rag_components_instance = RAGSystemComponents()
-    except RuntimeError as e:
-        print(f"API Startup: ERROR - {e}")
-        # Allow app to start but endpoints might fail if components are needed.
-        # A better approach for production would be to ensure components load or exit.
-        pass
+            self.initialization_error = e
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources on application shutdown."""
-    global rag_components_instance
-    if rag_components_instance and rag_components_instance.profile_manager_singleton:
-        rag_components_instance.profile_manager_singleton.close_db()
-    print("API Shutdown: Resources cleaned up.")
-
-
-# --- Dependency for getting RAG components ---
 async def get_rag_components() -> RAGSystemComponents:
-    if rag_components_instance is None:
-        # This should ideally not happen if startup_event worked.
-        # But as a fallback, try to initialize. This is not ideal for production.
-        print("WARNING: RAG components not initialized at startup, attempting ad-hoc initialization.")
-        try:
-            return RAGSystemComponents() # This would create a new instance, not the global one.
-                                         # Better to raise an error if not initialized.
-        except Exception as e:
-             raise HTTPException(status_code=503, detail=f"RAG system components not available: {e}")
-    return rag_components_instance
+    components = app_state.get("rag_components")
+    if components is None or components.initialization_error:
+        error_detail = "RAG system components not available or failed to initialize."
+        if components and components.initialization_error: error_detail += f" Error: {components.initialization_error}"
+        raise HTTPException(status_code=503, detail=error_detail)
+    return components
 
+class TopicResponse(BaseModel): 
+    topic_id: str
+    source_file: str
 
-# --- API Endpoints ---
+@app.get("/api/v1/topics", response_model=PyList[TopicResponse])
+async def list_available_topics(components: RAGSystemComponents = Depends(get_rag_components)):
+    try:
+        topics = components.question_selector.get_available_topics()
+        if not topics: 
+            print("API /topics: Curriculum map was empty, attempting reload.")
+            components.question_selector._load_curriculum_map() 
+            topics = components.question_selector.get_available_topics()
+        print(f"API /topics: Returning topics: {json.dumps(topics, indent=2)}")
+        return [TopicResponse(**topic) for topic in topics]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error listing topics: {str(e)}")
+
 
 @app.post("/api/v1/interaction/start", 
-            response_model=QuestionResponse,
-            summary="Start Learner Interaction",
-            description="Retrieves the next question for a given learner based on their profile and the curriculum.",
-            responses={503: {"model": ErrorResponse, "description": "Service unavailable or RAG components failed to initialize."}})
+            response_model=QuestionResponse, 
+            summary="Start Learner Interaction (Adaptive or by Topic)",
+            responses={
+                404: {"model": ErrorResponse, "description": "No suitable question found."},
+                503: {"model": ErrorResponse, "description": "Service unavailable."}
+            })
 async def start_learner_interaction(
-    request: LearnerInteractionStartRequest,
+    request: LearnerInteractionStartRequest, 
     components: RAGSystemComponents = Depends(get_rag_components)
 ):
-    """
-    Endpoint to get the next question for a learner.
-    """
-    print(f"API: Received request to start interaction for learner_id: {request.learner_id}")
+    print(f"API: Received request to start interaction for learner_id: {request.learner_id}, topic_id: {request.topic_id}")
     try:
-        next_question_info = await components.question_selector.select_next_question(request.learner_id)
-        if not next_question_info:
-            raise HTTPException(status_code=404, detail="Could not select a next question for the learner. Knowledge base might be empty or learner has mastered all available concepts.")
+        next_question_info = await components.question_selector.select_next_question(
+            learner_id=request.learner_id,
+            target_doc_id=request.topic_id 
+        )
+        if not next_question_info or "error" in next_question_info: 
+            detail_msg = next_question_info.get("error", "Could not select a next question.") if next_question_info else "Could not select a next question."
+            raise HTTPException(status_code=404, detail=detail_msg)
         
+        # Map the dictionary from QuestionSelector to the QuestionResponse Pydantic model
         return QuestionResponse(
-            question_id=next_question_info["concept_id"], # concept_id is used as question_id
+            question_id=next_question_info["concept_id"], 
             concept_name=next_question_info["concept_name"],
             question_text=next_question_info["question_text"],
-            context_for_evaluation=next_question_info["context_for_evaluation"]
+            context_for_evaluation=next_question_info["context_for_evaluation"],
+            # Ensure the flag is passed from the selector's output to the API response
+            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False) 
         )
-    except HTTPException as http_exc: # Re-raise FastAPI's HTTPException
+    except HTTPException as http_exc: 
         raise http_exc
     except Exception as e:
         print(f"API Error in /interaction/start: {e}")
@@ -177,60 +161,43 @@ async def start_learner_interaction(
         raise HTTPException(status_code=500, detail=f"Internal server error selecting question: {str(e)}")
 
 
-@app.post("/api/v1/interaction/submit_answer", 
-            response_model=AnswerSubmissionResponse,
-            summary="Submit Learner's Answer",
-            description="Allows a learner to submit an answer to a question for evaluation and profile update.",
-            responses={503: {"model": ErrorResponse, "description": "Service unavailable or RAG components failed to initialize."}})
+@app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_learner_answer(
-    request: AnswerSubmissionRequest,
+    request: AnswerSubmissionRequest, 
     components: RAGSystemComponents = Depends(get_rag_components)
 ):
-    """
-    Endpoint for learner to submit an answer.
-    """
+    # ... (endpoint remains the same) ...
     print(f"API: Received answer submission from learner_id: {request.learner_id} for question_id: {request.question_id}")
     try:
         handler_response = await components.answer_handler.submit_answer(
             learner_id=request.learner_id,
-            question_id=request.question_id, # This is the concept_id
+            question_id=request.question_id,
             question_text=request.question_text,
             retrieved_context=request.context_for_evaluation,
             learner_answer=request.learner_answer
         )
-        
-        # The handler_response contains accuracy_score and feedback.
-        # We need to wrap it in EvaluationResult for the API response.
-        eval_result = EvaluationResult(
+        eval_result = EvaluationResult( 
             accuracy_score=handler_response.get("accuracy_score", 0.0),
-            feedback=handler_response.get("feedback", "Evaluation feedback not available.")
-            # correct_answer_suggestion can be added if evaluator provides it
+            feedback=handler_response.get("feedback", "Evaluation feedback not available."),
+            correct_answer=handler_response.get("correct_answer_suggestion") 
         )
-        
         return AnswerSubmissionResponse(
             learner_id=request.learner_id,
             question_id=request.question_id,
             evaluation=eval_result
         )
     except Exception as e:
-        print(f"API Error in /interaction/submit_answer: {e}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error submitting answer: {str(e)}")
 
-@app.get("/api/v1/health", summary="Health Check", description="Simple health check endpoint.")
+@app.get("/api/v1/health", summary="Health Check")
 async def health_check():
-    return {"status": "healthy", "timestamp": asyncio.to_thread(os.times)}
-
+    import datetime 
+    return {"status": "healthy", "timestamp": datetime.datetime.utcnow().isoformat()}
 
 if __name__ == "__main__":
-    # This allows running the API directly using Uvicorn for development.
-    # Install Uvicorn: pip install uvicorn[standard]
-    # Run from project root: python -m src.api.main_api
-    # Or if this file is run directly: uvicorn src.api.main_api:app --reload
-
+    import uvicorn
+    import datetime 
     print("Starting FastAPI server with Uvicorn...")
-    # Ensure .env is loaded if running this file directly for Uvicorn
     dotenv_path_main = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
     if os.path.exists(dotenv_path_main):
         print(f"Uvicorn Main: Found .env file at {dotenv_path_main}, loading.")
@@ -238,3 +205,4 @@ if __name__ == "__main__":
         load_dotenv(dotenv_path_main)
     
     uvicorn.run("src.api.main_api:app", host="0.0.0.0", port=8000, reload=True)
+
