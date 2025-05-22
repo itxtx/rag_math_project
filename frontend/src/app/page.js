@@ -31,9 +31,9 @@ const cleanLatexString = (text) => {
 function App() {
   // State variables
   const [learnerId, setLearnerId] = useState('');
-  const [question, setQuestion] = useState(null); // Active question being answered
+  const [question, setQuestion] = useState(null); // Active question being answered (this will be the full QuestionResponse object)
   const [rawQuestionResponse, setRawQuestionResponse] = useState(null); // Full API response for current/next question
-  const [conceptContext, setConceptContext] = useState(null); // Context to display before a question
+  const [conceptContext, setConceptContext] = useState(null); // Context to display: { topic_name: string, content_markdown: string }
   const [answer, setAnswer] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState(null);
@@ -127,14 +127,18 @@ function App() {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error from start interaction.' }));
         throw new Error(errorData.detail || 'Failed to start interaction.');
       }
-      const data = await response.json();
+      const data = await response.json(); // data is a QuestionResponse object
       setRawQuestionResponse(data); // Store the full response
 
-      if (data.context_for_new_concept && data.context_for_new_concept.content_markdown) {
-        setConceptContext(data.context_for_new_concept); // Show context first
+      // Check if new context needs to be presented
+      if (data.is_new_concept_context_presented === true && data.context_for_evaluation) {
+        setConceptContext({
+          topic_name: data.concept_name, // Use concept_name for the context title
+          content_markdown: data.context_for_evaluation // Use context_for_evaluation as the markdown
+        });
         setQuestion(null); // Ensure question is not shown yet
       } else {
-        setQuestion(data); // No context, show question directly
+        setQuestion(data); // No new context, show question directly (data is the QuestionResponse)
         setConceptContext(null);
       }
       setIsLearnerIdDialogOpen(false);
@@ -149,13 +153,15 @@ function App() {
 
   const handleProceedToQuestion = useCallback(() => {
     if (rawQuestionResponse) {
-      setQuestion(rawQuestionResponse); // Set the active question from the stored full response
+      // rawQuestionResponse is the full QuestionResponse object
+      setQuestion(rawQuestionResponse); 
     }
     setConceptContext(null); // Hide context view
   }, [rawQuestionResponse]);
 
   const handleSubmitAnswer = useCallback(async () => {
-    if (!question || !question.question_id) {
+    // question state now holds the full QuestionResponse object
+    if (!question || !question.question_id) { 
       setError('No question to answer or question ID is missing.');
       setIsErrorDialogOpen(true);
       return;
@@ -175,8 +181,8 @@ function App() {
         body: JSON.stringify({
           learner_id: learnerId,
           question_id: question.question_id,
-          question_text: question.question_text,
-          context_for_evaluation: question.context_for_evaluation,
+          question_text: question.question_text, // Send the original question text
+          context_for_evaluation: question.context_for_evaluation, // Send the context that came with the question
           learner_answer: answer,
         }),
       });
@@ -199,7 +205,8 @@ function App() {
   }, [learnerId, question, answer, API_BASE_URL]);
 
   const cleanedQuestionText = useMemo(() => {
-    if (question && question.question_text) {
+    // question state is the full QuestionResponse object
+    if (question && question.question_text) { 
       return cleanLatexString(question.question_text);
     }
     return "";
@@ -339,22 +346,24 @@ function App() {
         )}
 
         {/* Question Display */}
-        {!loading && question && !conceptContext && (
+        {/* Ensure question is the full QuestionResponse object here */}
+        {!loading && question && !conceptContext && ( 
           <Card className="w-full rounded-xl border border-border bg-card">
             <CardHeader>
-              <CardTitle className="text-2xl font-bold text-card-foreground">Question {question.question_number || ''}</CardTitle>
+              {/* Access question_number from the question object if it exists, otherwise fallback or omit */}
+              <CardTitle className="text-2xl font-bold text-card-foreground">Question {question.question_number || (question.question_id ? '' : '')}</CardTitle>
               <CardDescription className="text-muted-foreground">Provide your answer below.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div
                 className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30"
-                key={question.question_id}
+                key={question.question_id} 
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkMath]}
                   rehypePlugins={[rehypeKatex]}
                 >
-                  {cleanedQuestionText}
+                  {cleanedQuestionText} 
                 </ReactMarkdown>
               </div>
               <div className="grid w-full items-center gap-1.5">
