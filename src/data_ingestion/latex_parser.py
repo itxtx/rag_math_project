@@ -17,7 +17,6 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
     processed_content = latex_content
     custom_commands_to_replace = {} 
 
-    # \DeclareMathOperator{\cmd}{replacement_text}
     declaremath_pattern = re.compile(r"\\DeclareMathOperator\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}")
     for match in declaremath_pattern.finditer(latex_content):
         cmd_name = match.group(1)
@@ -25,46 +24,33 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         custom_commands_to_replace[f"\\{cmd_name}"] = replacement
         print(f"DEBUG _preprocess: Found DeclareMathOperator: \\{cmd_name} -> {replacement}")
 
-    # Simple \newcommand{\cmd}{replacement_text} (no arguments in definition)
     newcommand_simple_pattern = re.compile(r"\\newcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in newcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
-        # Avoid overwriting if already defined by DeclareMathOperator (which is usually more specific for operators)
         if f"\\{cmd_name}" not in custom_commands_to_replace:
             custom_commands_to_replace[f"\\{cmd_name}"] = replacement
             print(f"DEBUG _preprocess: Found simple newcommand: \\{cmd_name} -> {replacement}")
         else:
-            print(f"DEBUG _preprocess: newcommand for \\{cmd_name} skipped (already defined, possibly by DeclareMathOperator).")
+            print(f"DEBUG _preprocess: newcommand for \\{cmd_name} skipped (already defined).")
 
-    # Simple \renewcommand{\cmd}{replacement_text} (no arguments in definition)
     renewcommand_simple_pattern = re.compile(r"\\renewcommand\s*\{\s*\\(\w+)\s*\}\s*\{(.*?)\}(?!\s*\[)")
     for match in renewcommand_simple_pattern.finditer(latex_content):
         cmd_name = match.group(1)
         replacement = match.group(2).strip()
-        custom_commands_to_replace[f"\\{cmd_name}"] = replacement # renewcommand should override
+        custom_commands_to_replace[f"\\{cmd_name}"] = replacement
         print(f"DEBUG _preprocess: Found simple renewcommand: \\{cmd_name} -> {replacement}")
 
-    # Manually add specific tricky ones from user list if regex is hard,
-    # ensuring replacements are re.sub-safe by doubling backslashes in the replacement part.
-    # These are for commands that are defined as aliases to other LaTeX.
-    # Example: \newcommand{\kerphi}{\operatorname{ker}\phi}
-    # The preprocessor changes \kerphi to \operatorname{ker}\phi in the text.
-    # Then pylatexenc parses \operatorname normally.
-    
-    # Check if definitions exist in the latex_content before adding to avoid issues if they are not defined.
-    # This is a simple check; a more robust way would be to parse definitions first.
     if r'\kerphi' in latex_content:
         custom_commands_to_replace['\\kerphi'] = r'\operatorname{ker}\phi'.replace('\\', '\\\\')
     if r'\imphi' in latex_content:
         custom_commands_to_replace['\\imphi'] = r'\operatorname{im}\phi'.replace('\\', '\\\\')
-    if r'\Gal' in latex_content and r'\operatorname{Gal}' in latex_content: # Assuming \newcommand{\Gal}{\operatorname{Gal}}
+    if r'\Gal' in latex_content and r'\operatorname{Gal}' in latex_content:
          custom_commands_to_replace['\\Gal'] = r'\operatorname{Gal}'.replace('\\', '\\\\')
-    if r'\Aut' in latex_content and r'\operatorname{Aut}' in latex_content: # Assuming \newcommand{\Aut}{\operatorname{Aut}}
+    if r'\Aut' in latex_content and r'\operatorname{Aut}' in latex_content:
          custom_commands_to_replace['\\Aut'] = r'\operatorname{Aut}'.replace('\\', '\\\\')
-    if r'\degpoly' in latex_content and r'\operatorname{deg}' in latex_content: # Assuming \newcommand{\degpoly}{\operatorname{deg}}
+    if r'\degpoly' in latex_content and r'\operatorname{deg}' in latex_content:
          custom_commands_to_replace['\\degpoly'] = r'\operatorname{deg}'.replace('\\', '\\\\')
-
 
     if custom_commands_to_replace:
         print(f"DEBUG _preprocess: Applying {len(custom_commands_to_replace)} simple command pre-replacements.")
@@ -72,13 +58,8 @@ def _preprocess_custom_latex_commands(latex_content: str) -> str:
         
         for cmd_key in sorted_cmd_keys:
             replacement_text = custom_commands_to_replace[cmd_key]
-            # Escape backslashes in the replacement text for re.sub
-            # This is critical if replacement_text itself contains LaTeX commands (e.g., \mathbb{R})
             final_replacement_text = replacement_text.replace('\\', '\\\\')
-            
-            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])" # Match whole command
-            
-            # print(f"DEBUG _preprocess: Replacing '{cmd_key}' with '{final_replacement_text}'")
+            pattern_to_replace = r"(" + re.escape(cmd_key) + r")(?![a-zA-Z])"
             processed_content = re.sub(pattern_to_replace, final_replacement_text, processed_content)
         print("DEBUG _preprocess_custom_latex_commands: Preprocessing for simple commands complete.")
     else:
@@ -113,9 +94,6 @@ def custom_latex_to_text(latex_str: str) -> str:
             print(f"DEBUG __init__: CustomLatexNodes2Text initialized.")
 
             custom_arg_macros_text_specs = []
-            
-            # Commands that take arguments, to be handled by MacroTextSpec
-            # \newcommand{\norm}[1]{\text{N}(#1)} - Assuming this is the primary norm def
             custom_arg_macros_text_specs.extend([
                 MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),          
                 MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"), 
@@ -123,11 +101,11 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),    
                 MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"), 
                 MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),  
-                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), # Using the N(arg) definition
+                MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), 
                 MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"), 
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
                 MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),         
-                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"), # Handles \powerset[1]
+                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"), 
                 MacroTextSpec("dual", simplify_repl=r"%(1)s^*"),
                 MacroTextSpec("Lp", simplify_repl=r"L^{%(1)s}"),
                 MacroTextSpec("lp", simplify_repl=r"\ell^{%(1)s}"),
@@ -163,7 +141,6 @@ def custom_latex_to_text(latex_str: str) -> str:
                         return self.nodelist_to_text(node.nodeargs[0].nodelist)
                     return "" 
 
-                # List of macro *definitions* to remove. Their usage should be expanded by preprocessor or MacroTextSpec.
                 defining_macros_to_remove = [
                     'title', 'author', 'date', 'maketitle', 
                     'documentclass', 'usepackage', 'label', 'ref', 'cite', 'pagestyle', 
@@ -172,7 +149,8 @@ def custom_latex_to_text(latex_str: str) -> str:
                     'appendix', 'bibliographystyle', 'bibliography', 'hspace', 'vspace', 
                     'hfill', 'vfill', 'centering', 'noindent', 'indent', 'newpage', 
                     'clearpage', 'linebreak', 'nolinebreak', 'setlength', 'addtolength', 
-                    'setcounter', 'addtocounter', 'selectfont', 'item',
+                    'setcounter', 'addtocounter', 'selectfont', 
+                    # 'item', # Let superclass handle item within list environments
                     'newtheorem', 'newenvironment', 'renewenvironment',
                     'newcommand', 'renewcommand', 'providecommand', 
                     'DeclareMathOperator', 'DeclareRobustCommand', 
@@ -197,14 +175,21 @@ def custom_latex_to_text(latex_str: str) -> str:
                     print("DEBUG convert_node: Processing 'document' environment content.")
                     return self.nodelist_to_text(node.nodelist)
                 
+                # Let superclass handle list environments like itemize, enumerate, description
+                # Its default formatting might be more consistent for list structures.
+                if node.environmentname in ['itemize', 'enumerate', 'description']:
+                    print(f"DEBUG convert_node: Letting super handle environment '{node.environmentname}'.")
+                    return super().convert_node(node)
+
                 environments_to_process_content = [
-                    'abstract', 'center', 'itemize', 'enumerate', 'description',
+                    'abstract', 'center', 
                     'figure', 'table', 'theorem', 'lemma', 'proof', 'definition', 
                     'corollary', 'example', 'remark'
                 ]
                 if node.environmentname in environments_to_process_content:
                     print(f"DEBUG convert_node: Processing content of environment '{node.environmentname}'.")
-                    return "\n" + self.nodelist_to_text(node.nodelist) + "\n"
+                    # Avoid adding extra newlines here; let paragraph separation handle it.
+                    return self.nodelist_to_text(node.nodelist)
 
                 environments_to_remove = ['comment']
                 if node.environmentname in environments_to_remove:
@@ -235,9 +220,42 @@ def custom_latex_to_text(latex_str: str) -> str:
         print("WARNING custom_latex_to_text: No top-level 'document' environment found. Will process full nodelist.")
         text_content = converter.nodelist_to_text(nodelist) 
     
+    # --- Refined Post-processing ---
     if text_content: 
-        text_content = re.sub(r'(\n\s*){3,}', '\n\n', text_content)
-        text_content = text_content.strip()
+        # Normalize all types of newlines to \n
+        text_content = text_content.replace('\r\n', '\n').replace('\r', '\n')
+        
+        lines = text_content.split('\n')
+        processed_lines = []
+        for line in lines:
+            # Strip leading/trailing whitespace from each individual line
+            stripped_line = line.strip()
+            
+            # For lines that start with common list markers, ensure only one space after marker
+            # This helps normalize indentation for list items.
+            # Example: "  * Item" becomes "* Item"
+            # Example: "*Item" becomes "* Item" (if no space after marker)
+            
+            # Match list markers: *, -, or number followed by .
+            list_marker_match = re.match(r"^(\s*)([\*\-]\s*|\d+\.\s*)(.*)", stripped_line)
+            if list_marker_match:
+                marker = list_marker_match.group(2).strip() # Get the marker itself (e.g., "*", "1.")
+                item_content = list_marker_match.group(3).strip()
+                # Reconstruct with a single space after the marker
+                if marker.endswith('.'): # For numbered lists like "1."
+                    processed_lines.append(f"{marker} {item_content}")
+                else: # For bulleted lists like "*" or "-"
+                    processed_lines.append(f"{marker} {item_content}")
+            elif stripped_line: # Keep non-empty lines that are not list items
+                processed_lines.append(stripped_line)
+            # else: empty lines (that were only whitespace) are dropped
+        
+        text_content = "\n".join(processed_lines)
+        
+        # Collapse 3+ newlines to 2 (for paragraph breaks)
+        text_content = re.sub(r'\n{3,}', '\n\n', text_content) 
+        text_content = text_content.strip() # Final strip for the whole block
+    # --- End of Refined Post-processing ---
     
     print(f"DEBUG custom_latex_to_text: Final text content (first 200 chars): '{text_content[:200]}...'")
     return text_content
@@ -257,11 +275,11 @@ def parse_latex_file(file_path: str) -> str:
             return ""
         
         print("DEBUG parse_latex_file: Starting custom command preprocessing...")
-        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) # RE-ENABLED
+        latex_content_preprocessed = _preprocess_custom_latex_commands(latex_content_original) 
         if latex_content_preprocessed != latex_content_original: 
             print("DEBUG parse_latex_file: Content was modified by preprocessor.")
         else:
-            print("DEBUG parse_latex_file: Content was NOT modified by preprocessor.")
+            print("DEBUG parse_latex_file: Content was NOT modified by preprocessor.") # This will be false if preprocessor runs
             
         text_representation = custom_latex_to_text(latex_content_preprocessed)
         
