@@ -44,7 +44,6 @@ class RAGQuestionGenerator:
             print("Warning: No valid text content found in context_chunks to build prompt.")
             return ""
 
-        # --- Refined Prompt Engineering ---
         difficulty_instruction = ""
         if difficulty_level == "beginner":
             difficulty_instruction = "The question should be straightforward, focusing on direct recall of key facts or definitions explicitly stated in the context. Aim for clarity and simplicity. Questions can be shorter."
@@ -54,8 +53,6 @@ class RAGQuestionGenerator:
             difficulty_instruction = "The question should test comprehension and the ability to connect ideas within the context, going beyond simple recall but not overly complex. It can be moderately long."
 
         phrasing_constraint = ""
-        # Allow "According to the text" for conceptual/definitional questions if it helps clarity,
-        # but generally encourage direct questions.
         if question_type.lower() not in ["conceptual", "definition_recall"]: 
             phrasing_constraint = "Formulate the question directly, avoiding phrases like 'According to the text...' or 'Based on the provided context...' unless absolutely necessary for clarity."
         
@@ -64,8 +61,6 @@ class RAGQuestionGenerator:
             style_instruction = "The question should be phrased as a statement with a key term or phrase missing, indicated by '[BLANK]'. The learner needs to fill in the blank."
             difficulty_instruction += " The blank should target a specific, important piece of information."
         elif question_style == "complete_proof_step" or question_style == "complete_definition_step":
-            # This is more complex and might require the LLM to identify a suitable step.
-            # For now, a general instruction.
             style_instruction = f"The question should present a part of a {question_style.split('_')[1]} or explanation from the context and ask the learner to provide the next logical step, a missing justification, or a concluding part. Indicate the missing part clearly, perhaps with '[YOUR_TASK_HERE]'."
             difficulty_instruction += " This requires the learner to understand the flow of the argument or definition."
         else: # standard
@@ -89,16 +84,14 @@ class RAGQuestionGenerator:
         \"\"\"
 
         Output Format:
-        Generate exactly {num_questions} question(s). Each question must be on a new line and start with a number followed by a period (e.g., "1. What is...?"). Mathematical expressions should be in valid latex.
+        Generate exactly {num_questions} question(s). Each question must be on a new line and start with a number followed by a period (e.g., "1. What is...?").
         """
-        # Add numbered placeholders to guide the LLM for the exact number of questions
         for i in range(1, num_questions + 1):
             prompt += f"{i}. \n" 
         
         return prompt
 
     async def _call_llm_api(self, prompt: str) -> Optional[str]:
-        # ... (LLM API call logic remains the same as question_generator_rag_v3_difficulty) ...
         if not prompt:
             print("Error: Prompt is empty. Cannot call LLM API.")
             return None
@@ -153,23 +146,48 @@ class RAGQuestionGenerator:
 
 
     def _parse_llm_response(self, llm_response_text: str, num_questions: int) -> List[str]:
-        # ... (Parsing logic remains the same as question_generator_rag_v3_difficulty) ...
         if not llm_response_text:
+            print("DEBUG _parse_llm_response: Received empty or None llm_response_text.") # DEBUG
             return []
+
+        # --- ADDED DEBUG PRINT ---
+        print(f"DEBUG _parse_llm_response: Raw text from LLM:\n---\n{llm_response_text}\n---")
+        # --- END DEBUG PRINT ---
+
         questions = []
         lines = llm_response_text.strip().split('\n')
-        for line in lines:
-            line = line.strip()
+        for line_num, line_content in enumerate(lines):
+            line = line_content.strip()
+            print(f"DEBUG _parse_llm_response: Processing line {line_num+1}: '{line}'") # DEBUG
+            # Try to match lines starting with a number and a period (e.g., "1. ", "01. ")
+            # and then capture the rest of the line as the question.
             if line and line[0].isdigit(): 
                 try:
                     dot_index = line.index('.')
                     question_text = line[dot_index+1:].strip()
                     if question_text: 
                         questions.append(question_text)
+                        print(f"DEBUG _parse_llm_response: Successfully parsed question: '{question_text}'") # DEBUG
+                    else:
+                        print(f"DEBUG _parse_llm_response: Parsed question text is empty after stripping for line: '{line}'") #DEBUG
                 except ValueError:
+                    # Line started with digit but no period found
+                    print(f"DEBUG _parse_llm_response: Line started with digit but no period found: '{line}'") # DEBUG
                     pass 
-        if len(questions) < num_questions and len(questions) < len(lines):
-            print(f"Warning: Parsed {len(questions)} questions, but expected {num_questions} and had {len(lines)} lines. LLM output format might differ from expected.")
+            elif line: # Line is not empty and doesn't start with a digit
+                print(f"DEBUG _parse_llm_response: Line does not start with a digit: '{line}'") # DEBUG
+                # If we expect only one question and this is the only non-empty line,
+                # and it's not a multi-line response that got split weirdly,
+                # we could consider taking it as is if strict parsing fails.
+                # This is a heuristic.
+                if num_questions == 1 and len(lines) == 1 and not questions:
+                    print(f"DEBUG _parse_llm_response: Taking single non-numbered line as question because num_questions is 1.")
+                    questions.append(line)
+
+
+        if len(questions) < num_questions: # Removed "and len(questions) < len(lines)" for clearer warning
+            print(f"Warning: Parsed {len(questions)} questions, but expected {num_questions}. LLM output format might differ from expected or content was insufficient.")
+
         return questions[:num_questions]
 
 
@@ -178,11 +196,8 @@ class RAGQuestionGenerator:
                                  num_questions: int = 1, 
                                  question_type: str = "conceptual",
                                  difficulty_level: str = "intermediate",
-                                 question_style: str = "standard" # New parameter
+                                 question_style: str = "standard" 
                                  ) -> List[str]:
-        """
-        Generates questions based on the provided context chunks, difficulty, and style.
-        """
         if not context_chunks:
             print("No context chunks provided, cannot generate questions.")
             return []
@@ -206,27 +221,24 @@ class RAGQuestionGenerator:
             return []
 
 async def demo():
+    # ... (demo function remains the same as question_generator_rag_v4_refined) ...
     print("--- RAG Question Generator Demo (Refined Prompts & Styles) ---")
     generator = RAGQuestionGenerator() 
     sample_chunks = [{"chunk_text": "A vector space is a set V of objects, called vectors, on which two operations called vector addition and scalar multiplication are defined. Scalars are often real numbers, but can also be complex numbers or, more generally, elements of any field."}]
-
     print("\nGenerating 1 'beginner' 'fill_in_blank' question:")
     q1 = await generator.generate_questions(sample_chunks, num_questions=1, question_type="definition_recall", difficulty_level="beginner", question_style="fill_in_blank")
     if q1: print(f"  Q: {q1[0]}")
-
     print("\nGenerating 1 'intermediate' 'standard' conceptual question:")
     q2 = await generator.generate_questions(sample_chunks, num_questions=1, question_type="conceptual", difficulty_level="intermediate", question_style="standard")
     if q2: print(f"  Q: {q2[0]}")
-    
     proof_context = [{"chunk_text": "Theorem: The sum of angles in a triangle is 180 degrees. Proof: Step 1: Draw a line parallel to one side of the triangle through the opposite vertex. Step 2: Identify alternate interior angles formed by transversals. Step 3: Sum these angles, which form a straight line, to show they equal 180 degrees."}]
     print("\nGenerating 1 'intermediate' 'complete_proof_step' question:")
     q3 = await generator.generate_questions(proof_context, num_questions=1, question_type="reasoning", difficulty_level="intermediate", question_style="complete_proof_step")
     if q3: print(f"  Q: {q3[0]}")
-
     print("\n--- RAG Question Generator Demo Finished ---")
 
+
 if __name__ == '__main__':
-    # ... (main block remains the same) ...
     import asyncio
     dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env') 
     if os.path.exists(dotenv_path):

@@ -44,7 +44,7 @@ class AnswerEvaluator:
         Please provide your evaluation in a JSON format with the following keys:
         1. "accuracy_score": A float between 0.0 (completely incorrect) and 1.0 (perfectly correct and comprehensive based on the context).
         2. "feedback": A brief textual explanation for the score, highlighting strengths or areas for improvement. If the answer is incorrect, point out the mistake.
-        3. "correct_answer": (Optional) If the learner's answer is significantly incorrect or incomplete, provide a concise model correct answer based *only* on the provided context. If the learner's answer is mostly correct, this field can be omitted or be null.
+        3. "correct_answer": (Optional) If the learner's answer is significantly incorrect or incomplete, provide a concise model correct answer based *only* on the provided context. If the learner's answer is mostly correct, this field can be null or omitted.
 
         Question:
         "{question_text}"
@@ -57,22 +57,15 @@ class AnswerEvaluator:
         Learner's Answer:
         "{learner_answer}"
 
-        Please return ONLY the JSON object containing your evaluation. For example:
+        Please return ONLY the JSON object containing your evaluation.
+        Example of a valid JSON response:
         {{
           "accuracy_score": 0.8,
-          "feedback": "The answer correctly identifies the main point but misses some nuances from the context.",
-          "correct_answer": null
-        }}
-        OR for an incorrect answer:
-        {{
-          "accuracy_score": 0.1,
-          "feedback": "The answer is incorrect. It confuses concept A with concept B.",
-          "correct_answer": "Concept A is defined as..."
+          "feedback": "The answer correctly identifies the main point but misses some nuances from the context. For instance, the context also mentions X, which was omitted.",
+          "correct_answer": "The main point is Y, and it's also important to consider X from the context."
         }}
         
-        If the learner's answer is completely off-topic or nonsensical, assign a low score and indicate this in the feedback.
-        If the answer is perfect based on the context, assign a score of 1.0 and the "correct_answer" field can be null or omitted.
-        Ensure any backslashes in LaTeX or special characters within the JSON string values are properly escaped (e.g., use \\\\ for a literal backslash).
+        Ensure all string values within the JSON are properly escaped. For example, any literal backslash characters (e.g., in LaTeX like \\mu or \\int) must be represented as \\\\ (a double backslash) within the JSON string value. Quotes within strings must be escaped as \\\". Newlines within strings must be escaped as \\n.
         """
         return prompt
 
@@ -113,57 +106,59 @@ class AnswerEvaluator:
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.post(api_url, json=payload, headers={'Content-Type': 'application/json'}) as response:
-                    response_text_for_error = await response.text()
+                    response_text_content = await response.text() 
                     response.raise_for_status() 
                     
-                    raw_json_response = json.loads(response_text_for_error)
+                    raw_outer_json_response = json.loads(response_text_content)
 
-                    if raw_json_response.get("candidates") and \
-                       len(raw_json_response["candidates"]) > 0 and \
-                       raw_json_response["candidates"][0].get("content") and \
-                       raw_json_response["candidates"][0]["content"].get("parts") and \
-                       len(raw_json_response["candidates"][0]["content"]["parts"]) > 0:
+                    if raw_outer_json_response.get("candidates") and \
+                       len(raw_outer_json_response["candidates"]) > 0 and \
+                       raw_outer_json_response["candidates"][0].get("content") and \
+                       raw_outer_json_response["candidates"][0]["content"].get("parts") and \
+                       len(raw_outer_json_response["candidates"][0]["content"]["parts"]) > 0:
                         
-                        json_string_from_llm = raw_json_response["candidates"][0]["content"]["parts"][0].get("text")
+                        json_string_from_llm = raw_outer_json_response["candidates"][0]["content"]["parts"][0].get("text")
                         if json_string_from_llm:
-                            print(f"DEBUG: Raw JSON string from LLM: {json_string_from_llm}")
-                            # Attempt to fix common escape issues before parsing
-                            # Replace single backslashes not already part of a valid escape (like \n, \t, \", \\)
-                            # This is a common issue with LLM-generated JSON containing LaTeX.
-                            # A simple replace might be too naive if there are legitimate single backslashes.
-                            # A more robust way is to try parsing, and if it fails due to escapes, then try to fix.
-                            
-                            # First, try direct parsing
+                            print(f"DEBUG: Raw JSON string from LLM part: {repr(json_string_from_llm)}")
                             try:
                                 evaluation_data = json.loads(json_string_from_llm)
+                                print("LLM Evaluation Response (JSON) Parsed successfully (1st attempt).")
+                                return evaluation_data
                             except json.JSONDecodeError as je:
-                                print(f"Warning: Initial JSON parsing failed: {je}. Attempting to fix escapes.")
-                                # Attempt to fix unescaped backslashes specifically
-                                # This regex looks for backslashes that are not already part of a valid JSON escape sequence
-                                # (like \", \\, \/, \b, \f, \n, \r, \t, \uXXXX)
-                                # and replaces them with an escaped backslash \\.
-                                # This is a heuristic and might need refinement.
-                                fixed_json_string = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_string_from_llm)
-                                print(f"DEBUG: JSON string after attempting to fix escapes: {fixed_json_string}")
+                                print(f"Warning: Initial JSON parsing failed: {je}. Attempting escape fixes.")
+                                
+                                # Attempt 1: Fix common unescaped backslashes (not part of valid JSON escapes)
+                                fixed_json_string_attempt1 = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', json_string_from_llm)
+                                # Attempt 2: Escape literal newlines and carriage returns
+                                fixed_json_string_attempt2 = fixed_json_string_attempt1.replace("\n", "\\n").replace("\r", "\\r")
+                                
+                                print(f"DEBUG: JSON string after escape fixes: {repr(fixed_json_string_attempt2)}")
                                 try:
-                                    evaluation_data = json.loads(fixed_json_string)
+                                    evaluation_data = json.loads(fixed_json_string_attempt2)
+                                    print("LLM Evaluation Response (JSON) Parsed successfully (2nd attempt after fixes).")
+                                    return evaluation_data
                                 except json.JSONDecodeError as je2:
-                                    print(f"Error: LLM returned text that is not valid JSON even after escape fix: {je2}")
-                                    print(f"LLM Original Text Output: {json_string_from_llm}")
+                                    print(f"Error: LLM returned text that is not valid JSON even after escape fixes: {je2}")
+                                    print(f"  Error details: msg='{je2.msg}', doc (first 100)='{je2.doc[:100]}...', lineno={je2.lineno}, colno={je2.colno}, pos={je2.pos}")
+                                    if je2.doc and isinstance(je2.doc, str): # Check if je2.doc is a string
+                                        print(f"  Problematic char context: '{je2.doc[max(0,je2.pos-10):je2.pos+10]}'")
+                                    print(f"LLM Original Text Output (from part): {repr(json_string_from_llm)}")
+                                    print(f"Attempted Fixed JSON string (final): {repr(fixed_json_string_attempt2)}")
                                     return {"accuracy_score": 0.0, "feedback": "Error: LLM response was not valid JSON.", "correct_answer": None}
-                            
-                            print("LLM Evaluation Response (JSON) Received and Parsed.")
-                            return evaluation_data
                         else:
                             print("Error: LLM response part contains no text.")
-                            return None
+                            return None 
                     else:
-                        print("Error: Unexpected LLM API response structure (outer).")
-                        print("Full LLM Response:", json.dumps(raw_json_response, indent=2)) 
+                        print("Error: Unexpected LLM API response structure (outer candidates/parts).")
+                        print("Full Outer LLM Response:", json.dumps(raw_outer_json_response, indent=2)) 
                         return None
 
             except aiohttp.ClientResponseError as e:
-                print(f"Error calling LLM API (HTTP Status {e.status}): {e.message}\nResponse Body: {response_text_for_error}")
+                print(f"Error calling LLM API (HTTP Status {e.status}): {e.message}\nResponse Body: {response_text_content}")
+                return None
+            except json.JSONDecodeError as je_outer: 
+                print(f"Error: Could not parse the main Gemini API response as JSON: {je_outer}")
+                print(f"Main Gemini API Raw Response Text: {response_text_content if 'response_text_content' in locals() else 'Response text not available'}")
                 return None
             except Exception as e:
                 print(f"Error calling LLM API (General Exception): {e}")
@@ -176,35 +171,25 @@ class AnswerEvaluator:
                               context: str, 
                               learner_answer: str
                               ) -> Dict[str, Any]:
-        """
-        Evaluates the learner's answer using the LLM.
-
-        Returns:
-            A dictionary containing 'accuracy_score' (float 0-1), 'feedback' (str),
-            and optionally 'correct_answer' (str).
-            Defaults to score 0.0 and error feedback if evaluation fails.
-        """
         if not all([question_text, context, learner_answer]):
             print("AnswerEvaluator: Missing question, context, or answer for evaluation.")
             return {"accuracy_score": 0.0, "feedback": "Evaluation error: Missing input.", "correct_answer": None}
 
         prompt = self._build_evaluation_prompt(question_text, context, learner_answer)
-        
         evaluation_data = await self._call_llm_api_for_evaluation(prompt)
 
         if evaluation_data and isinstance(evaluation_data.get("accuracy_score"), (float, int)) \
            and isinstance(evaluation_data.get("feedback"), str):
             score = float(evaluation_data["accuracy_score"])
             evaluation_data["accuracy_score"] = max(0.0, min(1.0, score))
-            # Ensure correct_answer is present, defaulting to None if missing from LLM
             evaluation_data.setdefault("correct_answer", None) 
             return evaluation_data
         else:
             print("AnswerEvaluator: Failed to get a valid structured evaluation from LLM.")
             return {
                 "accuracy_score": 0.0, 
-                "feedback": "Could not evaluate the answer due to an LLM communication or parsing error.",
-                "correct_answer": None
+                "feedback": evaluation_data.get("feedback") if isinstance(evaluation_data, dict) else "Could not evaluate the answer due to an LLM communication or parsing error.",
+                "correct_answer": evaluation_data.get("correct_answer") if isinstance(evaluation_data, dict) else None
             }
 
 async def demo_evaluator():
