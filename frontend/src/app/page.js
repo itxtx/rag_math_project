@@ -44,7 +44,7 @@ function App() {
   const [theme, setTheme] = useState('light');
 
   const [availableTopics, setAvailableTopics] = useState([]);
-  const [selectedTopicId, setSelectedTopicId] = useState('');
+  const [selectedTopicId, setSelectedTopicId] = useState(''); // This will be used as doc_id
   const [topicsLoading, setTopicsLoading] = useState(true);
   const [topicsError, setTopicsError] = useState(null);
 
@@ -165,6 +165,11 @@ function App() {
       setIsErrorDialogOpen(true);
       return;
     }
+    if (!selectedTopicId) { // Ensure doc_id (selectedTopicId) is available
+        setError('Topic ID is missing. Cannot submit answer.');
+        setIsErrorDialogOpen(true);
+        return;
+    }
     if (!answer.trim()) {
       setError('Answer cannot be empty.');
       setIsErrorDialogOpen(true);
@@ -180,6 +185,7 @@ function App() {
         body: JSON.stringify({
           learner_id: learnerId,
           question_id: question.question_id,
+          doc_id: selectedTopicId, // Added doc_id
           question_text: question.question_text, 
           context_for_evaluation: question.context_for_evaluation, 
           learner_answer: answer,
@@ -201,7 +207,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [learnerId, question, answer, API_BASE_URL]);
+  }, [learnerId, question, answer, API_BASE_URL, selectedTopicId]); // Added selectedTopicId to dependencies
 
   const cleanedQuestionText = useMemo(() => {
     if (question && question.question_text) { 
