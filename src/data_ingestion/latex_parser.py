@@ -195,7 +195,7 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("diff", simplify_repl=r"\frac{d%(1)s}{d%(2)s}"),
                 MacroTextSpec("pdiff", simplify_repl=r"\frac{\partial %(1)s}{\partial %(2)s}"),
                 MacroTextSpec("bvec", simplify_repl=r"\bm{%(1)s}"),
-                MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"),
+                #MacroTextSpec("powerset", simplify_repl=r"\mathcal{P}(%(1)s)"),
                 MacroTextSpec("dual", simplify_repl=r"%(1)s^*"),
                 MacroTextSpec("Lp", simplify_repl=r"L^{%(1)s}"),
                 MacroTextSpec("lp", simplify_repl=r"\ell^{%(1)s}"),
@@ -205,6 +205,7 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("conj", simplify_repl=r"\overline{%(1)s}"),
                 MacroTextSpec("herm", simplify_repl=r"%(1)s^H"),
                 MacroTextSpec("vec", simplify_repl=r"\mathbf{%(1)s}")
+
             ]
             
             # Use a dictionary to manage specs and avoid duplicates, ensuring one spec per macroname
@@ -281,8 +282,12 @@ def custom_latex_to_text(latex_str: str) -> str:
                 # Since math_mode='verbatim', this should give the LaTeX of the content.
                 math_content_str = self.nodelist_to_text(node.nodelist)
                 
-                if node.delimiters == ('\\[', '\\]'):
+                if node.delimiters == ('\[', '\]'):
                     return f"$${math_content_str}$$"
+                elif node.delimiters == ('\\[', '\\]'):
+                    return f"$${math_content_str}$$"
+                elif node.delimiters == ('[', ']'):
+                    return f"${math_content_str}$"
                 elif node.delimiters == ('$', '$'):
                     return f"${math_content_str}$"
                 else:
@@ -340,7 +345,7 @@ def custom_latex_to_text(latex_str: str) -> str:
 
                 environments_to_process_content = [
                     'abstract', 'center', 'figure', 'table', # Note: figure/table content extraction is basic
-                    'theorem', 'lemma', 'proof', 'definition', 'corollary', 'example', 'remark'
+                    #'theorem', 'lemma', 'proof', 'definition', 'corollary', 'example', 'remark'
                 ]
                 if env_name in environments_to_process_content:
                     return self.nodelist_to_text(node.nodelist)
