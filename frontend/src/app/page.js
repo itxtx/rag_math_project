@@ -4,8 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown'; // Import ReactMarkdown
 import remarkMath from 'remark-math'; // Import remark-math for parsing math
 import rehypeKatex from 'rehype-katex'; // Import rehype-katex for rendering math
-
 import 'katex/dist/katex.css'; // Import KaTeX CSS directly
+
 // Shadcn UI components
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -58,16 +58,8 @@ function App() {
     }
   }, [theme]);
 
-  // Effect to load KaTeX CSS and custom serif font
+  // Effect to load custom serif font (KaTeX CSS is now imported)
   useEffect(() => {
-    // Load KaTeX CSS
-    const katexLink = document.createElement('link');
-    katexLink.rel = 'stylesheet';
-    katexLink.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
-    katexLink.integrity = 'sha384-n8MV3dEkVvJoQWT9sJILfSTgA9rwYQq8qxbl8tB7vO0FrvPz9HTZkYet5PkeFNHS';
-    katexLink.crossOrigin = 'anonymous';
-    document.head.appendChild(katexLink);
-
     // Load Lora font for LaTeX-compatible text
     const loraFontLink = document.createElement('link');
     loraFontLink.href = "https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap";
@@ -75,9 +67,6 @@ function App() {
     document.head.appendChild(loraFontLink);
 
     return () => {
-      if (document.head.contains(katexLink)) {
-        document.head.removeChild(katexLink);
-      }
       if (document.head.contains(loraFontLink)) {
         document.head.removeChild(loraFontLink);
       }
@@ -242,20 +231,19 @@ function App() {
       <style jsx global>{`
         .font-latex-serif {
           font-family: 'Lora', serif;
-          line-height: 1.7; /* Adjusted line height for serif readability */
+          line-height: 1.7; 
         }
         .font-latex-serif p, 
         .font-latex-serif li {
-            font-size: 1.05rem; /* Slightly larger base size for serif */
+            font-size: 1.05rem; 
         }
         textarea.font-latex-serif {
           font-family: 'Lora', serif;
           line-height: 1.6;
           font-size: 1.05rem;
         }
-        /* Ensure KaTeX fonts are not overridden if there's a conflict */
         .font-latex-serif .katex {
-          font-family: KaTeX_Main, Times New Roman, serif !important; /* Default KaTeX font stack */
+          font-family: KaTeX_Main, Times New Roman, serif !important; 
         }
       `}</style>
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4 font-inter relative">
@@ -269,7 +257,7 @@ function App() {
           {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
         </Button>
 
-        <div className="w-full max-w-2xl space-y-6">
+        <div className="w-full max-w-3xl space-y-6"> {/* Adjusted max-width for the main content area */}
           <AlertDialog open={isLearnerIdDialogOpen} onOpenChange={setIsLearnerIdDialogOpen}>
             <AlertDialogContent className="rounded-xl bg-card border-border">
               <AlertDialogHeader>
@@ -341,10 +329,10 @@ function App() {
           {loading && <Progress value={undefined} className="w-full h-2 bg-primary animate-pulse" />}
 
           {!loading && conceptContext && (
-            <Card className="w-full rounded-xl border border-border bg-card">
+            <Card className="w-full rounded-xl border border-border bg-card"> {/* Context card uses full width of its container (now max-w-3xl) */}
               <CardHeader>
                 <CardTitle className="text-2xl font-bold text-card-foreground">
-                  Context: {conceptContext.topic_name || "Review Material"}
+                  {conceptContext.topic_name || "Review Material"} {/* Removed "Context: " prefix */}
                 </CardTitle>
                 <CardDescription className="text-muted-foreground">
                   Please review the following information before answering the question.
@@ -352,7 +340,7 @@ function App() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div
-                  className="p-4 rounded-lg border border-border text-foreground text-base leading-relaxed markdown-body bg-background/30 max-h-[50vh] overflow-y-auto font-latex-serif" // Added font-latex-serif
+                  className="p-4 rounded-lg text-foreground text-base leading-relaxed markdown-body bg-card max-h-[65vh] overflow-y-auto font-latex-serif" // Increased max-h, bg-card
                   key={(conceptContext.topic_name || "") + cleanedConceptContextMarkdown.substring(0,10)} 
                 >
                   <ReactMarkdown
@@ -378,11 +366,11 @@ function App() {
             <Card className="w-full rounded-xl border border-border bg-card">
               <CardHeader>
                 <CardTitle className="text-2xl font-bold text-card-foreground">Question {question.question_number || (question.question_id ? '' : '')}</CardTitle>
-                <CardDescription className="text-muted-foreground">Provide your answer below.</CardDescription>
+                {/* Removed "Provide your answer below" CardDescription */}
               </CardHeader>
               <CardContent className="space-y-4">
                 <div
-                  className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30 font-latex-serif" // Added font-latex-serif
+                  className="p-4 rounded-lg text-foreground text-lg leading-relaxed markdown-body font-latex-serif" // Removed border and bg-background/30
                   key={question.question_id} 
                 >
                   <ReactMarkdown
@@ -393,13 +381,13 @@ function App() {
                   </ReactMarkdown>
                 </div>
                 <div className="grid w-full items-center gap-1.5">
-                  <Label htmlFor="answer" className="text-card-foreground">Your Answer</Label>
+                  {/* Removed "Your answer" Label */}
                   <Textarea
                     id="answer"
                     placeholder="Type your answer here..."
                     value={answer}
                     onChange={(e) => setAnswer(e.target.value)}
-                    className="min-h-[150px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border font-latex-serif" // Added font-latex-serif
+                    className="min-h-[150px] rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border font-latex-serif" 
                     disabled={loading}
                   />
                 </div>
@@ -433,7 +421,7 @@ function App() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div
-                  className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30 font-latex-serif" // Added font-latex-serif
+                  className="p-4 rounded-lg border border-border text-foreground text-lg leading-relaxed markdown-body bg-background/30 font-latex-serif" 
                   key={(cleanedFeedback.feedbackText || "") + (cleanedFeedback.correctAnswer || "")}
                 >
                   <ReactMarkdown

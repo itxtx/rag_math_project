@@ -188,7 +188,7 @@ def custom_latex_to_text(latex_str: str) -> str:
                 MacroTextSpec("Zn", simplify_repl=r"\Z_{%(1)s}"),
                 MacroTextSpec("Znx", simplify_repl=r"\Z_{%(1)s}^\times"),
                 MacroTextSpec("fieldext", simplify_repl=r"%(1)s/%(2)s"),
-                MacroTextSpec("degree", simplify_repl=r"[%(1)s:%(2)s]"),
+                MacroTextSpec("degree", simplify_repl=r"\[%(1)s:%(2)s]"),
                 MacroTextSpec("ideal", simplify_repl=r"\langle %(1)s \rangle"),
                 MacroTextSpec("abs", simplify_repl=r"\left| %(1)s \right|"),
                 MacroTextSpec("norm", simplify_repl=r"\text{N}(%(1)s)"), # Or \operatorname{N}
@@ -216,11 +216,17 @@ def custom_latex_to_text(latex_str: str) -> str:
             simple_latex_macros = {
                 "Q": r"\mathbb{Q}", "C": r"\mathbb{C}", "K": r"\mathbb{K}",
                 "F": r"\mathbb{F}", "N": r"\mathbb{N}", "Z": r"\mathbb{Z}",
-                "R": r"\mathbb{R}",
-                "A": r"\mathcal{A}", # Assuming \A maps to \mathcal{A}
-                "V": r"\mathcal{V}", # Assuming \V maps to \mathcal{V}
-                # Add other common symbols if needed
-                "alpha": r"\alpha", "beta": r"\beta", "gamma": r"\gamma", # etc. for greek letters
+                "R": r"\mathbb{R}", "A": r"\mathcal{A}", "V": r"\mathcal{V}",
+                # Common Greek letters
+                "alpha": r"\alpha", "beta": r"\beta", "gamma": r"\gamma", "delta": r"\delta",
+                "epsilon": r"\epsilon", "zeta": r"\zeta", "eta": r"\eta", "theta": r"\theta",
+                "iota": r"\iota", "kappa": r"\kappa", "lambda": r"\lambda", "mu": r"\mu",
+                "nu": r"\nu", "xi": r"\xi", "pi": r"\pi", "rho": r"\rho",
+                "sigma": r"\\sigma", "tau": r"\tau", "upsilon": r"\upsilon", "phi": r"\phi",
+                "chi": r"\chi", "psi": r"\psi", "omega": r"\omega",
+                "Gamma": r"\Gamma", "Delta": r"\Delta", "Theta": r"\Theta", "Lambda": r"\Lambda",
+                "Xi": r"\Xi", "Pi": r"\Pi", "Sigma": r"\Sigma", "Upsilon": r"\Upsilon",
+                "Phi": r"\Phi", "Psi": r"\Psi", "Omega": r"\Omega",
             }
             for name, repl_latex in simple_latex_macros.items():
                 if name not in specs_map: # Add if not already defined (e.g. as an arg-taking macro)
