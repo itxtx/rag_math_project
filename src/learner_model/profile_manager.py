@@ -5,48 +5,36 @@ import datetime
 import os
 from typing import List, Dict, Optional, Any, Tuple
 
-from src import config # For DB path
+from src import config 
 
-# Default DB path can be set in config.py or here
 DEFAULT_DB_PATH = os.path.join(config.DATA_DIR, "learner_profiles.sqlite3")
+
+DIFFICULTY_LEVELS = ["beginner", "intermediate", "high", "super_high"]
+CORRECT_ANSWERS_TO_ADVANCE_DIFFICULTY = 3
 
 class LearnerProfileManager:
     """
     Manages learner profiles, storing data in an SQLite database.
     - Learner ID, overall progress.
-    - Concept-specific knowledge states (score, history).
+    - Concept-specific knowledge states (score, history, SRS data, difficulty).
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        """
-        Initializes the ProfileManager and connects to the SQLite database.
-        Creates necessary tables if they don't exist.
-
-        Args:
-            db_path (Optional[str]): Path to the SQLite database file.
-                                     Defaults to DEFAULT_DB_PATH.
-        """
         self.db_path = db_path if db_path else DEFAULT_DB_PATH
-        
         db_dir = os.path.dirname(self.db_path)
         if db_dir and not os.path.exists(db_dir): 
             os.makedirs(db_dir, exist_ok=True)
-            print(f"ProfileManager: Created directory for database: {db_dir}")
-
         self.conn = None
         self.cursor = None
         self._connect_db()
-        self._create_tables()
+        self._create_tables() 
         print(f"ProfileManager initialized. Database at: {self.db_path}")
 
     def _connect_db(self):
-        """Establishes a connection to the SQLite database and enables foreign keys."""
         try:
             self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row 
-            # --- ADDED: Enable Foreign Key support for this connection ---
             self.conn.execute("PRAGMA foreign_keys = ON;")
-            # --- END OF ADDITION ---
             self.cursor = self.conn.cursor()
             print("ProfileManager: Database connection established and foreign keys enabled.")
         except sqlite3.Error as e:
@@ -54,10 +42,7 @@ class LearnerProfileManager:
             raise 
 
     def _create_tables(self):
-        """Creates the necessary tables in the database if they don't already exist."""
-        if not self.cursor:
-            print("ProfileManager: Database cursor not available. Cannot create tables.")
-            return
+        if not self.cursor: return
 
         try:
             self.cursor.execute("""
@@ -72,44 +57,71 @@ class LearnerProfileManager:
                     knowledge_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     learner_id TEXT NOT NULL,
                     concept_id TEXT NOT NULL, 
-                    current_score REAL DEFAULT 0.0,
+                    doc_id TEXT, -- Added to link concept to a document/topic
+                    current_score REAL DEFAULT 0.0,          
                     last_answered_correctly INTEGER DEFAULT 0, 
                     total_attempts INTEGER DEFAULT 0,
                     correct_attempts INTEGER DEFAULT 0,
                     last_attempted_at DATETIME,
+                    srs_repetitions INTEGER DEFAULT 0,       
+                    srs_interval_days INTEGER DEFAULT 0,     
+                    next_review_at DATETIME,                 
+                    current_difficulty_level TEXT DEFAULT 'beginner', 
+                    consecutive_correct_at_difficulty INTEGER DEFAULT 0, 
                     FOREIGN KEY (learner_id) REFERENCES learners (learner_id) ON DELETE CASCADE,
                     UNIQUE (learner_id, concept_id) 
                 )
             """)
+            self._add_missing_concept_knowledge_columns() 
+            
             self.cursor.execute("""
                 CREATE TABLE IF NOT EXISTS score_history (
                     history_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     knowledge_id INTEGER NOT NULL, 
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    score REAL NOT NULL,
+                    score REAL NOT NULL, 
                     raw_eval_data TEXT, 
                     FOREIGN KEY (knowledge_id) REFERENCES concept_knowledge (knowledge_id) ON DELETE CASCADE
                 )
             """)
             self.conn.commit()
-            print("ProfileManager: Tables ensured/created successfully.")
+            print("ProfileManager: Tables ensured/created/updated successfully.")
         except sqlite3.Error as e:
-            print(f"ProfileManager: Error creating tables: {e}")
+            print(f"ProfileManager: Error creating/updating tables: {e}")
             if self.conn: self.conn.rollback()
             raise
 
+    def _add_missing_concept_knowledge_columns(self):
+        if not self.cursor: return
+        
+        columns_to_add = {
+            "srs_repetitions": "INTEGER DEFAULT 0",
+            "srs_interval_days": "INTEGER DEFAULT 0",
+            "next_review_at": "DATETIME",
+            "current_difficulty_level": "TEXT DEFAULT 'beginner'",
+            "consecutive_correct_at_difficulty": "INTEGER DEFAULT 0",
+            "doc_id": "TEXT" # Added doc_id column
+        }
+        
+        self.cursor.execute("PRAGMA table_info(concept_knowledge);")
+        existing_columns = [row['name'] for row in self.cursor.fetchall()]
+        
+        for col_name, col_def in columns_to_add.items():
+            if col_name not in existing_columns:
+                try:
+                    self.cursor.execute(f"ALTER TABLE concept_knowledge ADD COLUMN {col_name} {col_def};")
+                    print(f"ProfileManager: Added column '{col_name}' to 'concept_knowledge' table.")
+                except sqlite3.Error as e:
+                    print(f"ProfileManager: Warning - Could not add column '{col_name}': {e}")
+        self.conn.commit()
+
+
     def close_db(self):
-        """Closes the database connection."""
         if self.conn:
-            self.conn.close()
-            self.conn = None # Ensure it's None after closing
-            self.cursor = None
+            self.conn.close(); self.conn = None; self.cursor = None
             print("ProfileManager: Database connection closed.")
 
     def create_profile(self, learner_id: str) -> bool:
-        """
-        Creates a new learner profile if one doesn't already exist.
-        """
         if not self.cursor or not self.conn: 
             print("ProfileManager: DB not connected for create_profile.")
             return False
@@ -123,9 +135,6 @@ class LearnerProfileManager:
             return False
 
     def get_profile(self, learner_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves a learner's profile information.
-        """
         if not self.cursor: 
             print("ProfileManager: DB not connected for get_profile.")
             return None
@@ -138,9 +147,7 @@ class LearnerProfileManager:
             return None
 
     def update_overall_progress(self, learner_id: str, progress: float) -> bool:
-        """
-        Updates the overall progress for a learner.
-        """
+        # ... (remains same)
         if not self.cursor or not self.conn: return False
         try:
             self.cursor.execute("UPDATE learners SET overall_progress = ? WHERE learner_id = ?", (progress, learner_id))
@@ -151,10 +158,8 @@ class LearnerProfileManager:
             if self.conn: self.conn.rollback()
             return False
 
+
     def get_concept_knowledge(self, learner_id: str, concept_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieves the knowledge state for a specific concept for a learner.
-        """
         if not self.cursor: return None
         try:
             self.cursor.execute("""
@@ -167,50 +172,84 @@ class LearnerProfileManager:
             print(f"ProfileManager: Error getting concept knowledge for learner '{learner_id}', concept '{concept_id}': {e}")
             return None
 
-    def update_concept_knowledge(self, 
+    def update_concept_srs_and_difficulty(self, 
                                  learner_id: str, 
                                  concept_id: str, 
+                                 doc_id: Optional[str], # Added doc_id
                                  score: float, 
                                  answered_correctly: bool,
-                                 raw_eval_data: Optional[Dict] = None) -> bool:
-        """
-        Updates the learner's knowledge state for a specific concept and logs the score.
-        """
+                                 srs_details: Dict[str, Any], 
+                                 raw_eval_data: Optional[Dict] = None
+                                 ) -> bool:
         if not self.cursor or not self.conn: return False
         
         now_timestamp = datetime.datetime.now()
         raw_eval_json = json.dumps(raw_eval_data) if raw_eval_data else None
 
         try:
-            self.cursor.execute("""
-                SELECT knowledge_id, total_attempts, correct_attempts FROM concept_knowledge 
-                WHERE learner_id = ? AND concept_id = ?
-            """, (learner_id, concept_id))
-            row = self.cursor.fetchone()
-
+            current_knowledge = self.get_concept_knowledge(learner_id, concept_id)
+            
             knowledge_id: Optional[int] = None
             new_total_attempts: int = 1
             new_correct_attempts: int = 1 if answered_correctly else 0
+            current_difficulty = 'beginner'
+            consecutive_correct_at_curr_difficulty = 0
 
-            if row: 
-                knowledge_id = row["knowledge_id"]
-                new_total_attempts = row["total_attempts"] + 1
-                new_correct_attempts = row["correct_attempts"] + (1 if answered_correctly else 0)
-                
+            if current_knowledge: 
+                knowledge_id = current_knowledge["knowledge_id"]
+                new_total_attempts = current_knowledge.get("total_attempts", 0) + 1
+                new_correct_attempts = current_knowledge.get("correct_attempts", 0) + (1 if answered_correctly else 0)
+                current_difficulty = current_knowledge.get("current_difficulty_level", 'beginner')
+                consecutive_correct_at_curr_difficulty = current_knowledge.get("consecutive_correct_at_difficulty", 0)
+            
+            if answered_correctly:
+                consecutive_correct_at_curr_difficulty += 1
+                if consecutive_correct_at_curr_difficulty >= CORRECT_ANSWERS_TO_ADVANCE_DIFFICULTY:
+                    try:
+                        current_difficulty_idx = DIFFICULTY_LEVELS.index(current_difficulty)
+                        if current_difficulty_idx < len(DIFFICULTY_LEVELS) - 1:
+                            current_difficulty = DIFFICULTY_LEVELS[current_difficulty_idx + 1]
+                            consecutive_correct_at_curr_difficulty = 0 
+                            print(f"  Difficulty for concept '{concept_id}' advanced to: {current_difficulty}")
+                        else:
+                            print(f"  Concept '{concept_id}' already at max difficulty: {current_difficulty}")
+                    except ValueError: 
+                        print(f"  Warning: Unknown current difficulty '{current_difficulty}', resetting to beginner.")
+                        current_difficulty = 'beginner'
+                        consecutive_correct_at_curr_difficulty = 1
+            else: 
+                consecutive_correct_at_curr_difficulty = 0 
+
+            next_review_dt = srs_details.get("next_review_at")
+            next_interval = srs_details.get("next_interval_days")
+            new_srs_reps = srs_details.get("new_srs_repetitions")
+
+            if current_knowledge:
                 self.cursor.execute("""
                     UPDATE concept_knowledge 
                     SET current_score = ?, last_answered_correctly = ?, 
-                        total_attempts = ?, correct_attempts = ?, last_attempted_at = ?
+                        total_attempts = ?, correct_attempts = ?, last_attempted_at = ?,
+                        srs_repetitions = ?, srs_interval_days = ?, next_review_at = ?,
+                        current_difficulty_level = ?, consecutive_correct_at_difficulty = ?,
+                        doc_id = ? 
                     WHERE knowledge_id = ?
-                """, (score, 1 if answered_correctly else 0, new_total_attempts, new_correct_attempts, now_timestamp, knowledge_id))
+                """, (score, 1 if answered_correctly else 0, new_total_attempts, new_correct_attempts, now_timestamp,
+                      new_srs_reps, next_interval, next_review_dt,
+                      current_difficulty, consecutive_correct_at_curr_difficulty,
+                      doc_id, # Update doc_id as well
+                      knowledge_id))
             else: 
                 self.cursor.execute("""
                     INSERT INTO concept_knowledge 
-                        (learner_id, concept_id, current_score, last_answered_correctly, 
-                         total_attempts, correct_attempts, last_attempted_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (learner_id, concept_id, score, 1 if answered_correctly else 0, 
-                      new_total_attempts, new_correct_attempts, now_timestamp))
+                        (learner_id, concept_id, doc_id, current_score, last_answered_correctly, 
+                         total_attempts, correct_attempts, last_attempted_at,
+                         srs_repetitions, srs_interval_days, next_review_at,
+                         current_difficulty_level, consecutive_correct_at_difficulty)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (learner_id, concept_id, doc_id, score, 1 if answered_correctly else 0, 
+                      new_total_attempts, new_correct_attempts, now_timestamp,
+                      new_srs_reps, next_interval, next_review_dt,
+                      current_difficulty, consecutive_correct_at_curr_difficulty))
                 knowledge_id = self.cursor.lastrowid 
 
             if knowledge_id is None: 
@@ -226,75 +265,54 @@ class LearnerProfileManager:
             self.conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"ProfileManager: Error updating concept knowledge for learner '{learner_id}', concept '{concept_id}': {e}")
+            print(f"ProfileManager: Error updating concept knowledge/SRS for learner '{learner_id}', concept '{concept_id}': {e}")
             if self.conn: self.conn.rollback()
             return False
 
     def get_score_history(self, learner_id: str, concept_id: str) -> List[Dict[str, Any]]:
-        """
-        Retrieves the score history for a specific concept for a learner.
-        """
+
         if not self.cursor: return []
         history = []
         try:
-            self.cursor.execute("""
-                SELECT knowledge_id FROM concept_knowledge
-                WHERE learner_id = ? AND concept_id = ?
-            """, (learner_id, concept_id))
+            self.cursor.execute("SELECT knowledge_id FROM concept_knowledge WHERE learner_id = ? AND concept_id = ?", (learner_id, concept_id))
             knowledge_row = self.cursor.fetchone()
-
             if knowledge_row:
                 knowledge_id = knowledge_row["knowledge_id"]
-                self.cursor.execute("""
-                    SELECT timestamp, score, raw_eval_data FROM score_history
-                    WHERE knowledge_id = ? ORDER BY timestamp ASC
-                """, (knowledge_id,))
+                self.cursor.execute("SELECT timestamp, score, raw_eval_data FROM score_history WHERE knowledge_id = ? ORDER BY timestamp ASC", (knowledge_id,))
                 for row in self.cursor.fetchall():
                     entry = dict(row)
                     if entry.get('raw_eval_data'):
-                        try:
-                            entry['raw_eval_data'] = json.loads(entry['raw_eval_data'])
-                        except json.JSONDecodeError:
-                            print(f"Warning: Could not parse raw_eval_data for history entry.")
+                        try: entry['raw_eval_data'] = json.loads(entry['raw_eval_data'])
+                        except json.JSONDecodeError: pass 
                     history.append(entry)
-            else:
-                print(f"ProfileManager: No concept knowledge found for learner '{learner_id}', concept '{concept_id}' to get history.")
         except sqlite3.Error as e:
             print(f"ProfileManager: Error retrieving score history: {e}")
         return history
-
-
-if __name__ == '__main__':
-    print("--- LearnerProfileManager Demo ---")
-    if not os.path.exists(config.DATA_DIR): os.makedirs(config.DATA_DIR)
-    demo_db_path = os.path.join(config.DATA_DIR, "demo_learner_profiles.sqlite3")
-    if os.path.exists(demo_db_path):
-        os.remove(demo_db_path)
-        print(f"Removed old demo database: {demo_db_path}")
-
-    pm = LearnerProfileManager(db_path=demo_db_path)
-    # ... (rest of the demo from previous version) ...
-    learner1_id = "learner_001"
-    learner2_id = "learner_002"
-    concept_math_101 = "math_vectors_intro"
-    concept_bio_101 = "bio_photosynthesis_basics"
-
-    print(f"\nCreating profile for {learner1_id}: {pm.create_profile(learner1_id)}")
-    print(f"Creating profile for {learner2_id}: {pm.create_profile(learner2_id)}")
     
-    print(f"\nProfile for {learner1_id}: {pm.get_profile(learner1_id)}")
-    
-    print(f"\nUpdating progress for {learner1_id}: {pm.update_overall_progress(learner1_id, 0.25)}")
-    
-    print(f"\nUpdating concept '{concept_math_101}' for {learner1_id} (score: 7.5, correct: True)")
-    pm.update_concept_knowledge(learner1_id, concept_math_101, 7.5, True, {"feedback": "Good understanding!"})
-    
-    print(f"\nUpdating concept '{concept_math_101}' for {learner1_id} (score: 5.0, correct: False)")
-    pm.update_concept_knowledge(learner1_id, concept_math_101, 5.0, False, {"feedback": "Needs review."})
+    def get_concepts_for_review(self, learner_id: str, review_date: Optional[datetime.datetime] = None, target_doc_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves concepts due for review for a given learner, optionally filtered by document/topic.
+        """
+        if not self.cursor: return []
+        if review_date is None:
+            review_date = datetime.datetime.now()
+        
+        query = """
+            SELECT concept_id, current_score, next_review_at, srs_interval_days, current_difficulty_level, doc_id
+            FROM concept_knowledge
+            WHERE learner_id = ? AND next_review_at IS NOT NULL AND next_review_at <= ?
+        """
+        params: List[Any] = [learner_id, review_date.strftime("%Y-%m-%d %H:%M:%S")]
 
-    print(f"\nKnowledge of '{concept_math_101}' for {learner1_id}: {pm.get_concept_knowledge(learner1_id, concept_math_101)}")
-    
-    print(f"\nScore history for '{concept_math_101}' for {learner1_id}:")
-
-    pm.close_db()
-    print("\n--- LearnerProfileManager Demo Finished ---")
+        if target_doc_id:
+            query += " AND doc_id = ?"
+            params.append(target_doc_id)
+        
+        query += " ORDER BY next_review_at ASC"
+            
+        try:
+            self.cursor.execute(query, tuple(params))
+            return [dict(row) for row in self.cursor.fetchall()]
+        except sqlite3.Error as e:
+            print(f"ProfileManager: Error fetching concepts for review for learner '{learner_id}': {e}")
+            return []

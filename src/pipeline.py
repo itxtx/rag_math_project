@@ -14,9 +14,12 @@ from src.learner_model import profile_manager
 from src.evaluation import answer_evaluator 
 from src.learner_model import knowledge_tracker 
 from src.interaction import answer_handler 
-from src.adaptive_engine import question_selector 
+from src.adaptive_engine import question_selector
+from src.adaptive_engine.srs_scheduler import SRSScheduler 
 from src import config
 from typing import Optional
+
+# Constants
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 150
 DEMO_LEARNER_ID = "learner_pipeline_interactive_001"
@@ -24,7 +27,6 @@ WEAVIATE_INDEXING_WAIT_TIME = 5
 
 
 async def run_ingestion_pipeline(processed_log_path: str):
-    # ... (ingestion pipeline remains the same as pipeline_py_v1) ...
     print("\n--- Phase 1: Data Ingestion & Storage (LaTeX Only) ---")
     client = None 
     try:
@@ -88,7 +90,7 @@ async def run_interaction_pipeline(
     interactive_mode: bool = False,
     target_topic_id: Optional[str] = None 
     ):
-    print("\n\n--- Phase 2 & 3: Retrieval, Question Selection, Generation & Learner Interaction ---")
+    print("\n\n--- Phase 2, 3 & 5: Retrieval, Question Selection, Generation & Learner Interaction ---")
     if not client:
         print("Weaviate client not available. Cannot proceed.")
         return
@@ -101,42 +103,48 @@ async def run_interaction_pipeline(
         profile_db_path = os.path.join(config.DATA_DIR, f"{learner_id}_profile.sqlite3")
         pm = profile_manager.LearnerProfileManager(db_path=profile_db_path)
         
+        srs_scheduler_instance = SRSScheduler()
         q_selector = question_selector.QuestionSelector(
             profile_manager=pm,
             retriever=doc_retriever,
             question_generator=q_generator
         )
-        
         ans_evaluator = answer_evaluator.AnswerEvaluator()
-        knowledge_track = knowledge_tracker.KnowledgeTracker(profile_manager=pm)
+        knowledge_track = knowledge_tracker.KnowledgeTracker(
+            profile_manager=pm, 
+            srs_scheduler=srs_scheduler_instance
+        )
         ans_handler = answer_handler.AnswerHandler(evaluator=ans_evaluator, tracker=knowledge_track)
-        print("Interaction components initialized.")
+        print("Interaction components (including SRS Scheduler) initialized.")
 
-        # --- Interaction Loop (Simplified to one iteration for now) ---
-        for _ in range(1): # For future extension to multiple questions per session
-            print(f"\nStep 2.X: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_topic_id}'." if target_topic_id else "."))
+        for interaction_count in range(1): 
+            print(f"\n--- Interaction Cycle {interaction_count + 1} ---")
+            print(f"Step 2.X: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_topic_id}'." if target_topic_id else "."))
+            
             next_question_info = await q_selector.select_next_question(learner_id, target_doc_id=target_topic_id)
 
             if not next_question_info or "error" in next_question_info:
                 error_msg = next_question_info.get("error", "QuestionSelector could not select a next question.") if next_question_info else "QuestionSelector returned None."
                 suggestion = next_question_info.get("suggestion", "") if next_question_info else ""
                 print(f"QuestionSelector Info: {error_msg} {suggestion}")
-                if interactive_mode and not target_topic_id:
-                    print("Consider selecting a specific topic if available, or ensure content is ingested.")
-                # Option to break loop or try again with different strategy could be added here.
-                break # Exit loop if no question
+                break 
 
             current_question_text = next_question_info["question_text"]
             question_concept_id = next_question_info["concept_id"] 
             context_for_evaluation = next_question_info["context_for_evaluation"]
             concept_name = next_question_info["concept_name"]
-            
-            # is_new_concept_context_presented = next_question_info.get("is_new_concept_context_presented", False)
-            # The QuestionSelector now prints the context directly if it's new.
+            # --- Get doc_id from question_info ---
+            doc_id_for_tracking = next_question_info.get("doc_id", "unknown_doc_id_from_qselector") # Fallback
+            if doc_id_for_tracking == "unknown_doc_id_from_qselector":
+                # Attempt to find it in curriculum map if QuestionSelector didn't directly return it
+                # (though it should based on question_selector_v2_curriculum)
+                concept_block_details = next((block for block in q_selector.curriculum_map if block["concept_id"] == question_concept_id), None)
+                if concept_block_details:
+                    doc_id_for_tracking = concept_block_details.get("doc_id", "unknown_doc_id_after_lookup")
 
             print("\n--- Learner Interaction ---")
             print(f"Learner ID: {learner_id}")
-            print(f"Selected Concept: {concept_name} (ID: {question_concept_id})")
+            print(f"Selected Concept: {concept_name} (ID: {question_concept_id}, Doc: {doc_id_for_tracking})")
             print(f"Presenting Question:\n  Q: {current_question_text}")
             
             learner_actual_answer = None
@@ -144,27 +152,34 @@ async def run_interaction_pipeline(
                 learner_actual_answer = input("Your Answer: ").strip()
                 if not learner_actual_answer: 
                     print("No answer provided. Skipping evaluation for this question.")
-                    continue # Skip to next iteration of loop (or break if only one question)
+                    continue 
             else:
                 learner_actual_answer = "A vector space is a set of vectors that can be added together and multiplied by scalars, following certain axioms like closure under addition and scalar multiplication."
                 print(f"Using Simulated Answer (non-interactive mode): \"{learner_actual_answer}\"")
 
-            if learner_actual_answer: # Should always be true if not skipped
+            if learner_actual_answer: 
                 handler_response = await ans_handler.submit_answer(
                     learner_id=learner_id, question_id=question_concept_id, 
+                    doc_id=doc_id_for_tracking, # <<< PASS doc_id
                     question_text=current_question_text, retrieved_context=context_for_evaluation, 
                     learner_answer=learner_actual_answer
                 )
                 print("\n--- Evaluation & Tracking Results ---")
                 print(f"  Feedback: {handler_response.get('feedback')}")
                 print(f"  Accuracy: {handler_response.get('accuracy_score')}")
+                print(f"  Suggested Correct Answer: {handler_response.get('correct_answer_suggestion')}")
+                
                 updated_knowledge = pm.get_concept_knowledge(learner_id, question_concept_id)
                 if updated_knowledge: 
-                    print(f"  Updated Score for '{concept_name}': {updated_knowledge.get('current_score')}/10")
-                    print(f"  Total Attempts: {updated_knowledge.get('total_attempts')}")
-            # End of loop (currently runs once)
-            if not interactive_mode: # For non-interactive demo, just one question is enough
-                break
+                    print(f"  Updated Knowledge for '{concept_name}':")
+                    print(f"    Current Score (0-10): {updated_knowledge.get('current_score')}")
+                    print(f"    Total Attempts: {updated_knowledge.get('total_attempts')}")
+                    print(f"    SRS Reps: {updated_knowledge.get('srs_repetitions')}")
+                    print(f"    SRS Interval (days): {updated_knowledge.get('srs_interval_days')}")
+                    print(f"    Next Review At: {updated_knowledge.get('next_review_at')}")
+                    print(f"    Current Difficulty: {updated_knowledge.get('current_difficulty_level')}")
+            
+            if not interactive_mode: break
 
     except Exception as e:
         print(f"Error during interaction pipeline: {e}")
@@ -199,7 +214,6 @@ async def run_full_pipeline(interactive_mode: bool = False,
     await asyncio.sleep(0.25)
 
 if __name__ == '__main__':
-    # ... (main block remains the same) ...
     dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
     if os.path.exists(dotenv_path):
         from dotenv import load_dotenv
