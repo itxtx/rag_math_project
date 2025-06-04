@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     # The __main__ block will handle path adjustment for direct execution.
     config = None # Placeholder
 import latex_processor # <<< NEW IMPORT
-# Removed old _preprocess_custom_latex_commands function
+
 
 def custom_latex_to_text(latex_str: str) -> str: # This function now receives preprocessed latex_str
     print(f"DEBUG custom_latex_to_text: Input LaTeX string (first 200 chars *after* latex_processor): '{latex_str[:200]}...'")
