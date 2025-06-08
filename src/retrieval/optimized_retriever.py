@@ -17,7 +17,7 @@ class OptimizedRetriever(Retriever):
     """
     
     def __init__(self, weaviate_client, cache_size: int = 1000):
-        super().__init__()
+        super().__init__(weaviate_client=weaviate_client)
         self.weaviate_client = weaviate_client
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.embedding_cache = {}
@@ -28,6 +28,9 @@ class OptimizedRetriever(Retriever):
         # Performance tracking
         self.cache_hits = 0
         self.cache_misses = 0
+        
+        # Initialize search results cache
+        self.search_results_cache = {}
     
     def _get_cache_key(self, query_text: str, search_params: dict = None) -> str:
         """Generate cache key for query + parameters"""
@@ -232,6 +235,71 @@ class OptimizedRetriever(Retriever):
         self.cache_hits = 0
         self.cache_misses = 0
         print("All caches cleared")
+
+    def _format_results(self, weaviate_response: Dict, requested_properties: Optional[List[str]] = None) -> List[Dict]:
+        """
+        Formats the raw response from Weaviate into a list of result dictionaries.
+
+        Args:
+            weaviate_response: The raw JSON response from Weaviate's .do() call.
+            requested_properties: The list of properties that were asked for in the query.
+                                  If None, uses self.DEFAULT_RETURN_PROPERTIES.
+        """
+        results = []
+        props_to_extract = requested_properties if requested_properties else self.DEFAULT_RETURN_PROPERTIES
+
+        if not weaviate_response or "data" not in weaviate_response or \
+           "Get" not in weaviate_response["data"] or not weaviate_response["data"]["Get"].get(self.weaviate_class_name):
+            if weaviate_response and "errors" in weaviate_response:
+                 print(f"Retriever (_format_results): Weaviate query returned errors: {weaviate_response['errors']}")
+            return results
+
+        retrieved_items = weaviate_response["data"]["Get"][self.weaviate_class_name]
+        for item in retrieved_items:
+            result = {}
+            for prop in props_to_extract: 
+                if prop in item: 
+                    result[prop] = item[prop]
+                else:
+                    result[prop] = None 
+
+            if "_additional" in item and item["_additional"] is not None:
+                for add_prop in self.DEFAULT_ADDITIONAL_PROPERTIES: 
+                    if add_prop in item["_additional"]:
+                        result[f"_{add_prop}"] = item["_additional"][add_prop]
+            results.append(result)
+        return results
+
+    def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
+        """
+        Retrieves all text chunks belonging to a specific parent conceptual block,
+        ordered by their sequence within that block.
+        """
+        print(f"Retriever: Fetching chunks for parent_block_id: {parent_block_id}")
+        filters = {
+            "operator": "Equal",
+            "path": ["parent_block_id"],
+            "valueText": parent_block_id
+        }
+        
+        query_limit = limit if limit is not None else 50 
+
+        try:
+            query_chain = (
+                self.weaviate_client.query
+                .get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
+                .with_where(filters)
+                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) 
+                .with_limit(query_limit) 
+                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES) 
+            )
+            response = query_chain.do()
+            results = self._format_results(response) 
+            print(f"Retriever: Found {len(results)} chunks for parent_block_id '{parent_block_id}'.")
+            return results
+        except Exception as e:
+            print(f"Retriever: Error fetching chunks for parent_block_id '{parent_block_id}': {e}")
+            return []
 
 
 # src/data_ingestion/optimized_vector_store_manager.py

@@ -239,7 +239,11 @@ class QuestionSelector:
             return {"error": msg, "suggestion": "Try a different topic or broaden search."} 
 
         parent_block_id_for_qg = selected_concept_block_info["concept_id"] 
-        concept_name_for_qg = selected_concept_block_info.get("concept_name", "N/A")
+        concept_name_for_qg = selected_concept_block_info.get("concept_name")
+        if not concept_name_for_qg:
+            # If no concept name is found, use a default based on the concept type
+            concept_type = selected_concept_block_info.get("concept_type", "unknown")
+            concept_name_for_qg = f"{concept_type.title()} Block {parent_block_id_for_qg[-8:]}"
         
         q_params = await self._determine_question_params(learner_id, parent_block_id_for_qg)
         difficulty = q_params["difficulty"]
@@ -297,5 +301,8 @@ class QuestionSelector:
             "concept_name": concept_name_for_qg,
             "question_text": question_text,
             "context_for_evaluation": full_context_for_qg,
-            "is_new_concept_context_presented": is_new_context_presentation 
+            "is_new_concept_context_presented": is_new_context_presentation,
+            "question_type": question_type,
+            "difficulty": difficulty,
+            "style": question_style
         }

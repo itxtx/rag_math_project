@@ -191,7 +191,7 @@ class FastRAGComponents:
     async def _get_context_for_concept(self, concept_id: str, limit: int = 2) -> str:
         """Get context for a concept with proper LaTeX formatting"""
         try:
-            chunks = await self.retriever.get_chunks_by_parent_block(concept_id, limit)
+            chunks = self.retriever.get_chunks_for_parent_block(concept_id, limit)
             if not chunks:
                 return "No context available for this concept."
                 
@@ -202,9 +202,9 @@ class FastRAGComponents:
             # Build context with proper LaTeX formatting
             context_parts = []
             for chunk in chunks:
-                if chunk.get('text'):
+                if chunk.get('chunk_text'):
                     # Clean up any malformed LaTeX
-                    text = chunk['text'].strip()
+                    text = chunk['chunk_text'].strip()
                     if not text.startswith('$'):
                         text = f"${text}$"
                     context_parts.append(text)
@@ -296,13 +296,13 @@ async def track_performance(request, call_next):
 
 # Optimized endpoints
 @app.get("/api/v1/topics", response_model=PyList[TopicResponse])
-async def list_topics_fast(components: FastRAGComponents = Depends(get_fast_components)):
+async def list_topics_fast():
     """Get list of available topics"""
     try:
         print("Starting topics endpoint...")
         # Get all documents without semantic search
         print("Fetching all documents...")
-        results = await components.retriever.get_all_documents(limit=1000)
+        results = await app_state["components"].retriever.get_all_documents(limit=1000)
         print(f"Found {len(results)} documents")
         
         # Group by doc_id and create topic responses
@@ -366,7 +366,10 @@ async def start_interaction(
         print(f"🎯 Fast interaction start for learner: {learner_id}")
         
         # Get or create learner profile
-        profile = await app_state["profile_manager"].get_or_create_profile(learner_id)
+        profile = app_state["profile_manager"].get_profile(str(learner_id))
+        if not profile:
+            app_state["profile_manager"].create_profile(str(learner_id))
+            profile = app_state["profile_manager"].get_profile(str(learner_id))
         
         # Select topic if not provided
         if not topic_id:
@@ -377,8 +380,8 @@ async def start_interaction(
         
         # Get next question
         question_data = await app_state["question_selector"].select_next_question(
-            learner_id=learner_id,
-            topic_id=topic_id
+            learner_id=str(learner_id),
+            target_doc_id=topic_id
         )
         
         if not question_data:
@@ -388,15 +391,18 @@ async def start_interaction(
         context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
         
         # Generate question
-        question = await app_state["question_generator"].generate_question(
-            context=context,
-            difficulty=question_data["difficulty"],
-            question_type=question_data["type"],
-            style=question_data["style"]
+        questions = await app_state["question_generator"].generate_questions(
+            context_chunks=[{"chunk_text": context}],
+            num_questions=1,
+            question_type=question_data["question_type"],
+            difficulty_level=question_data["difficulty"],
+            question_style=question_data["style"]
         )
         
-        if not question:
+        if not questions:
             raise HTTPException(status_code=500, detail="Failed to generate question")
+        
+        question = questions[0]
         
         # Create interaction
         interaction_id = str(uuid.uuid4())
@@ -405,18 +411,17 @@ async def start_interaction(
             "topic_id": topic_id,
             "concept_id": question_data["concept_id"],
             "question": question,
-            "start_time": datetime.now(),
+            "start_time": datetime.datetime.now(),
             "status": "active"
         }
         
         return QuestionResponse(
-            interaction_id=interaction_id,
-            question=question,
-            concept_id=question_data["concept_id"],
+            question_id=question_data["concept_id"],
+            doc_id=topic_id,
             concept_name=question_data.get("concept_name", "Unknown Concept"),
-            topic_id=topic_id,
-            difficulty=question_data["difficulty"],
-            question_type=question_data["type"]
+            question_text=question,
+            context_for_evaluation=context,
+            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False)
         )
         
     except Exception as e:
