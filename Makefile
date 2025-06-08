@@ -20,6 +20,7 @@ help:
 	@echo "  make clean           - Clean cache and temporary files"
 	@echo ""
 	@echo "$(GREEN)Phase 1 - Offline Processing:$(NC)"
+	@echo "  make update-preamble - Update master preamble with new commands from latest .tex file"
 	@echo "  make ingest          - Process new documents (fast parallel)"
 	@echo "  make train-gnn       - Train GNN for graph embeddings (optional)"
 	@echo "  make process-all     - Run both ingest and train-gnn"
@@ -67,12 +68,16 @@ clean:
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@rm -rf data/embeddings/cache/* 2>/dev/null || true
 	@rm -rf data/performance_logs/* 2>/dev/null || true
+	@rm -rf data/latex_temp/logs/* 2>/dev/null || true
 	@echo "$(GREEN)✓ Cleanup complete$(NC)"
 
 # Phase 1: Offline Processing
 update-preamble:
 	@echo "$(BLUE)📚 Updating preamble...$(NC)"
-	@python scripts/update_preamble.py data/raw_latex/$$(basename $$(ls -t data/raw_latex/*.tex | head -n1))
+	@for tex_file in data/raw_latex/*.tex; do \
+		echo "Processing $$tex_file..."; \
+		python scripts/update_preamble.py "$$tex_file"; \
+	done
 	@echo "$(GREEN)✓ Preamble updated!$(NC)"
 
 

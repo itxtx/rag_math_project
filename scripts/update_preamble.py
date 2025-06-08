@@ -47,9 +47,40 @@ def parse_declaremathoperator(line: str) -> Tuple[Optional[str], Optional[str]]:
         return cmd_name, op_name
     return None, None
 
+def parse_newenvironment(line: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Parse a \newenvironment definition.
+    Returns (env_name, begin_code, end_code) or (None, None, None) if no match.
+    """
+    # Match \newenvironment{envname}{begin_code}{end_code}
+    pattern = r'\\newenvironment\s*\{\s*([^}]+)\s*\}\s*\{([^}]*)\}\s*\{([^}]*)\}\s*$'
+    match = re.match(pattern, line.strip())
+    if match:
+        env_name = match.group(1)
+        begin_code = match.group(2)
+        end_code = match.group(3)
+        return env_name, begin_code, end_code
+    return None, None, None
+
+def parse_newtheorem(line: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    Parse a \newtheorem definition.
+    Returns (env_name, title, counter, shared_counter) or (None, None, None, None) if no match.
+    """
+    # Match \newtheorem{envname}{title}[counter] or \newtheorem{envname}[shared_counter]{title}
+    pattern = r'\\newtheorem\s*\{\s*([^}]+)\s*\}\s*(?:\[([^\]]+)\])?\s*\{([^}]+)\}\s*(?:\[([^\]]+)\])?'
+    match = re.match(pattern, line.strip())
+    if match:
+        env_name = match.group(1)
+        shared_counter = match.group(2)
+        title = match.group(3)
+        counter = match.group(4)
+        return env_name, title, counter, shared_counter
+    return None, None, None, None
+
 def extract_commands(text: str) -> Dict[str, Dict]:
     """
-    Extract all \newcommand and \DeclareMathOperator definitions from text.
+    Extract all \newcommand, \DeclareMathOperator, \newenvironment, and \newtheorem definitions from text.
     Returns a dictionary of command definitions.
     """
     commands = {}
@@ -85,8 +116,34 @@ def extract_commands(text: str) -> Dict[str, Dict]:
                     'replacement': op_name,
                     'defined_at_line': line_number + 1
                 }
+        # Parse \newenvironment
+        elif line.startswith('\\newenvironment'):
+            env_name, begin_code, end_code = parse_newenvironment(line)
+            if env_name:
+                if env_name in commands:
+                    print(f"Warning: Environment {env_name} redefined on line {line_number + 1}. Using new definition.")
+                commands[env_name] = {
+                    'type': 'newenvironment',
+                    'begin_code': begin_code,
+                    'end_code': end_code,
+                    'defined_at_line': line_number + 1
+                }
+        # Parse \newtheorem
+        elif line.startswith('\\newtheorem'):
+            env_name, title, counter, shared_counter = parse_newtheorem(line)
+            if env_name:
+                if env_name in commands:
+                    print(f"Warning: Theorem environment {env_name} redefined on line {line_number + 1}. Using new definition.")
+                commands[env_name] = {
+                    'type': 'newtheorem',
+                    'title': title,
+                    'counter': counter,
+                    'shared_counter': shared_counter,
+                    'defined_at_line': line_number + 1
+                }
     
     return commands
+
 def get_existing_command_names(preamble_path: str) -> set:
     """Reads the preamble file and returns a set of already defined command names."""
     if not os.path.exists(preamble_path):
@@ -95,11 +152,26 @@ def get_existing_command_names(preamble_path: str) -> set:
     with open(preamble_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # This regex finds the command name (e.g., 'R', 'fieldext') from definitions.
-    pattern = re.compile(r'\\(?:newcommand|DeclareMathOperator)\s*\{\s*\\([^}]+)')
-    found_commands = pattern.findall(content)
+    # Extract all command definitions
+    commands = set()
     
-    return set(found_commands)
+    # Find \newcommand definitions
+    newcommand_pattern = re.compile(r'\\newcommand\s*\{\s*\\([^}]+)')
+    commands.update(newcommand_pattern.findall(content))
+    
+    # Find \DeclareMathOperator definitions
+    mathop_pattern = re.compile(r'\\DeclareMathOperator\s*\{\s*\\([^}]+)')
+    commands.update(mathop_pattern.findall(content))
+    
+    # Find \newtheorem definitions
+    theorem_pattern = re.compile(r'\\newtheorem\s*\{\s*([^}]+)')
+    commands.update(theorem_pattern.findall(content))
+    
+    # Find \newenvironment definitions
+    env_pattern = re.compile(r'\\newenvironment\s*\{\s*([^}]+)')
+    commands.update(env_pattern.findall(content))
+    
+    return commands
 
 def find_new_command_definitions(source_file_path: str, existing_commands: set) -> list:
     """
