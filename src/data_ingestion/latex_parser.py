@@ -37,11 +37,8 @@ class LatexToGraphParser:
             print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}")
             return
 
-        # Now, use pylatexenc to find the structure (environments)
-        # We run it on the *original* content to find the structure, but use the
-        # *clean* content for the text. This is a hybrid approach.
-        converter = LatexNodes2Text()
-        nodes = converter.latex_to_text(latex_content)
+        print(f"Processing document: {doc_id}")
+        print(f"Found {len(clean_content)} characters of clean content")
 
         # Process each environment
         for env_name in ['theorem', 'lemma', 'definition', 'proof', 'corollary']:
@@ -49,12 +46,15 @@ class LatexToGraphParser:
             pattern = rf'\\begin{{{env_name}}}(.*?)\\end{{{env_name}}}'
             matches = re.finditer(pattern, latex_content, re.DOTALL)
             
+            env_count = 0
             for match in matches:
+                env_count += 1
                 env_content_raw = match.group(0)
                 # Get the clean text from LaTeXML for this specific snippet
                 env_content_clean = latex_processor.process_latex_document(env_content_raw)
                 
                 if not env_content_clean:
+                    print(f"WARNING: No clean content for {env_name} in {doc_id}")
                     continue
 
                 # Find label for ID, and refs for edges
@@ -79,6 +79,11 @@ class LatexToGraphParser:
                     # We add the edge now, even if the 'ref_label' node doesn't exist yet.
                     # It will be created when its own environment is parsed.
                     self.graph.add_edge(label, ref_label, edge_type='references')
+            
+            print(f"Found {env_count} {env_name} environments in {doc_id}")
+
+        print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
+        print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
 
     def _find_label(self, content: str) -> str:
         """Find the label in the content."""
