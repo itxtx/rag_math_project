@@ -89,12 +89,12 @@ class LatexToGraphParser:
         # Create a copy of the graph for saving
         save_graph = nx.DiGraph()
         
-        # Copy nodes and edges, converting numpy arrays to lists
+        # Copy nodes and edges, removing embedding data
         for node, data in self.graph.nodes(data=True):
             node_data = data.copy()
+            # Remove embedding from graph data
             if 'embedding' in node_data:
-                # Convert numpy array to list for GraphML compatibility
-                node_data['embedding'] = node_data['embedding'].tolist()
+                del node_data['embedding']
             save_graph.add_node(node, **node_data)
         
         # Copy edges
