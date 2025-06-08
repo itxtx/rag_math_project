@@ -7,7 +7,6 @@ import networkx as nx
 from sentence_transformers import SentenceTransformer
 import xml.etree.ElementTree as ET
 
-# This is our robust, low-level processor
 from . import latex_processor
 
 class LatexToGraphParser:
@@ -19,42 +18,30 @@ class LatexToGraphParser:
         self.embedding_model = SentenceTransformer(model_name)
         self.graph = nx.DiGraph()
 
-    def _get_clean_text(self, element) -> str:
-        """Extracts clean, readable text from an XML element."""
+    def _get_node_type_from_title(self, title_text: str) -> str:
+        """Determines the environment type from its title text."""
+        title_lower = title_text.lower()
+        # Order matters: 'proposition' should be checked before 'proof' if titles can be "Proof of Proposition..."
+        for env_type in ['theorem', 'lemma', 'proposition', 'corollary', 'definition', 'example', 'remark', 'proof']:
+            if title_lower.startswith(env_type):
+                return env_type
+        return 'theorem' # Default if no specific type is found in the title
+
+    def _get_main_text_from_element(self, element) -> str:
+        """Extracts text ONLY from the main content paragraphs (<para> tags) to avoid duplication."""
         if element is None:
             return ""
+        # Find all <para> children and join their text. This is more robust.
+        paras = element.findall('.//para')
+        if not paras: # Fallback for structures that might not use <para>
+            return "\n\n".join(text.strip() for text in element.itertext() if text.strip())
             
-        # Debug: Print the raw XML element
-        print(f"DEBUG: Processing XML element: {ET.tostring(element, encoding='unicode')[:200]}...")
-        
-        # Get all text content, including nested elements
-        text_chunks = []
-        for child in element.iter():
-            # Get direct text content
-            if child.text and child.text.strip():
-                text_chunks.append(child.text.strip())
-            
-            # For math elements, get the original tex attribute
-            if child.tag == 'Math':
-                tex = child.get('tex')
-                if tex:
-                    text_chunks.append(f"${tex}$")
-            
-            # Get tail text (text after the element)
-            if child.tail and child.tail.strip():
-                text_chunks.append(child.tail.strip())
-                
-        # Join with spaces to preserve word boundaries
-        text = " ".join(text_chunks)
-        
-        # Debug: Print the extracted text
-        print(f"DEBUG: Extracted text: {text[:200]}...")
-        
-        return text
+        text_chunks = ["".join(p.itertext()).strip() for p in paras]
+        return "\n\n".join(chunk for chunk in text_chunks if chunk)
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
-        Extracts environments like theorem, definition, etc., from a single XML tree.
+        Extracts environments like theorem, definition, etc., by intelligently parsing the XML tree.
         """
         xml_output = latex_processor.run_latexml_on_content(latex_content)
 
@@ -70,72 +57,62 @@ class LatexToGraphParser:
             print(f"FATAL: Could not parse XML for {doc_id}. Error: {e}")
             return
 
-        environments_to_find = [
-            'theorem', 'lemma', 'proposition', 'corollary', 'definition',
-            'example', 'remark', 'proof'
-        ]
+        # Find all theorem-like environments. LaTeXML groups them under the <theorem> tag.
+        # This is more efficient than searching for each type individually.
+        theorem_elements = root.findall(".//theorem")
+        print(f"Found {len(theorem_elements)} theorem-like environments in {doc_id}")
 
-        for env_name in environments_to_find:
-            env_count = 0
-            for element in root.findall(f".//{env_name}"):
-                env_count += 1
-                env_content_clean = self._get_clean_text(element)
-                if not env_content_clean:
-                    continue
+        for element in theorem_elements:
+            title_element = element.find('title')
+            title_text = "".join(title_element.itertext()).strip() if title_element is not None else ""
+            
+            # Determine the node type from the title text
+            node_type = self._get_node_type_from_title(title_text)
+            
+            # Extract main content text to avoid duplication
+            main_text = self._get_main_text_from_element(element)
 
-                # Get label and refs
-                label = element.get('id', f"{env_name}-{uuid.uuid4().hex[:8]}")
-                refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
-                
-                # Generate embedding
-                embedding = self.embedding_model.encode(env_content_clean, convert_to_tensor=False)
+            if not main_text.strip():
+                continue
 
-                # Add the node with proper concept type and name
-                self.graph.add_node(
-                    label,
-                    node_type=env_name,
-                    concept_type=env_name,  # Use environment name as concept type
-                    concept_name=label,     # Use label as concept name
-                    doc_id=doc_id,
-                    source=source,
-                    text=env_content_clean,
-                    embedding=embedding
-                )
+            label = element.get('id', f"{node_type}-{uuid.uuid4().hex[:8]}")
+            refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
+            embedding = self.embedding_model.encode(main_text, convert_to_tensor=False)
 
-                # Add edges for references
-                for ref_label in refs:
-                    self.graph.add_edge(label, ref_label, edge_type='references')
+            self.graph.add_node(
+                label,
+                node_type=node_type,
+                doc_id=doc_id,
+                source=source,
+                text=main_text,
+                embedding=embedding
+            )
 
-            if env_count > 0:
-                print(f"Found {env_count} {env_name} environments in {doc_id}")
+            for ref_label in refs:
+                self.graph.add_edge(label, ref_label, edge_type='references')
 
+        # You can add separate logic for 'proofs' if they are tagged differently by LaTeXML
+        # For now, this logic assumes proofs are also defined via \newtheorem
+        
         if not self.graph.nodes:
-            print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
+             print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
 
         print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
-        print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
 
     def save_graph_and_embeddings(self, graph_path, embeddings_path):
         """Saves the final graph and initial embeddings."""
         print(f"Saving knowledge graph to {graph_path}")
         
         # Create a copy of the graph for saving
-        save_graph = nx.DiGraph()
+        graph_for_saving = self.graph.copy()
         
-        # Copy nodes and edges, removing embedding data
-        for node, data in self.graph.nodes(data=True):
-            node_data = data.copy()
-            # Remove embedding from graph data
-            if 'embedding' in node_data:
-                del node_data['embedding']
-            save_graph.add_node(node, **node_data)
+        # Remove embedding data from nodes before saving to GraphML
+        for node in graph_for_saving.nodes():
+            if 'embedding' in graph_for_saving.nodes[node]:
+                del graph_for_saving.nodes[node]['embedding']
         
-        # Copy edges
-        for u, v, data in self.graph.edges(data=True):
-            save_graph.add_edge(u, v, **data)
-        
-        # Save the modified graph
-        nx.write_graphml(save_graph, graph_path)
+        # Save the graph without embeddings
+        nx.write_graphml(graph_for_saving, graph_path)
 
         # Save embeddings separately
         initial_embeddings = {node: data['embedding'] for node, data in self.graph.nodes(data=True) if 'embedding' in data}
@@ -147,37 +124,12 @@ class LatexToGraphParser:
         """Returns all nodes from the graph as conceptual blocks."""
         blocks = []
         for node, data in self.graph.nodes(data=True):
-            # Debug: Print node data
-            print(f"DEBUG: Processing node {node}:")
-            print(f"  Type: {data.get('node_type')}")
-            print(f"  Text length: {len(data.get('text', ''))}")
-            print(f"  Text preview: {data.get('text', '')[:200]}...")
-            
-            # Get text content
-            text = data.get('text', '').strip()
-            if not text:
-                print(f"  Skipping node {node} due to empty text")
-                continue
-                
-            # Get concept type from node_type if concept_type is not set
-            concept_type = data.get('concept_type', data.get('node_type', 'unknown_concept'))
-            
-            # Get concept name from node label if not set
-            concept_name = data.get('concept_name', node)
-            
-            block = {
+            blocks.append({
                 'id': node,
-                'type': concept_type,
-                'concept_type': concept_type,
-                'concept_name': concept_name,
-                'text': text,
+                'type': data.get('node_type', 'unknown'),
+                'text': data.get('text', ''),
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
                 'embedding': data.get('embedding', None)
-            }
-            
-            print(f"  Created block with text length: {len(block['text'])}")
-            blocks.append(block)
-            
-        print(f"DEBUG: Created {len(blocks)} blocks total")
+            })
         return blocks
