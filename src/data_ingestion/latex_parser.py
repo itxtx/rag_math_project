@@ -4,128 +4,109 @@ import re
 import uuid
 import pickle
 import networkx as nx
-from pylatexenc.latex2text import LatexNodes2Text
 from sentence_transformers import SentenceTransformer
+import xml.etree.ElementTree as ET
 
-# This is our new, more robust processor
+# This is our robust, low-level processor
 from . import latex_processor
 
 class LatexToGraphParser:
     """
-    Parses a pre-processed LaTeX document to extract structured nodes 
-    (theorems, definitions, etc.) and their relationships, building a knowledge graph.
+    Parses a LaTeX document by converting it to XML and then extracts structured 
+    nodes (theorems, definitions, etc.) and their relationships to build a knowledge graph.
     """
     def __init__(self, model_name='all-MiniLM-L6-v2'):
         self.embedding_model = SentenceTransformer(model_name)
-        # We'll build the graph as we parse documents
         self.graph = nx.DiGraph() 
+
+    def _get_clean_text(self, element) -> str:
+        """Extracts clean, readable text from an XML element."""
+        if element is None:
+            return ""
+        text_chunks = [text.strip() for text in element.itertext() if text.strip()]
+        return "\n\n".join(text_chunks)
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
-        Extracts environments like theorem, definition, etc., as nodes for the graph.
-        
-        Args:
-            latex_content: The LaTeX content to process
-            doc_id: Unique identifier for the document
-            source: Optional source path of the document
+        Extracts environments like theorem, definition, etc., from a single XML tree.
         """
-        # First, pre-process the entire document body with LaTeXML
-        # This gives us clean text with standard math notation.
-        clean_content = latex_processor.process_latex_document(latex_content)
+        # 1. Run LaTeXML ONCE to get the full XML structure of the document
+        xml_output = latex_processor.run_latexml_on_content(latex_content)
 
-        if not clean_content:
-            print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}")
+        if not xml_output:
+            print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}. Skipping.")
+            return
+        
+        # Remove the default namespace for easier searching with ElementTree
+        xml_output = re.sub(r' xmlns="[^"]+"', '', xml_output, count=1)
+        
+        try:
+            root = ET.fromstring(xml_output)
+        except ET.ParseError as e:
+            print(f"FATAL: Could not parse XML for {doc_id}. Error: {e}")
+            # Consider saving the bad XML to a log file here if needed
             return
 
-        print(f"Processing document: {doc_id}")
-        print(f"Found {len(clean_content)} characters of clean content")
-
-        # Process each environment
+        # 2. Iterate through desired environments by their direct XML tag names
         for env_name in ['theorem', 'lemma', 'definition', 'proof', 'corollary']:
-            # Find all instances of this environment
-            pattern = rf'\\begin{{{env_name}}}(.*?)\\end{{{env_name}}}'
-            matches = re.finditer(pattern, latex_content, re.DOTALL)
-            
             env_count = 0
-            for match in matches:
+            
+            # --- FIX: Search for the direct tag (e.g., <theorem>), not <div class="theorem"> ---
+            for element in root.findall(f".//{env_name}"):
                 env_count += 1
-                env_content_raw = match.group(0)
-                # Get the clean text from LaTeXML for this specific snippet
-                env_content_clean = latex_processor.process_latex_document(env_content_raw)
                 
+                env_content_clean = self._get_clean_text(element)
                 if not env_content_clean:
-                    print(f"WARNING: No clean content for {env_name} in {doc_id}")
                     continue
 
-                # Find label for ID, and refs for edges
-                label = self._find_label(env_content_raw) or f"{env_name}-{uuid.uuid4().hex[:8]}"
-                refs = self._find_refs(env_content_raw)
-
-                # Generate the initial text embedding
+                # --- FIX: When the namespace is stripped, xml:id becomes just id ---
+                label = element.get('id', f"{env_name}-{uuid.uuid4().hex[:8]}")
+                
+                refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
+                
                 embedding = self.embedding_model.encode(env_content_clean, convert_to_tensor=False)
 
-                # Add the node to the graph
                 self.graph.add_node(
                     label,
                     node_type=env_name,
                     doc_id=doc_id,
-                    source=source,  # Add source to node attributes
+                    source=source,
                     text=env_content_clean,
                     embedding=embedding
                 )
                 
-                # Add edges for each reference found
                 for ref_label in refs:
-                    # We add the edge now, even if the 'ref_label' node doesn't exist yet.
-                    # It will be created when its own environment is parsed.
                     self.graph.add_edge(label, ref_label, edge_type='references')
             
-            print(f"Found {env_count} {env_name} environments in {doc_id}")
+            if env_count > 0:
+                print(f"Found {env_count} {env_name} environments in {doc_id}")
+
+        if not self.graph.nodes:
+             print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
 
         print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
         print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
-
-    def _find_label(self, content: str) -> str:
-        """Find the label in the content."""
-        label_match = re.search(r'\\label{([^}]+)}', content)
-        return label_match.group(1) if label_match else None
-
-    def _find_refs(self, content: str) -> list:
-        """Find all references in the content."""
-        refs = []
-        for ref_type in ['ref', 'eqref']:
-            ref_matches = re.finditer(rf'\\{ref_type}{{{{([^}}]+)}}}}', content)
-            
-            refs.extend(match.group(1) for match in ref_matches)
-        return refs
 
     def save_graph_and_embeddings(self, graph_path, embeddings_path):
         """Saves the final graph and initial embeddings."""
         print(f"Saving knowledge graph to {graph_path}")
         nx.write_graphml(self.graph, graph_path)
 
-        initial_embeddings = {node: data['embedding'] for node, data in self.graph.nodes(data=True)}
+        initial_embeddings = {node: data['embedding'] for node, data in self.graph.nodes(data=True) if 'embedding' in data}
         print(f"Saving initial text embeddings to {embeddings_path}")
         with open(embeddings_path, 'wb') as f:
             pickle.dump(initial_embeddings, f)
 
     def get_graph_nodes_as_conceptual_blocks(self):
-        """
-        Returns all nodes from the graph as conceptual blocks.
-        Each block contains the node's text content and metadata.
-        
-        Returns:
-            list: List of dictionaries containing node information
-        """
+        """Returns all nodes from the graph as conceptual blocks."""
         blocks = []
         for node, data in self.graph.nodes(data=True):
-            block = {
+            blocks.append({
                 'id': node,
                 'type': data.get('node_type', 'unknown'),
                 'text': data.get('text', ''),
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
                 'embedding': data.get('embedding', None)
-            }
-            blocks.append(block)
+            })
         return blocks
