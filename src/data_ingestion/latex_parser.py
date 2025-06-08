@@ -103,3 +103,24 @@ class LatexToGraphParser:
         print(f"Saving initial text embeddings to {embeddings_path}")
         with open(embeddings_path, 'wb') as f:
             pickle.dump(initial_embeddings, f)
+
+    def get_graph_nodes_as_conceptual_blocks(self):
+        """
+        Returns all nodes from the graph as conceptual blocks.
+        Each block contains the node's text content and metadata.
+        
+        Returns:
+            list: List of dictionaries containing node information
+        """
+        blocks = []
+        for node, data in self.graph.nodes(data=True):
+            block = {
+                'id': node,
+                'type': data.get('node_type', 'unknown'),
+                'text': data.get('text', ''),
+                'doc_id': data.get('doc_id', ''),
+                'source': data.get('source', ''),
+                'embedding': data.get('embedding', None)
+            }
+            blocks.append(block)
+        return blocks
