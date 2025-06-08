@@ -78,19 +78,37 @@ function App() {
       setTopicsLoading(true);
       setTopicsError(null);
       try {
+        console.log('Fetching topics from:', `${API_BASE_URL}/topics`);
         const response = await fetch(`${API_BASE_URL}/topics`);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error from topics endpoint.' }));
           throw new Error(errorData.detail || 'Failed to fetch topics.');
         }
         const data = await response.json();
-        setAvailableTopics(data);
-        if (data.length > 0 && !selectedTopicId) {
-          setSelectedTopicId(data[0].topic_id);
+        console.log('Received topics data:', data);
+        
+        if (!Array.isArray(data)) {
+          console.error('Topics data is not an array:', data);
+          throw new Error('Invalid topics data format');
+        }
+        
+        // Filter out any invalid topics
+        const validTopics = data.filter(topic => 
+          topic && typeof topic === 'object' && 
+          topic.doc_id && 
+          (topic.title || topic.doc_id)
+        );
+        
+        console.log('Valid topics:', validTopics);
+        setAvailableTopics(validTopics);
+        
+        if (validTopics.length > 0 && !selectedTopicId) {
+          setSelectedTopicId(validTopics[0].doc_id);
         }
       } catch (err) {
         console.error('Error fetching topics:', err);
         setTopicsError(err.message);
+        setAvailableTopics([]);
       } finally {
         setTopicsLoading(false);
       }
@@ -288,26 +306,29 @@ function App() {
                 <div className="flex flex-col space-y-1.5">
                   <Label htmlFor="topicSelect" className="text-card-foreground">Select Topic</Label>
                   <Select
-                    onValueChange={setSelectedTopicId}
                     value={selectedTopicId}
-                    disabled={loading || topicsLoading || availableTopics.length === 0}
+                    onValueChange={setSelectedTopicId}
+                    disabled={loading || topicsLoading}
                   >
-                    <SelectTrigger id="topicSelect" className="rounded-md focus:ring-2 focus:ring-ring bg-input text-foreground border-border">
-                      <SelectValue placeholder={topicsLoading ? "Loading topics..." : topicsError ? "Error loading topics" : "Select a topic"} />
+                    <SelectTrigger id="topicSelect" className="w-full">
+                      <SelectValue placeholder={
+                        topicsLoading ? "Loading topics..." : 
+                        topicsError ? `Error: ${topicsError}` :
+                        availableTopics.length === 0 ? "No topics available" :
+                        "Select a topic"
+                      } />
                     </SelectTrigger>
-                    <SelectContent className="rounded-md bg-popover text-popover-foreground border-border">
-                      {topicsLoading && <SelectItem value="loading" disabled>Loading topics...</SelectItem>}
-                      {topicsError && <SelectItem value="error" disabled>Error: {topicsError}</SelectItem>}
-                      {!topicsLoading && !topicsError && availableTopics.length === 0 && (
-                        <SelectItem value="no-topics" disabled>No topics available</SelectItem>
-                      )}
+                    <SelectContent>
                       {availableTopics.map((topic) => (
-                        <SelectItem key={topic.topic_id} value={topic.topic_id}>
-                          {topic.source_file.replace(/\.tex$/i, '').replace(/_/g, ' ')}
+                        <SelectItem key={topic.doc_id} value={topic.doc_id}>
+                          {topic.title || topic.doc_id}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {topicsError && (
+                    <p className="text-sm text-red-500 mt-1">{topicsError}</p>
+                  )}
                 </div>
               </div>
               <AlertDialogFooter>

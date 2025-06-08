@@ -1,7 +1,7 @@
 # Makefile for Fast RAG Math Learning System
 # ===========================================
 
-.PHONY: help setup clean ingest train-gnn serve test compare-performance status health
+.PHONY: help setup clean ingest train-gnn serve test compare-performance status health frontend-install frontend-dev frontend-build frontend-clean
 
 # Colors for pretty output
 GREEN := \033[0;32m
@@ -18,6 +18,12 @@ help:
 	@echo "$(GREEN)Setup Commands:$(NC)"
 	@echo "  make setup           - Setup the fast system (one-time)"
 	@echo "  make clean           - Clean cache and temporary files"
+	@echo ""
+	@echo "$(GREEN)Frontend Commands:$(NC)"
+	@echo "  make frontend-install - Install frontend dependencies"
+	@echo "  make frontend-dev     - Start frontend development server"
+	@echo "  make frontend-build   - Build frontend for production"
+	@echo "  make frontend-clean   - Clean frontend build artifacts"
 	@echo ""
 	@echo "$(GREEN)Phase 1 - Offline Processing:$(NC)"
 	@echo "  make update-preamble - Update master preamble with new commands from latest .tex file"
@@ -37,6 +43,7 @@ help:
 	@echo ""
 	@echo "$(GREEN)Quick Start:$(NC)"
 	@echo "  make setup && make ingest && make serve"
+	@echo "  make frontend-install && make frontend-dev"
 
 # Setup the fast system
 setup:
@@ -168,13 +175,41 @@ monitor:
 		sleep 5; \
 	done
 
-# Quick development workflow
-dev-workflow: clean setup ingest serve-dev
+# Frontend Commands
+frontend-install:
+	@echo "$(BLUE)📦 Installing frontend dependencies...$(NC)"
+	@cd frontend && npm install
+	@echo "$(GREEN)✓ Frontend dependencies installed$(NC)"
 
-# Production deployment workflow  
-prod-workflow: clean setup process-all
+frontend-dev:
+	@echo "$(BLUE)🖥️  Starting frontend development server...$(NC)"
+	@echo "$(YELLOW)Frontend will be available at: http://localhost:5173$(NC)"
+	@cd frontend && npm run dev
+
+frontend-build:
+	@echo "$(BLUE)🏗️  Building frontend for production...$(NC)"
+	@cd frontend && npm run build
+	@echo "$(GREEN)✓ Frontend build complete!$(NC)"
+	@echo "$(YELLOW)Build output is in frontend/dist$(NC)"
+
+frontend-clean:
+	@echo "$(YELLOW)🧹 Cleaning frontend build artifacts...$(NC)"
+	@rm -rf frontend/dist 2>/dev/null || true
+	@rm -rf frontend/node_modules 2>/dev/null || true
+	@echo "$(GREEN)✓ Frontend cleanup complete$(NC)"
+
+# Full development workflow including frontend
+dev-workflow-full: clean setup ingest frontend-install
+	@echo "$(GREEN)🚀 Development environment ready!$(NC)"
+	@echo "$(BLUE)Run these in separate terminals:$(NC)"
+	@echo "  • make serve-dev    - For backend API"
+	@echo "  • make frontend-dev - For frontend development"
+
+# Full production workflow including frontend
+prod-workflow-full: clean setup process-all frontend-install frontend-build
 	@echo "$(GREEN)🚀 Production setup complete!$(NC)"
 	@echo "$(BLUE)Run 'make serve' to start the production server$(NC)"
+	@echo "$(YELLOW)Frontend build is in frontend/dist$(NC)"
 
 # Show performance tips
 tips:

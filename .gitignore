@@ -65,7 +65,7 @@ data/
 *.pt
 *.tex
 *.pdf
-models/
+models/*
 */data
 
 *.venv

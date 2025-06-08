@@ -74,62 +74,92 @@ class OptimizedRetriever(Retriever):
         """
         Async semantic search with result caching
         """
-        # Create cache key with all parameters
-        search_params = {
-            'limit': limit or self.default_limit,
-            'certainty': certainty or self.default_semantic_certainty,
-            'search_type': 'semantic'
-        }
-        cache_key = self._get_cache_key(query_text, search_params)
-        
-        # Check results cache
-        if cache_key in self.search_results_cache:
-            return self.search_results_cache[cache_key]
-        
-        # Run embedding in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        embedding = await loop.run_in_executor(
-            None, 
-            self._embed_query_cached, 
-            query_text
-        )
-        
-        if not embedding:
+        try:
+            print(f"Starting fast_semantic_search for query: {query_text}")
+            
+            # Create cache key with all parameters
+            search_params = {
+                'limit': limit or self.default_limit,
+                'certainty': certainty or self.default_semantic_certainty,
+                'search_type': 'semantic'
+            }
+            cache_key = self._get_cache_key(query_text, search_params)
+            
+            # Check results cache
+            if cache_key in self.search_results_cache:
+                print("Cache hit for search results")
+                return self.search_results_cache[cache_key]
+            
+            print("Cache miss, generating embedding...")
+            # Run embedding in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(
+                None, 
+                self._embed_query_cached, 
+                query_text
+            )
+            
+            if not embedding:
+                print("Failed to generate embedding")
+                return []
+            
+            print("Executing search with embedding...")
+            # Execute search in executor
+            search_params_for_weaviate = {
+                'limit': search_params['limit'],
+                'certainty': search_params['certainty']
+            }
+            
+            results = await loop.run_in_executor(
+                None,
+                self._execute_weaviate_search,
+                embedding,
+                search_params_for_weaviate
+            )
+            
+            print(f"Search returned {len(results)} results")
+            
+            # Cache results
+            self.search_results_cache[cache_key] = results
+            self._manage_cache_size(self.search_results_cache)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error in fast_semantic_search: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return []
-        
-        # Execute search in executor
-        search_params_for_weaviate = {
-            'limit': search_params['limit'],
-            'certainty': search_params['certainty']
-        }
-        
-        results = await loop.run_in_executor(
-            None,
-            self._execute_weaviate_search,
-            embedding,
-            search_params_for_weaviate
-        )
-        
-        # Cache results
-        self.search_results_cache[cache_key] = results
-        self._manage_cache_size(self.search_results_cache)
-        
-        return results
     
     def _execute_weaviate_search(self, embedding: List[float], params: dict) -> List[Dict]:
         """Execute Weaviate search synchronously (for use in executor)"""
         near_vector_filter = {"vector": embedding, "certainty": params['certainty']}
         
         try:
+            print(f"Executing Weaviate search with params: {params}")
             query_chain = self.client.query.get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
             query_chain = query_chain.with_near_vector(near_vector_filter)
             query_chain = query_chain.with_limit(params['limit'])
             query_chain = query_chain.with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES)
             
+            print("Sending query to Weaviate...")
             response = query_chain.do()
-            return self._format_results(response)
+            print(f"Received response from Weaviate: {response}")
+            
+            if not response or 'data' not in response:
+                print(f"Invalid response from Weaviate: {response}")
+                return []
+                
+            formatted_results = self._format_results(response)
+            print(f"Formatted {len(formatted_results)} results")
+            return formatted_results
+            
         except Exception as e:
-            print(f"Search error: {e}")
+            print(f"Search error in _execute_weaviate_search: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return []
     
     async def fast_hybrid_search(self, 

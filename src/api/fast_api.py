@@ -254,13 +254,57 @@ async def track_performance(request, call_next):
 # Optimized endpoints
 @app.get("/api/v1/topics", response_model=PyList[TopicResponse])
 async def list_topics_fast(components: FastRAGComponents = Depends(get_fast_components)):
-    """Fast topic listing with caching"""
+    """Get list of available topics"""
     try:
-        # Use cached curriculum map
-        topics = components.question_selector.get_available_topics()
-        return [TopicResponse(**topic) for topic in topics]
+        # Get all unique documents using a broad search
+        results = await components.retriever.fast_semantic_search(
+            query_text="mathematics",  # Use a broad term to get all documents
+            limit=1000  # High limit to get all documents
+        )
+        
+        # Group by doc_id and create topic responses
+        topics = {}
+        for result in results:
+            doc_id = result.get('doc_id')
+            if not doc_id or doc_id in topics:
+                continue
+                
+            # Get concepts for this document using a more specific search
+            concepts = await components.retriever.fast_semantic_search(
+                query_text=f"concepts in {doc_id}",
+                limit=10
+            )
+            
+            # Get document title and description
+            title = result.get('title')
+            if not title:
+                # Try to get title from filename
+                filename = result.get('filename', '')
+                if filename:
+                    # Remove .tex extension and convert underscores to spaces
+                    title = os.path.splitext(filename)[0].replace('_', ' ').title()
+                else:
+                    # Use doc_id as fallback
+                    title = doc_id.replace('_', ' ').title()
+            
+            topics[doc_id] = TopicResponse(
+                doc_id=doc_id,
+                title=title,
+                description=result.get('description', ''),
+                concepts=[c.get('concept_name', '') for c in concepts if c.get('concept_name')]
+            )
+        
+        return list(topics.values())
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing topics: {str(e)}")
+        print(f"Error listing topics: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list topics: {str(e)}"
+        )
 
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
 async def start_interaction_fast(

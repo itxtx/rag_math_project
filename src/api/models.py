@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 
 class TopicResponse(BaseModel):
     doc_id: str = Field(..., description="Unique identifier for the topic/document.")
-    title: str = Field(..., description="Title of the topic/document.")
+    title: Optional[str] = Field(None, description="Title of the topic/document. If not provided, will be derived from doc_id or filename.")
     description: Optional[str] = Field(None, description="Optional description of the topic.")
     concepts: List[str] = Field(default_factory=list, description="List of concepts covered in this topic.")
 
