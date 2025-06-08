@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
 from .model import LinkPredictorGNN
+import os
 
 # --- Configuration ---
 GRAPH_PATH = 'data/graph_db/knowledge_graph.graphml'
@@ -73,7 +74,13 @@ def prepare_link_prediction_data(data):
 
 def run_training():
     """Main function to run the GNN training pipeline."""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Check for available devices in order of preference
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
     print(f"Using device: {device}")
 
     data, node_order = load_data()
@@ -89,7 +96,10 @@ def run_training():
     criterion = torch.nn.BCEWithLogitsLoss()
 
     print("Starting GNN training for link prediction...")
+    best_val_loss = float('inf')
+    
     for epoch in range(1, EPOCHS + 1):
+        # Training
         model.train()
         optimizer.zero_grad()
         
@@ -103,12 +113,35 @@ def run_training():
         neg_out = model.decode(z, data.train_neg_edge_index)
         neg_loss = criterion(neg_out, torch.zeros_like(neg_out))
         
-        loss = pos_loss + neg_loss
-        loss.backward()
+        train_loss = pos_loss + neg_loss
+        train_loss.backward()
         optimizer.step()
         
+        # Validation
+        model.eval()
+        with torch.no_grad():
+            z = model.encode(data.x, data.edge_index)
+            
+            # Positive edges
+            pos_out = model.decode(z, data.test_pos_edge_index)
+            pos_loss = criterion(pos_out, torch.ones_like(pos_out))
+            
+            # Negative edges
+            neg_out = model.decode(z, data.test_neg_edge_index)
+            neg_loss = criterion(neg_out, torch.zeros_like(neg_out))
+            
+            val_loss = pos_loss + neg_loss
+            
+            # Update best validation loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                # Create directory if it doesn't exist
+                os.makedirs(os.path.dirname(GNN_MODEL_SAVE_PATH), exist_ok=True)
+                # Save best model
+                torch.save(model.state_dict(), GNN_MODEL_SAVE_PATH)
+        
         if epoch % 10 == 0:
-            print(f'Epoch: {epoch:03d}, Loss: {loss.item():.4f}')
+            print(f'Epoch: {epoch:03d}, Train Loss: {train_loss.item():.4f}, Val Loss: {val_loss.item():.4f}')
 
     print("Training finished.")
 
@@ -119,14 +152,14 @@ def run_training():
     with torch.no_grad():
         final_embeddings_tensor = model.encode(data.x, data.edge_index)
     
+    # Move tensors to CPU before converting to numpy
+    final_embeddings_tensor = final_embeddings_tensor.cpu()
+    
     final_embeddings_dict = {
-        node_id: emb.cpu().numpy() 
+        node_id: emb.numpy() 
         for node_id, emb in zip(node_order, final_embeddings_tensor)
     }
     with open(FINAL_EMBEDDINGS_SAVE_PATH, 'wb') as f:
         pickle.dump(final_embeddings_dict, f)
     print(f"Saved GNN embeddings to {FINAL_EMBEDDINGS_SAVE_PATH}")
-
-    # 2. Save the trained model for future inference (Use Case 3)
-    torch.save(model.state_dict(), GNN_MODEL_SAVE_PATH)
-    print(f"Saved trained GNN model to {GNN_MODEL_SAVE_PATH}")
+    print(f"Best validation loss: {best_val_loss:.4f}")

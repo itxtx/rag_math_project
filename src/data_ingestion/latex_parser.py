@@ -76,9 +76,12 @@ class LatexToGraphParser:
             return
 
         # Find all theorem-like environments. LaTeXML groups them under the <theorem> tag.
-        # This is more efficient than searching for each type individually.
         theorem_elements = root.findall(".//theorem")
         print(f"Found {len(theorem_elements)} theorem-like environments in {doc_id}")
+
+        # Store nodes for later edge creation
+        nodes_by_type = {}
+        nodes_by_doc = {}
 
         for element in theorem_elements:
             title_element = element.find('title')
@@ -97,6 +100,7 @@ class LatexToGraphParser:
             refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
             embedding = self.embedding_model.encode(main_text, convert_to_tensor=False)
 
+            # Add node to graph
             self.graph.add_node(
                 label,
                 node_type=node_type,
@@ -106,16 +110,36 @@ class LatexToGraphParser:
                 embedding=embedding
             )
 
+            # Store node in type and doc collections
+            if node_type not in nodes_by_type:
+                nodes_by_type[node_type] = []
+            nodes_by_type[node_type].append(label)
+
+            if doc_id not in nodes_by_doc:
+                nodes_by_doc[doc_id] = []
+            nodes_by_doc[doc_id].append(label)
+
+            # Add reference edges
             for ref_label in refs:
                 self.graph.add_edge(label, ref_label, edge_type='references')
 
-        # You can add separate logic for 'proofs' if they are tagged differently by LaTeXML
-        # For now, this logic assumes proofs are also defined via \newtheorem
-        
+        # Add edges between nodes of the same type
+        for node_type, nodes in nodes_by_type.items():
+            for i in range(len(nodes)):
+                for j in range(i + 1, len(nodes)):
+                    self.graph.add_edge(nodes[i], nodes[j], edge_type='same_type')
+
+        # Add edges between nodes in the same document
+        for doc_nodes in nodes_by_doc.values():
+            for i in range(len(doc_nodes)):
+                for j in range(i + 1, len(doc_nodes)):
+                    self.graph.add_edge(doc_nodes[i], doc_nodes[j], edge_type='same_doc')
+
         if not self.graph.nodes:
-             print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
+            print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
 
         print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
+        print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
 
     def save_graph_and_embeddings(self, graph_path, embeddings_path):
         """Saves the final graph and initial embeddings."""

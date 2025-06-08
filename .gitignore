@@ -62,9 +62,10 @@ data/
 
 *.env
 
+*.pt
 *.tex
 *.pdf
-
+models/
 */data
 
 *.venv
