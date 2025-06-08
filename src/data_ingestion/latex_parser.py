@@ -23,8 +23,34 @@ class LatexToGraphParser:
         """Extracts clean, readable text from an XML element."""
         if element is None:
             return ""
-        text_chunks = [text.strip() for text in element.itertext() if text.strip()]
-        return "\n\n".join(text_chunks)
+            
+        # Debug: Print the raw XML element
+        print(f"DEBUG: Processing XML element: {ET.tostring(element, encoding='unicode')[:200]}...")
+        
+        # Get all text content, including nested elements
+        text_chunks = []
+        for child in element.iter():
+            # Get direct text content
+            if child.text and child.text.strip():
+                text_chunks.append(child.text.strip())
+            
+            # For math elements, get the original tex attribute
+            if child.tag == 'Math':
+                tex = child.get('tex')
+                if tex:
+                    text_chunks.append(f"${tex}$")
+            
+            # Get tail text (text after the element)
+            if child.tail and child.tail.strip():
+                text_chunks.append(child.tail.strip())
+                
+        # Join with spaces to preserve word boundaries
+        text = " ".join(text_chunks)
+        
+        # Debug: Print the extracted text
+        print(f"DEBUG: Extracted text: {text[:200]}...")
+        
+        return text
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
@@ -57,19 +83,26 @@ class LatexToGraphParser:
                 if not env_content_clean:
                     continue
 
+                # Get label and refs
                 label = element.get('id', f"{env_name}-{uuid.uuid4().hex[:8]}")
                 refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
+                
+                # Generate embedding
                 embedding = self.embedding_model.encode(env_content_clean, convert_to_tensor=False)
 
+                # Add the node with proper concept type and name
                 self.graph.add_node(
                     label,
                     node_type=env_name,
+                    concept_type=env_name,  # Use environment name as concept type
+                    concept_name=label,     # Use label as concept name
                     doc_id=doc_id,
                     source=source,
                     text=env_content_clean,
                     embedding=embedding
                 )
 
+                # Add edges for references
                 for ref_label in refs:
                     self.graph.add_edge(label, ref_label, edge_type='references')
 
@@ -77,7 +110,7 @@ class LatexToGraphParser:
                 print(f"Found {env_count} {env_name} environments in {doc_id}")
 
         if not self.graph.nodes:
-             print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
+            print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
 
         print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
         print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
@@ -114,12 +147,37 @@ class LatexToGraphParser:
         """Returns all nodes from the graph as conceptual blocks."""
         blocks = []
         for node, data in self.graph.nodes(data=True):
-            blocks.append({
+            # Debug: Print node data
+            print(f"DEBUG: Processing node {node}:")
+            print(f"  Type: {data.get('node_type')}")
+            print(f"  Text length: {len(data.get('text', ''))}")
+            print(f"  Text preview: {data.get('text', '')[:200]}...")
+            
+            # Get text content
+            text = data.get('text', '').strip()
+            if not text:
+                print(f"  Skipping node {node} due to empty text")
+                continue
+                
+            # Get concept type from node_type if concept_type is not set
+            concept_type = data.get('concept_type', data.get('node_type', 'unknown_concept'))
+            
+            # Get concept name from node label if not set
+            concept_name = data.get('concept_name', node)
+            
+            block = {
                 'id': node,
-                'type': data.get('node_type', 'unknown'),
-                'text': data.get('text', ''),
+                'type': concept_type,
+                'concept_type': concept_type,
+                'concept_name': concept_name,
+                'text': text,
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
                 'embedding': data.get('embedding', None)
-            })
+            }
+            
+            print(f"  Created block with text length: {len(block['text'])}")
+            blocks.append(block)
+            
+        print(f"DEBUG: Created {len(blocks)} blocks total")
         return blocks

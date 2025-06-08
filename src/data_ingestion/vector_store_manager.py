@@ -8,6 +8,7 @@ import uuid
 from src import config
 import json 
 import numpy as np 
+from typing import Union, List
 
 WEAVIATE_CLASS_NAME = "MathDocumentChunk"
 EMBEDDING_MODEL_NAME = config.EMBEDDING_MODEL_NAME 
@@ -142,21 +143,19 @@ def create_weaviate_schema(client: weaviate.Client):
         traceback.print_exc() 
         raise
 
-def generate_standard_embedding(text: str, model_instance=None) -> list[float] | None:
-    if not text or not text.strip():
-        print("Warning: Attempted to embed empty or whitespace-only text. Returning None.")
+def generate_standard_embedding(text: str, model_instance=None) -> Union[List[float], None]:
+    """Generate embedding for text using the standard model."""
+    if not text:
         return None
+        
+    if model_instance is None:
+        model_instance = get_embedding_model()
+        
     try:
-        model_to_use = model_instance if model_instance else get_embedding_model()
-        embedding = model_to_use.encode(text, convert_to_tensor=False, normalize_embeddings=True)
-        if not hasattr(embedding, 'tolist'):
-            if isinstance(embedding, list): return embedding
-            else: return list(embedding)
+        embedding = model_instance.encode(text, convert_to_tensor=False)
         return embedding.tolist()
     except Exception as e:
-        print(f"Error generating standard embedding for text snippet '{text[:50]}...': {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error generating embedding: {e}")
         return None
 
 def embed_chunk_data(chunk_data: dict) -> list[float] | None:
