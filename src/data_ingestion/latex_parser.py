@@ -85,8 +85,26 @@ class LatexToGraphParser:
     def save_graph_and_embeddings(self, graph_path, embeddings_path):
         """Saves the final graph and initial embeddings."""
         print(f"Saving knowledge graph to {graph_path}")
-        nx.write_graphml(self.graph, graph_path)
+        
+        # Create a copy of the graph for saving
+        save_graph = nx.DiGraph()
+        
+        # Copy nodes and edges, converting numpy arrays to lists
+        for node, data in self.graph.nodes(data=True):
+            node_data = data.copy()
+            if 'embedding' in node_data:
+                # Convert numpy array to list for GraphML compatibility
+                node_data['embedding'] = node_data['embedding'].tolist()
+            save_graph.add_node(node, **node_data)
+        
+        # Copy edges
+        for u, v, data in self.graph.edges(data=True):
+            save_graph.add_edge(u, v, **data)
+        
+        # Save the modified graph
+        nx.write_graphml(save_graph, graph_path)
 
+        # Save embeddings separately
         initial_embeddings = {node: data['embedding'] for node, data in self.graph.nodes(data=True) if 'embedding' in data}
         print(f"Saving initial text embeddings to {embeddings_path}")
         with open(embeddings_path, 'wb') as f:
