@@ -2,11 +2,12 @@
 import os
 import asyncio
 import time
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from typing import Dict, Any, Optional, List as PyList
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import datetime
+import uuid
 
 from src import config
 from src.api.models import (
@@ -135,24 +136,30 @@ class FastRAGComponents:
                 "theorem"
             ]
             
-            # Pre-warm in background
-            prewarm_tasks = [
-                self._retriever.fast_semantic_search(query, limit=1)
-                for query in common_queries
-            ]
-            
-            await asyncio.gather(*prewarm_tasks, return_exceptions=True)
+            # Pre-warm one at a time to avoid memory issues
+            for query in common_queries:
+                try:
+                    print(f"  Pre-warming cache for query: {query}")
+                    await self._retriever.fast_semantic_search(query, limit=1)
+                except Exception as e:
+                    print(f"  ⚠️  Failed to pre-warm cache for query '{query}': {e}")
+                    continue
             
             # Load curriculum map
-            await asyncio.get_event_loop().run_in_executor(
-                None, 
-                self.question_selector._load_curriculum_map
-            )
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    self.question_selector._load_curriculum_map
+                )
+            except Exception as e:
+                print(f"  ⚠️  Failed to load curriculum map: {e}")
             
             print(f"  ✓ System pre-warmed in {time.time() - self.startup_time:.2f}s")
             
         except Exception as e:
             print(f"  ⚠️  Pre-warming failed (non-critical): {e}")
+            # Don't raise the error - pre-warming is non-critical
+            pass
     
     @property
     def profile_manager(self):
@@ -181,46 +188,82 @@ class FastRAGComponents:
             self._profile_manager.close_db()
         print("  🧹 Resources cleaned up")
 
+    async def _get_context_for_concept(self, concept_id: str, limit: int = 2) -> str:
+        """Get context for a concept with proper LaTeX formatting"""
+        try:
+            chunks = await self.retriever.get_chunks_by_parent_block(concept_id, limit)
+            if not chunks:
+                return "No context available for this concept."
+                
+            # Get the topic from the first chunk
+            topic = chunks[0].get('doc_id', 'Unknown Topic')
+            topic = topic.replace('_', ' ').title()
+            
+            # Build context with proper LaTeX formatting
+            context_parts = []
+            for chunk in chunks:
+                if chunk.get('text'):
+                    # Clean up any malformed LaTeX
+                    text = chunk['text'].strip()
+                    if not text.startswith('$'):
+                        text = f"${text}$"
+                    context_parts.append(text)
+            
+            if not context_parts:
+                return "No valid context available for this concept."
+                
+            context = "\n\n".join(context_parts)
+            
+            return f"""--- Context for New Concept ---
+Topic: {topic}
+Please review the following information before answering the question:
+--------------------------------------------------------------------
+{context}
+--------------------------------------------------------------------"""
+            
+        except Exception as e:
+            print(f"Error getting context for concept {concept_id}: {e}")
+            return "Error retrieving context for this concept."
+
 # Global state
 app_state: Dict[str, Any] = {}
 
 @asynccontextmanager
-async def fast_lifespan(app_instance: FastAPI):
-    """Fast startup lifespan manager"""
+async def lifespan(app: FastAPI):
+    """Lifespan manager for FastAPI app"""
     print("🚀 Fast API startup...")
     
-    # Load environment
-    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-    if os.path.exists(dotenv_path):
-        from dotenv import load_dotenv
-        load_dotenv(dotenv_path)
+    # Initialize components
+    print("🚀 Initializing Fast RAG Components...")
+    components = FastRAGComponents()
+    components._init_core_components()
+    components._init_llm_components()
+    components._init_dependent_components()
     
-    # Initialize components (core only, LLM components loaded on-demand)
-    try:
-        components = FastRAGComponents()
-        components._init_core_components()
-        app_state["rag_components"] = components
-        
-        print(f"✅ Fast startup complete! Core components ready.")
-        print("   LLM components will be loaded on first request.")
-        
-    except Exception as e:
-        print(f"❌ Startup failed: {e}")
-        app_state["rag_components"] = None
+    # Store components in app state
+    app_state["components"] = components
+    app_state["profile_manager"] = components._profile_manager
+    app_state["question_selector"] = components.question_selector
+    app_state["question_generator"] = components._question_generator
+    app_state["answer_evaluator"] = components._answer_evaluator
+    app_state["active_interactions"] = {}
+    
+    print("✅ Fast startup complete! Core components ready.")
+    print("   LLM components will be loaded on first request.")
     
     yield
     
-    # Cleanup
     print("🛑 Shutting down...")
-    if app_state.get("rag_components"):
-        app_state["rag_components"].cleanup()
+    if "components" in app_state:
+        await app_state["components"].cleanup()
+    print("  🧹 Resources cleaned up")
 
 # Create optimized app
 app = FastAPI(
     title="Fast Adaptive RAG Learning System",
     description="High-performance RAG API with optimized retrieval",
     version="0.2.0",
-    lifespan=fast_lifespan
+    lifespan=lifespan
 )
 
 # CORS
@@ -235,7 +278,7 @@ app.add_middleware(
 
 async def get_fast_components() -> FastRAGComponents:
     """Get components and ensure they're ready"""
-    components = app_state.get("rag_components")
+    components = app_state.get("components")
     if not components:
         raise HTTPException(status_code=503, detail="System not ready")
     
@@ -256,24 +299,24 @@ async def track_performance(request, call_next):
 async def list_topics_fast(components: FastRAGComponents = Depends(get_fast_components)):
     """Get list of available topics"""
     try:
-        # Get all unique documents using a broad search
-        results = await components.retriever.fast_semantic_search(
-            query_text="mathematics",  # Use a broad term to get all documents
-            limit=1000  # High limit to get all documents
-        )
+        print("Starting topics endpoint...")
+        # Get all documents without semantic search
+        print("Fetching all documents...")
+        results = await components.retriever.get_all_documents(limit=1000)
+        print(f"Found {len(results)} documents")
         
         # Group by doc_id and create topic responses
         topics = {}
         for result in results:
             doc_id = result.get('doc_id')
-            if not doc_id or doc_id in topics:
+            if not doc_id:
+                print(f"Skipping result with no doc_id: {result}")
+                continue
+            if doc_id in topics:
+                print(f"Skipping duplicate doc_id: {doc_id}")
                 continue
                 
-            # Get concepts for this document using a more specific search
-            concepts = await components.retriever.fast_semantic_search(
-                query_text=f"concepts in {doc_id}",
-                limit=10
-            )
+            print(f"Processing document: {doc_id}")
             
             # Get document title and description
             title = result.get('title')
@@ -283,18 +326,24 @@ async def list_topics_fast(components: FastRAGComponents = Depends(get_fast_comp
                 if filename:
                     # Remove .tex extension and convert underscores to spaces
                     title = os.path.splitext(filename)[0].replace('_', ' ').title()
+                    print(f"Generated title from filename for {doc_id}: {title}")
                 else:
                     # Use doc_id as fallback
                     title = doc_id.replace('_', ' ').title()
+                    print(f"Using doc_id as title for {doc_id}: {title}")
             
-            topics[doc_id] = TopicResponse(
+            topic = TopicResponse(
                 doc_id=doc_id,
                 title=title,
                 description=result.get('description', ''),
-                concepts=[c.get('concept_name', '') for c in concepts if c.get('concept_name')]
+                concepts=[c for c in [result.get('concept_name')] if c]  # Only include non-None concepts
             )
+            print(f"Created topic response for {doc_id}: {topic}")
+            topics[doc_id] = topic
         
-        return list(topics.values())
+        topic_list = list(topics.values())
+        print(f"Returning {len(topic_list)} topics")
+        return topic_list
         
     except Exception as e:
         print(f"Error listing topics: {e}")
@@ -307,41 +356,72 @@ async def list_topics_fast(components: FastRAGComponents = Depends(get_fast_comp
         )
 
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
-async def start_interaction_fast(
-    request: LearnerInteractionStartRequest,
-    components: FastRAGComponents = Depends(get_fast_components)
+async def start_interaction(
+    request: Request,
+    learner_id: int = 1,
+    topic_id: Optional[str] = None
 ):
-    """Fast interaction start with async question selection"""
-    print(f"🎯 Fast interaction start for learner: {request.learner_id}")
-    
+    """Start a new interaction with a question"""
     try:
-        # Run question selection asynchronously
-        next_question_info = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: asyncio.run(components.question_selector.select_next_question(
-                learner_id=request.learner_id,
-                target_doc_id=request.topic_id
-            ))
+        print(f"🎯 Fast interaction start for learner: {learner_id}")
+        
+        # Get or create learner profile
+        profile = await app_state["profile_manager"].get_or_create_profile(learner_id)
+        
+        # Select topic if not provided
+        if not topic_id:
+            topics = await list_topics_fast()
+            if not topics:
+                raise HTTPException(status_code=404, detail="No topics available")
+            topic_id = topics[0].doc_id
+        
+        # Get next question
+        question_data = await app_state["question_selector"].select_next_question(
+            learner_id=learner_id,
+            topic_id=topic_id
         )
         
-        if not next_question_info or "error" in next_question_info:
-            detail_msg = next_question_info.get("error", "Could not select question") if next_question_info else "Could not select question"
-            raise HTTPException(status_code=404, detail=detail_msg)
+        if not question_data:
+            raise HTTPException(status_code=404, detail="No questions available for this topic")
+        
+        # Get context for the concept
+        context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
+        
+        # Generate question
+        question = await app_state["question_generator"].generate_question(
+            context=context,
+            difficulty=question_data["difficulty"],
+            question_type=question_data["type"],
+            style=question_data["style"]
+        )
+        
+        if not question:
+            raise HTTPException(status_code=500, detail="Failed to generate question")
+        
+        # Create interaction
+        interaction_id = str(uuid.uuid4())
+        app_state["active_interactions"][interaction_id] = {
+            "learner_id": learner_id,
+            "topic_id": topic_id,
+            "concept_id": question_data["concept_id"],
+            "question": question,
+            "start_time": datetime.now(),
+            "status": "active"
+        }
         
         return QuestionResponse(
-            question_id=next_question_info["concept_id"],
-            doc_id=next_question_info.get("doc_id", "unknown_doc"),
-            concept_name=next_question_info["concept_name"],
-            question_text=next_question_info["question_text"],
-            context_for_evaluation=next_question_info["context_for_evaluation"],
-            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False)
+            interaction_id=interaction_id,
+            question=question,
+            concept_id=question_data["concept_id"],
+            concept_name=question_data.get("concept_name", "Unknown Concept"),
+            topic_id=topic_id,
+            difficulty=question_data["difficulty"],
+            question_type=question_data["type"]
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"❌ Error in fast interaction start: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
@@ -382,7 +462,7 @@ async def submit_answer_fast(
 @app.get("/api/v1/health")
 async def health_check_fast():
     """Health check with performance metrics"""
-    components = app_state.get("rag_components")
+    components = app_state.get("components")
     
     health_data = {
         "status": "healthy" if components and not components.initialization_error else "degraded",
@@ -397,7 +477,7 @@ async def health_check_fast():
 @app.get("/api/v1/performance")
 async def get_performance_stats():
     """Get detailed performance statistics"""
-    components = app_state.get("rag_components")
+    components = app_state.get("components")
     if not components:
         return {"error": "Components not initialized"}
     
@@ -406,7 +486,7 @@ async def get_performance_stats():
 @app.post("/api/v1/clear_cache")
 async def clear_cache():
     """Clear all caches (useful for testing)"""
-    components = app_state.get("rag_components")
+    components = app_state.get("components")
     if components and components._retriever:
         components._retriever.clear_cache()
         return {"message": "Cache cleared successfully"}

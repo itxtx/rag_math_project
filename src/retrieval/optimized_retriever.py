@@ -2,11 +2,13 @@
 import asyncio
 import time
 from functools import lru_cache
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import hashlib
 import pickle
 import os
 from src.retrieval.retriever import Retriever
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 class OptimizedRetriever(Retriever):
     """
@@ -14,18 +16,14 @@ class OptimizedRetriever(Retriever):
     No external dependencies - just faster!
     """
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # In-memory caches
-        self.embedding_cache = {}      # query_hash -> embedding
-        self.search_results_cache = {} # query_hash -> results
-        self.max_cache_size = 1000     # Prevent memory bloat
-        
-        # Pre-load embedding model to avoid cold starts
-        print("Pre-loading embedding model...")
-        self._embedding_model_instance = self._get_embedding_model_instance()
-        print("✓ Embedding model pre-loaded")
+    def __init__(self, weaviate_client, cache_size: int = 1000):
+        super().__init__()
+        self.weaviate_client = weaviate_client
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embedding_cache = {}
+        self.cache_size = cache_size
+        self._cache_lock = asyncio.Lock()
+        print("OptimizedRetriever initialized with embedding cache")
         
         # Performance tracking
         self.cache_hits = 0
@@ -39,127 +37,118 @@ class OptimizedRetriever(Retriever):
     
     def _manage_cache_size(self, cache_dict: dict):
         """Simple LRU cache management - remove oldest entries"""
-        if len(cache_dict) > self.max_cache_size:
+        if len(cache_dict) > self.cache_size:
             # Remove oldest 20% of entries
-            items_to_remove = len(cache_dict) - int(self.max_cache_size * 0.8)
+            items_to_remove = len(cache_dict) - int(self.cache_size * 0.8)
             keys_to_remove = list(cache_dict.keys())[:items_to_remove]
             for key in keys_to_remove:
                 del cache_dict[key]
     
-    def _embed_query_cached(self, query_text: str) -> Optional[List[float]]:
-        """Cached version of query embedding"""
-        cache_key = self._get_cache_key(query_text)
-        
+    async def _get_cached_embedding(self, text: str) -> Optional[np.ndarray]:
+        """Get embedding from cache with thread safety"""
+        async with self._cache_lock:
+            return self.embedding_cache.get(text)
+
+    async def _cache_embedding(self, text: str, embedding: np.ndarray):
+        """Cache embedding with thread safety and size limit"""
+        async with self._cache_lock:
+            # If cache is full, remove oldest item
+            if len(self.embedding_cache) >= self.cache_size:
+                oldest_key = next(iter(self.embedding_cache))
+                del self.embedding_cache[oldest_key]
+            self.embedding_cache[text] = embedding
+
+    async def _embed_query(self, query_text: str) -> np.ndarray:
+        """Get embedding for query text, using cache if available"""
         # Check cache first
-        if cache_key in self.embedding_cache:
-            self.cache_hits += 1
-            return self.embedding_cache[cache_key]
-        
-        # Generate embedding
-        self.cache_misses += 1
-        embedding = super()._embed_query(query_text)
-        
-        if embedding:
-            # Store in cache with size management
-            self.embedding_cache[cache_key] = embedding
-            self._manage_cache_size(self.embedding_cache)
-        
-        return embedding
+        cached_embedding = await self._get_cached_embedding(query_text)
+        if cached_embedding is not None:
+            print("Cache hit, using cached embedding")
+            return cached_embedding
+
+        # Generate new embedding
+        print("Cache miss, generating embedding...")
+        try:
+            # Run the CPU-bound embedding generation in a thread pool
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(
+                None,
+                lambda: self.embedding_model.encode(query_text, convert_to_tensor=False)
+            )
+            # Cache the new embedding
+            await self._cache_embedding(query_text, embedding)
+            return embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            raise
     
-    async def fast_semantic_search(self, 
-                                  query_text: str,
-                                  limit: Optional[int] = None,
-                                  certainty: Optional[float] = None,
-                                  **kwargs) -> List[Dict]:
-        """
-        Async semantic search with result caching
-        """
+    async def get_all_documents(self, limit: int = 1000) -> List[Dict]:
+        """Get all documents without semantic search"""
+        try:
+            print("Fetching all documents from Weaviate...")
+            response = self.weaviate_client.query.get(
+                "MathDocumentChunk",
+                ["chunk_id", "doc_id", "filename", "concept_name", "concept_type", "source_path", "original_doc_type", "parent_block_id", "sequence_in_block"]
+            ).with_additional(["id"]).with_limit(limit).do()
+            
+            print(f"Raw Weaviate response (first 500 chars): {str(response)[:500]}")
+            
+            if not response or "data" not in response or "Get" not in response["data"]:
+                print("Invalid response from Weaviate")
+                return []
+                
+            documents = response["data"]["Get"]["MathDocumentChunk"]
+            print(f"Found {len(documents)} documents")
+            return documents
+            
+        except Exception as e:
+            print(f"Error getting all documents: {e}")
+            return []
+
+    async def fast_semantic_search(self, query_text: str, limit: int = 5) -> List[Dict]:
+        """Perform semantic search with caching"""
         try:
             print(f"Starting fast_semantic_search for query: {query_text}")
             
-            # Create cache key with all parameters
-            search_params = {
-                'limit': limit or self.default_limit,
-                'certainty': certainty or self.default_semantic_certainty,
-                'search_type': 'semantic'
-            }
-            cache_key = self._get_cache_key(query_text, search_params)
+            # Get embedding
+            embedding = await self._embed_query(query_text)
             
-            # Check results cache
-            if cache_key in self.search_results_cache:
-                print("Cache hit for search results")
-                return self.search_results_cache[cache_key]
+            # Perform search
+            results = await self._execute_weaviate_search(embedding, limit)
             
-            print("Cache miss, generating embedding...")
-            # Run embedding in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            embedding = await loop.run_in_executor(
-                None, 
-                self._embed_query_cached, 
-                query_text
-            )
-            
-            if not embedding:
-                print("Failed to generate embedding")
-                return []
-            
-            print("Executing search with embedding...")
-            # Execute search in executor
-            search_params_for_weaviate = {
-                'limit': search_params['limit'],
-                'certainty': search_params['certainty']
-            }
-            
-            results = await loop.run_in_executor(
-                None,
-                self._execute_weaviate_search,
-                embedding,
-                search_params_for_weaviate
-            )
-            
-            print(f"Search returned {len(results)} results")
-            
-            # Cache results
-            self.search_results_cache[cache_key] = results
-            self._manage_cache_size(self.search_results_cache)
-            
+            print(f"Found {len(results)} results for query: {query_text}")
             return results
             
         except Exception as e:
-            print(f"Error in fast_semantic_search: {str(e)}")
+            print(f"Error in fast_semantic_search: {e}")
             print(f"Error type: {type(e)}")
             import traceback
             print(f"Traceback: {traceback.format_exc()}")
             return []
     
-    def _execute_weaviate_search(self, embedding: List[float], params: dict) -> List[Dict]:
-        """Execute Weaviate search synchronously (for use in executor)"""
-        near_vector_filter = {"vector": embedding, "certainty": params['certainty']}
-        
+    async def _execute_weaviate_search(self, embedding: np.ndarray, limit: int) -> List[Dict]:
+        """Execute Weaviate search with error handling"""
         try:
-            print(f"Executing Weaviate search with params: {params}")
-            query_chain = self.client.query.get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
-            query_chain = query_chain.with_near_vector(near_vector_filter)
-            query_chain = query_chain.with_limit(params['limit'])
-            query_chain = query_chain.with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES)
+            print("Executing Weaviate search...")
+            response = self.weaviate_client.query.get(
+                "MathDocumentChunk",
+                ["chunk_id", "doc_id", "filename", "concept_name", "concept_type", "source_path", "original_doc_type", "parent_block_id", "sequence_in_block"]
+            ).with_additional(["id"]).with_near_vector({
+                "vector": embedding.tolist()
+            }).with_limit(limit).do()
             
-            print("Sending query to Weaviate...")
-            response = query_chain.do()
-            print(f"Received response from Weaviate: {response}")
+            print(f"Raw Weaviate search response (first 500 chars): {str(response)[:500]}")
             
-            if not response or 'data' not in response:
-                print(f"Invalid response from Weaviate: {response}")
+            if not response or "data" not in response or "Get" not in response["data"]:
+                print("Invalid response from Weaviate")
                 return []
                 
-            formatted_results = self._format_results(response)
-            print(f"Formatted {len(formatted_results)} results")
-            return formatted_results
+            results = response["data"]["Get"]["MathDocumentChunk"]
+            print(f"Found {len(results)} results")
+            return results
             
         except Exception as e:
-            print(f"Search error in _execute_weaviate_search: {str(e)}")
-            print(f"Error type: {type(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
+            print(f"Error executing Weaviate search: {e}")
             return []
     
     async def fast_hybrid_search(self, 
@@ -180,10 +169,10 @@ class OptimizedRetriever(Retriever):
         
         # Run in parallel: embedding + keyword prep
         loop = asyncio.get_event_loop()
-        embedding_task = loop.run_in_executor(None, self._embed_query_cached, query_text)
+        embedding_task = loop.run_in_executor(None, self._embed_query, query_text)
         
         embedding = await embedding_task
-        if not embedding:
+        if not embedding.any():
             return []
         
         # Execute hybrid search
@@ -201,13 +190,13 @@ class OptimizedRetriever(Retriever):
         
         return results
     
-    def _execute_hybrid_search(self, query_text: str, embedding: List[float], params: dict) -> List[Dict]:
+    def _execute_hybrid_search(self, query_text: str, embedding: np.ndarray, params: dict) -> List[Dict]:
         """Execute hybrid search synchronously"""
         hybrid_params = {
             "query": query_text,
             "alpha": params['alpha'],
             "properties": self.default_hybrid_bm25_properties,
-            "vector": embedding
+            "vector": embedding.tolist()
         }
         
         try:
@@ -232,7 +221,8 @@ class OptimizedRetriever(Retriever):
             "cache_misses": self.cache_misses,
             "hit_rate_percent": round(hit_rate, 2),
             "embedding_cache_size": len(self.embedding_cache),
-            "results_cache_size": len(self.search_results_cache)
+            "results_cache_size": len(self.search_results_cache),
+            "max_cache_size": self.cache_size
         }
     
     def clear_cache(self):
