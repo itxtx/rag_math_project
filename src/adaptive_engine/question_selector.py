@@ -2,6 +2,7 @@
 import random
 import datetime # For getting current date for review
 from typing import List, Dict, Optional, Any
+import re
 
 from src.learner_model.profile_manager import LearnerProfileManager
 from src.retrieval.retriever import Retriever
@@ -241,9 +242,24 @@ class QuestionSelector:
         parent_block_id_for_qg = selected_concept_block_info["concept_id"] 
         concept_name_for_qg = selected_concept_block_info.get("concept_name")
         if not concept_name_for_qg:
-            # If no concept name is found, use a default based on the concept type
-            concept_type = selected_concept_block_info.get("concept_type", "unknown")
-            concept_name_for_qg = f"{concept_type.title()} Block {parent_block_id_for_qg[-8:]}"
+            # Try to extract the actual definition title from the text
+            context_chunks = self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=1)
+            if context_chunks and context_chunks[0].get('chunk_text'):
+                text = context_chunks[0]['chunk_text']
+                # Look for patterns like "Definition N (Title)"
+                match = re.search(r'Definition\s+\d+\s+\(([^)]+)\)', text)
+                if match:
+                    concept_name_for_qg = match.group(1)
+                else:
+                    # If no title in parentheses, try to get the first sentence
+                    first_sentence = text.split('.')[0].strip()
+                    if first_sentence:
+                        concept_name_for_qg = first_sentence
+                    else:
+                        # Fallback to type and ID
+                        concept_type = parent_block_id_for_qg.split('-')[0].title()
+                        unique_id = parent_block_id_for_qg[-6:]
+                        concept_name_for_qg = f"{concept_type} {unique_id}"
         
         q_params = await self._determine_question_params(learner_id, parent_block_id_for_qg)
         difficulty = q_params["difficulty"]

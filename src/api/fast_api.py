@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import datetime
 import uuid
+import re
 
 from src import config
 from src.api.models import (
@@ -203,10 +204,12 @@ class FastRAGComponents:
             context_parts = []
             for chunk in chunks:
                 if chunk.get('chunk_text'):
-                    # Clean up any malformed LaTeX
+                    # Clean up any malformed LaTeX and repeated text
                     text = chunk['chunk_text'].strip()
-                    if not text.startswith('$'):
-                        text = f"${text}$"
+                    # Remove repeated "Definition N" patterns
+                    text = re.sub(r'(Definition \d+)\s+\1\s+\1', r'\1', text)
+                    # Ensure proper LaTeX math mode formatting
+                    text = re.sub(r'\$([^$]+)\$', r'$$\1$$', text)  # Convert inline math to display math
                     context_parts.append(text)
             
             if not context_parts:
@@ -214,12 +217,13 @@ class FastRAGComponents:
                 
             context = "\n\n".join(context_parts)
             
-            return f"""--- Context for New Concept ---
-Topic: {topic}
-Please review the following information before answering the question:
---------------------------------------------------------------------
-{context}
---------------------------------------------------------------------"""
+            # Extract the definition title if present
+            title_match = re.search(r'Definition\s+\d+\s+\(([^)]+)\)', context)
+            title = title_match.group(1) if title_match else "Concept"
+            
+            return f"""# {title}
+
+{context}"""
             
         except Exception as e:
             print(f"Error getting context for concept {concept_id}: {e}")
