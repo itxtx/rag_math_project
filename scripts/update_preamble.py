@@ -4,24 +4,89 @@ import sys
 import argparse
 import re
 from datetime import datetime
-
+from typing import Optional, Tuple, Dict
 # --- Setup Project Path ---
 # This allows the script to import modules from the 'src' directory
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-try:
-    # We reuse the excellent command extraction logic you've already built
-    from src.data_ingestion.latex_processor import extract_commands
-except ImportError:
-    print("Error: Could not import 'extract_commands' from 'src.data_ingestion.latex_processor'.")
-    print("Please ensure the script is run from the project root directory or that the project structure is correct.")
-    sys.exit(1)
+
 
 # --- Configuration ---
 DEFAULT_PREAMBLE_PATH = os.path.join(project_root, 'data', 'master_preamble.tex')
+def parse_newcommand(line: str) -> Tuple[Optional[str], Optional[str], int]:
+    """
+    Parse a \newcommand definition.
+    Returns (command_name, replacement, num_args) or (None, None, 0) if no match.
+    """
+    # Match \newcommand{\cmdname}[num_args]{replacement} or \newcommand{\cmdname}{replacement}
+    # This pattern handles multi-line and complex replacements better
+    pattern = r'\\newcommand\s*\{\s*\\([^}]+)\s*\}\s*(?:\[\s*(\d+)\s*\])?\s*\{(.*)\}\s*$'
+    
+    match = re.match(pattern, line.strip())
+    if match:
+        cmd_name = match.group(1)
+        num_args_str = match.group(2)
+        num_args = int(num_args_str) if num_args_str else 0
+        replacement = match.group(3)
+        return cmd_name, replacement, num_args
+    return None, None, 0
 
+def parse_declaremathoperator(line: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse a \DeclareMathOperator definition.
+    Returns (command_name, operator_name) or (None, None) if no match.
+    """
+    # Match \DeclareMathOperator{\cmdname}{opname}
+    pattern = r'\\DeclareMathOperator\s*\{\s*\\([^}]+)\s*\}\s*\{([^}]*)\}\s*$'
+    match = re.match(pattern, line.strip())
+    if match:
+        cmd_name = match.group(1)
+        op_name = match.group(2)
+        return cmd_name, op_name
+    return None, None
+
+def extract_commands(text: str) -> Dict[str, Dict]:
+    """
+    Extract all \newcommand and \DeclareMathOperator definitions from text.
+    Returns a dictionary of command definitions.
+    """
+    commands = {}
+    lines = text.split('\n')
+    
+    for line_number, line_content in enumerate(lines):
+        line = line_content.strip()
+
+        # Skip comments and empty lines
+        if not line or line.startswith('%'):
+            continue
+
+        # Parse \newcommand
+        if line.startswith('\\newcommand'):
+            cmd_name, replacement, num_args = parse_newcommand(line)
+            if cmd_name:
+                if cmd_name in commands:
+                    print(f"Warning: Command \\{cmd_name} redefined on line {line_number + 1}. Using new definition.")
+                commands[cmd_name] = {
+                    'type': 'newcommand',
+                    'replacement': replacement,
+                    'num_args': num_args,
+                    'defined_at_line': line_number + 1
+                }
+        # Parse \DeclareMathOperator
+        elif line.startswith('\\DeclareMathOperator'):
+            cmd_name, op_name = parse_declaremathoperator(line)
+            if cmd_name:
+                if cmd_name in commands:
+                    print(f"Warning: Command \\{cmd_name} (as DeclareMathOperator) redefined on line {line_number + 1}. Using new definition.")
+                commands[cmd_name] = {
+                    'type': 'mathoperator',
+                    'replacement': op_name,
+                    'defined_at_line': line_number + 1
+                }
+    
+    return commands
 def get_existing_command_names(preamble_path: str) -> set:
     """Reads the preamble file and returns a set of already defined command names."""
     if not os.path.exists(preamble_path):

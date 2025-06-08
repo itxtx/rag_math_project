@@ -70,6 +70,12 @@ clean:
 	@echo "$(GREEN)✓ Cleanup complete$(NC)"
 
 # Phase 1: Offline Processing
+update-preamble:
+	@echo "$(BLUE)📚 Updating preamble...$(NC)"
+	@python scripts/update_preamble.py data/raw_latex/$$(basename $$(ls -t data/raw_latex/*.tex | head -n1))
+	@echo "$(GREEN)✓ Preamble updated!$(NC)"
+
+
 ingest:
 	@echo "$(BLUE)📚 Starting fast document ingestion...$(NC)"
 	@echo "$(YELLOW)This processes new LaTeX documents with parallel embedding$(NC)"

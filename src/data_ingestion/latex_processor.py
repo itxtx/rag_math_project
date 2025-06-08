@@ -44,11 +44,11 @@ def process_latex_document(input_text: str) -> str:
     print("INFO: Processing content with LaTeXML...")
     command = [
         "latexml",
-        "--preload", PREAMBLE_PATH, # Load all custom command definitions
-        "--whatsin", "fragment",   # Tell LaTeXML we are passing a document fragment
-        "--whatsout", "fragment",  # The top-level element in the output will be <fragment>
-        "--format", "xml",         # The output format
-        "-",                       # Read from stdin
+        "--preload", PREAMBLE_PATH,  # Load all custom command definitions
+        "--preamble", PREAMBLE_PATH, # Use the preamble file
+        "--includestyles",          # Allow loading of .sty files
+        "--xml",                    # Request XML output
+        "-"                         # Read from stdin
     ]
 
     try:

@@ -4,7 +4,7 @@ import re
 import uuid
 import pickle
 import networkx as nx
-from pylatexenc.latexwalker import LatexWalker, LatexEnvironmentNode, LatexMacroNode
+from pylatexenc.latex2text import LatexNodes2Text
 from sentence_transformers import SentenceTransformer
 
 # This is our new, more robust processor
@@ -20,9 +20,14 @@ class LatexToGraphParser:
         # We'll build the graph as we parse documents
         self.graph = nx.DiGraph() 
 
-    def extract_structured_nodes(self, latex_content: str, doc_id: str):
+    def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
         Extracts environments like theorem, definition, etc., as nodes for the graph.
+        
+        Args:
+            latex_content: The LaTeX content to process
+            doc_id: Unique identifier for the document
+            source: Optional source path of the document
         """
         # First, pre-process the entire document body with LaTeXML
         # This gives us clean text with standard math notation.
@@ -35,55 +40,58 @@ class LatexToGraphParser:
         # Now, use pylatexenc to find the structure (environments)
         # We run it on the *original* content to find the structure, but use the
         # *clean* content for the text. This is a hybrid approach.
-        lw = LatexWalker(latex_content)
-        nodes, _, _ = lw.get_latex_nodes()
+        converter = LatexNodes2Text()
+        nodes = converter.latex_to_text(latex_content)
 
-        for node in nodes:
-            if node.isNodeType(LatexEnvironmentNode):
-                env_name = node.environmentname
-                # Define which environments we care about
-                if env_name in ['theorem', 'lemma', 'definition', 'proof', 'corollary']:
-                    # Get the raw text of the environment to process it separately
-                    env_content_raw = node.nodelist.latex_verbatim()
-                    # Get the clean text from LaTeXML for this specific snippet
-                    env_content_clean = latex_processor.process_latex_document(env_content_raw)
-                    
-                    if not env_content_clean:
-                        continue
+        # Process each environment
+        for env_name in ['theorem', 'lemma', 'definition', 'proof', 'corollary']:
+            # Find all instances of this environment
+            pattern = rf'\\begin{{{env_name}}}(.*?)\\end{{{env_name}}}'
+            matches = re.finditer(pattern, latex_content, re.DOTALL)
+            
+            for match in matches:
+                env_content_raw = match.group(0)
+                # Get the clean text from LaTeXML for this specific snippet
+                env_content_clean = latex_processor.process_latex_document(env_content_raw)
+                
+                if not env_content_clean:
+                    continue
 
-                    # Find label for ID, and refs for edges
-                    label = self._find_label(node.nodelist) or f"{env_name}-{uuid.uuid4().hex[:8]}"
-                    refs = self._find_refs(node.nodelist)
+                # Find label for ID, and refs for edges
+                label = self._find_label(env_content_raw) or f"{env_name}-{uuid.uuid4().hex[:8]}"
+                refs = self._find_refs(env_content_raw)
 
-                    # Generate the initial text embedding
-                    embedding = self.embedding_model.encode(env_content_clean, convert_to_tensor=False)
+                # Generate the initial text embedding
+                embedding = self.embedding_model.encode(env_content_clean, convert_to_tensor=False)
 
-                    # Add the node to the graph
-                    self.graph.add_node(
-                        label,
-                        node_type=env_name,
-                        doc_id=doc_id,
-                        text=env_content_clean,
-                        embedding=embedding
-                    )
-                    
-                    # Add edges for each reference found
-                    for ref_label in refs:
-                        # We add the edge now, even if the 'ref_label' node doesn't exist yet.
-                        # It will be created when its own environment is parsed.
-                        self.graph.add_edge(label, ref_label, edge_type='references')
+                # Add the node to the graph
+                self.graph.add_node(
+                    label,
+                    node_type=env_name,
+                    doc_id=doc_id,
+                    source=source,  # Add source to node attributes
+                    text=env_content_clean,
+                    embedding=embedding
+                )
+                
+                # Add edges for each reference found
+                for ref_label in refs:
+                    # We add the edge now, even if the 'ref_label' node doesn't exist yet.
+                    # It will be created when its own environment is parsed.
+                    self.graph.add_edge(label, ref_label, edge_type='references')
 
-    def _find_label(self, nodelist):
-        for node in nodelist:
-            if node.isNodeType(LatexMacroNode) and node.macroname == 'label':
-                return node.nodeargs[0].nodelist.latex_verbatim()
-        return None
+    def _find_label(self, content: str) -> str:
+        """Find the label in the content."""
+        label_match = re.search(r'\\label{([^}]+)}', content)
+        return label_match.group(1) if label_match else None
 
-    def _find_refs(self, nodelist):
+    def _find_refs(self, content: str) -> list:
+        """Find all references in the content."""
         refs = []
-        for node in nodelist:
-            if node.isNodeType(LatexMacroNode) and node.macroname in ['ref', 'eqref']:
-                refs.append(node.nodeargs[0].nodelist.latex_verbatim())
+        for ref_type in ['ref', 'eqref']:
+            ref_matches = re.finditer(rf'\\{ref_type}{{{{([^}}]+)}}}}', content)
+            
+            refs.extend(match.group(1) for match in ref_matches)
         return refs
 
     def save_graph_and_embeddings(self, graph_path, embeddings_path):

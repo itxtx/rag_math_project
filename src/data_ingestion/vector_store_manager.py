@@ -13,6 +13,26 @@ WEAVIATE_CLASS_NAME = "MathDocumentChunk"
 EMBEDDING_MODEL_NAME = config.EMBEDDING_MODEL_NAME 
 embedding_model_instance = None 
 
+# Default properties to return in search results
+DEFAULT_RETURN_PROPERTIES = [
+    "chunk_id",
+    "doc_id",
+    "source_path",
+    "concept_type",
+    "concept_name",
+    "chunk_text",
+    "parent_block_id",
+    "parent_block_content",
+    "sequence_in_block",
+    "filename"
+]
+
+# Default additional properties for search
+DEFAULT_ADDITIONAL_PROPERTIES = {
+    "certainty": True,
+    "distance": True
+}
+
 def get_embedding_model():
     global embedding_model_instance
     if embedding_model_instance is None:

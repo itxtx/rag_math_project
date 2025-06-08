@@ -56,12 +56,14 @@ def process_latex_documents(
     if processed_filenames_log is None: # Should ideally be passed in
         processed_filenames_log = set()
 
-
     parsed_latex_docs = []
     print(f"\n--- Processing LaTeX files from: {latex_dir} ---")
     if not os.path.isdir(latex_dir):
         print(f"LaTeX directory not found: {latex_dir}")
         return parsed_latex_docs
+
+    # Create a single parser instance for all files
+    parser = latex_parser.LatexToGraphParser()
 
     for filename in os.listdir(latex_dir):
         if filename.startswith('.'): # Skip hidden files like .DS_Store
@@ -76,24 +78,35 @@ def process_latex_documents(
             file_path = os.path.join(latex_dir, filename)
             print(f"Processing LaTeX file: {file_path}")
             try:
-                content = latex_parser.parse_latex_file(file_path)
-                if content and content.strip():
-                    doc_id = os.path.splitext(filename)[0]
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    latex_content = f.read()
+                
+                # Extract structured nodes from the LaTeX content
+                doc_id = os.path.splitext(filename)[0]
+                parser.extract_structured_nodes(latex_content, doc_id)
+                
+                # Get the processed content from the graph
+                nodes = parser.graph.nodes(data=True)
+                if nodes:
+                    # Combine all node texts into a single document
+                    content = "\n\n".join(data['text'] for _, data in nodes)
                     parsed_latex_docs.append({
                         "doc_id": doc_id,
-                        "source": file_path, # Store full path
-                        "filename": filename, # Store just the filename for logging
+                        "source": file_path,
+                        "filename": filename,
                         "original_type": "latex",
                         "parsed_content": content
                     })
-                    # Output saving logic (optional, can be removed if not needed here)
+                    
+                    # Save parsed content
                     output_dir = config.DATA_DIR_PARSED_LATEX
                     if not os.path.exists(output_dir): os.makedirs(output_dir)
                     output_path = os.path.join(output_dir, f"{doc_id}_parsed.txt")
-                    with open(output_path, "w", encoding="utf-8") as f_out: f_out.write(content)
+                    with open(output_path, "w", encoding="utf-8") as f_out:
+                        f_out.write(content)
                     print(f"Saved parsed LaTeX content to: {output_path}")
                 else:
-                    print(f"Skipping LaTeX file due to empty parsed content: {file_path}")
+                    print(f"Skipping LaTeX file due to no structured content found: {file_path}")
             except Exception as e:
                 print(f"Error processing LaTeX file {file_path}: {e}")
         else:
