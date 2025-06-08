@@ -27,17 +27,35 @@ class LatexToGraphParser:
                 return env_type
         return 'theorem' # Default if no specific type is found in the title
 
-    def _get_main_text_from_element(self, element) -> str:
-        """Extracts text ONLY from the main content paragraphs (<para> tags) to avoid duplication."""
+    def _get_clean_text(self, element) -> str:
+        """Extracts text from an XML element, preserving LaTeX math mode content."""
         if element is None:
             return ""
-        # Find all <para> children and join their text. This is more robust.
-        paras = element.findall('.//para')
-        if not paras: # Fallback for structures that might not use <para>
-            return "\n\n".join(text.strip() for text in element.itertext() if text.strip())
             
-        text_chunks = ["".join(p.itertext()).strip() for p in paras]
-        return "\n\n".join(chunk for chunk in text_chunks if chunk)
+        text_chunks = []
+        
+        # Process the element's text content
+        if element.text:
+            text_chunks.append(element.text.strip())
+            
+        # Process all child elements
+        for child in element:
+            # If it's a math element, get the original LaTeX
+            if child.tag == 'Math':
+                tex = child.get('tex')
+                if tex:
+                    # Wrap in $ to preserve math mode
+                    text_chunks.append(f"${tex}$")
+            else:
+                # Recursively process other elements
+                text_chunks.append(self._get_clean_text(child))
+                
+            # Add the tail text (text after the element)
+            if child.tail:
+                text_chunks.append(child.tail.strip())
+                
+        # Join all text chunks with spaces
+        return " ".join(chunk for chunk in text_chunks if chunk)
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
@@ -70,7 +88,7 @@ class LatexToGraphParser:
             node_type = self._get_node_type_from_title(title_text)
             
             # Extract main content text to avoid duplication
-            main_text = self._get_main_text_from_element(element)
+            main_text = self._get_clean_text(element)
 
             if not main_text.strip():
                 continue
