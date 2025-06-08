@@ -27,71 +27,65 @@ except ImportError:
 
 async def run_fast_ingestion_pipeline():
     """
-    Optimized data ingestion pipeline with parallel processing and fast embedding
+    A unified and corrected data ingestion pipeline.
     """
     print("--- 🚀 Starting Fast Data Ingestion Pipeline ---")
     start_time = time.time()
 
-    # 1. Load raw content of new LaTeX documents
+    # 1. Load raw content of new documents. This no longer parses anything.
     print("\n📂 Loading new documents...")
-    all_new_docs_data = document_loader.load_and_parse_documents(
-        process_pdfs=False,  # Focus on LaTeX
-        process_latex=True
-    )
-    
+    all_new_docs_data = document_loader.load_new_documents()
+
     if not all_new_docs_data:
         print("✅ No new documents to process. Pipeline finished.")
         return
 
     print(f"✓ Found {len(all_new_docs_data)} new documents to process")
 
-    # 2. Build knowledge graph with parallel processing
-    print("\n🧠 Building Knowledge Graph (parallel processing)...")
+    # 2. This is now the ONLY parsing stage.
+    # It creates one parser and processes all documents with it.
+    print("\n🧠 Building Knowledge Graph...")
     graph_parser = LatexToGraphParser(model_name=config.EMBEDDING_MODEL_NAME)
-    
-    # Process documents in parallel using asyncio
-    doc_tasks = []
-    for doc_data in all_new_docs_data:
-        task = asyncio.create_task(
-            process_document_async(graph_parser, doc_data)
-        )
-        doc_tasks.append(task)
-    
-    # Wait for all documents to be processed
-    await asyncio.gather(*doc_tasks)
 
-    # 3. Save graph and embeddings
+    for doc_data in all_new_docs_data:
+        if doc_data['type'] == 'latex':
+            print(f"  🔄 Parsing: {doc_data['filename']}")
+            # Use the raw_content loaded previously
+            graph_parser.extract_structured_nodes(
+                latex_content=doc_data['raw_content'],
+                doc_id=doc_data['doc_id'],
+                source=doc_data['source']
+            )
+
+    # 3. Save the final, complete graph and its embeddings
     print("\n💾 Saving knowledge graph and embeddings...")
     os.makedirs('data/graph_db', exist_ok=True)
     os.makedirs('data/embeddings', exist_ok=True)
-    
-    await asyncio.get_event_loop().run_in_executor(
-        None,
-        graph_parser.save_graph_and_embeddings,
+
+    graph_parser.save_graph_and_embeddings(
         'data/graph_db/knowledge_graph.graphml',
         'data/embeddings/initial_text_embeddings.pkl'
     )
 
-    # 4. Convert to conceptual blocks and chunk
+    # 4. Convert graph nodes to conceptual blocks for chunking
     print("\n🔪 Chunking conceptual blocks...")
     conceptual_blocks = graph_parser.get_graph_nodes_as_conceptual_blocks()
-    
+
     if not conceptual_blocks:
-        print("⚠️  No conceptual blocks generated from graph")
+        print("⚠️  No conceptual blocks generated from graph. Check parsing logs.")
+        # We still log the files as processed to avoid trying them again.
+        newly_processed_filenames = [doc['filename'] for doc in all_new_docs_data]
+        document_loader.update_processed_docs_log(config.PROCESSED_DOCS_LOG_FILE, newly_processed_filenames)
         return
-    
-    # Chunk in parallel
-    final_chunks = await asyncio.get_event_loop().run_in_executor(
-        None,
-        chunker.chunk_conceptual_blocks,
-        conceptual_blocks
-    )
+
+    # 5. Chunk the blocks
+    final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
 
     if not final_chunks:
         print("⚠️  No chunks generated for vector store")
         return
 
-    # 5. Fast embedding and storage
+    # 6. Fast embedding and storage in Weaviate
     print(f"\n⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
     try:
         client = vector_store_manager.get_weaviate_client()
@@ -100,16 +94,15 @@ async def run_fast_ingestion_pipeline():
         print(f"❌ Failed to store in Weaviate: {e}")
         return
 
-    # 6. Update processed docs log
+    # 7. Update processed docs log
     newly_processed_filenames = [doc['filename'] for doc in all_new_docs_data]
     document_loader.update_processed_docs_log(config.PROCESSED_DOCS_LOG_FILE, newly_processed_filenames)
 
     total_time = time.time() - start_time
     print(f"\n✅ Fast ingestion pipeline completed in {total_time:.2f} seconds!")
-    
+
     if run_gnn_training:
         print("\nNext: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
-
 
 async def process_document_async(graph_parser, doc_data):
     """Process a single document asynchronously"""
