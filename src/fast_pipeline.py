@@ -1,9 +1,20 @@
-# src/fast_pipeline.py
+# src/fast_pipeline.py - Improved version
 import os
 import argparse
 import sys
 import asyncio
 import time
+import logging
+from typing import Optional, List, Dict
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # --- Add project root to path ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -23,194 +34,228 @@ try:
     from src.gnn_training.train import run_training as run_gnn_training
 except ImportError:
     run_gnn_training = None
-    print("WARNING: GNN training module not found. 'train-gnn' command unavailable.")
+    logger.warning("GNN training module not found. 'train-gnn' command unavailable.")
 
-async def run_fast_ingestion_pipeline():
-    """
-    A unified and corrected data ingestion pipeline.
-    """
-    print("--- 🚀 Starting Fast Data Ingestion Pipeline ---")
-    start_time = time.time()
+class FastPipeline:
+    """Encapsulates the fast pipeline logic with better error handling and resource management."""
+    
+    def __init__(self):
+        self.graph_parser = None
+        self.start_time = None
+        self.processed_count = 0
+        self.error_count = 0
+        
+    async def run_ingestion(self) -> bool:
+        """
+        A unified and corrected data ingestion pipeline.
+        Returns True if successful, False otherwise.
+        """
+        logger.info("🚀 Starting Fast Data Ingestion Pipeline")
+        self.start_time = time.time()
+        
+        try:
+            # 1. Load raw content of new documents
+            logger.info("📂 Loading new documents...")
+            all_new_docs_data = document_loader.load_new_documents()
 
-    # 1. Load raw content of new documents. This no longer parses anything.
-    print("\n📂 Loading new documents...")
-    all_new_docs_data = document_loader.load_new_documents()
+            if not all_new_docs_data:
+                logger.info("✅ No new documents to process. Pipeline finished.")
+                return True
 
-    if not all_new_docs_data:
-        print("✅ No new documents to process. Pipeline finished.")
-        return
+            logger.info(f"✓ Found {len(all_new_docs_data)} new documents to process")
 
-    print(f"✓ Found {len(all_new_docs_data)} new documents to process")
+            # 2. Parse documents and build knowledge graph
+            logger.info("🧠 Building Knowledge Graph...")
+            self.graph_parser = LatexToGraphParser(model_name=config.EMBEDDING_MODEL_NAME)
+            
+            # Use ProcessPoolExecutor for CPU-bound parsing
+            max_workers = min(multiprocessing.cpu_count(), len(all_new_docs_data))
+            
+            for doc_data in all_new_docs_data:
+                if doc_data['type'] == 'latex':
+                    try:
+                        logger.info(f"  🔄 Parsing: {doc_data['filename']}")
+                        self.graph_parser.extract_structured_nodes(
+                            latex_content=doc_data['raw_content'],
+                            doc_id=doc_data['doc_id'],
+                            source=doc_data['source']
+                        )
+                        self.processed_count += 1
+                    except Exception as e:
+                        logger.error(f"  ❌ Failed to parse {doc_data['filename']}: {e}")
+                        self.error_count += 1
+                        continue
 
-    # 2. This is now the ONLY parsing stage.
-    # It creates one parser and processes all documents with it.
-    print("\n🧠 Building Knowledge Graph...")
-    graph_parser = LatexToGraphParser(model_name=config.EMBEDDING_MODEL_NAME)
+            # 3. Save graph and embeddings
+            logger.info("💾 Saving knowledge graph and embeddings...")
+            os.makedirs('data/graph_db', exist_ok=True)
+            os.makedirs('data/embeddings', exist_ok=True)
 
-    for doc_data in all_new_docs_data:
-        if doc_data['type'] == 'latex':
-            print(f"  🔄 Parsing: {doc_data['filename']}")
-            # Use the raw_content loaded previously
-            graph_parser.extract_structured_nodes(
-                latex_content=doc_data['raw_content'],
-                doc_id=doc_data['doc_id'],
-                source=doc_data['source']
+            self.graph_parser.save_graph_and_embeddings(
+                'data/graph_db/knowledge_graph.graphml',
+                'data/embeddings/initial_text_embeddings.pkl'
             )
 
-    # 3. Save the final, complete graph and its embeddings
-    print("\n💾 Saving knowledge graph and embeddings...")
-    os.makedirs('data/graph_db', exist_ok=True)
-    os.makedirs('data/embeddings', exist_ok=True)
+            # 4. Convert graph nodes to conceptual blocks
+            logger.info("🔪 Chunking conceptual blocks...")
+            conceptual_blocks = self.graph_parser.get_graph_nodes_as_conceptual_blocks()
 
-    graph_parser.save_graph_and_embeddings(
-        'data/graph_db/knowledge_graph.graphml',
-        'data/embeddings/initial_text_embeddings.pkl'
-    )
+            if not conceptual_blocks:
+                logger.warning("⚠️  No conceptual blocks generated from graph.")
+                # Still log processed files
+                self._update_processed_log(all_new_docs_data)
+                return self.error_count == 0
 
-    # 4. Convert graph nodes to conceptual blocks for chunking
-    print("\n🔪 Chunking conceptual blocks...")
-    conceptual_blocks = graph_parser.get_graph_nodes_as_conceptual_blocks()
+            # 5. Chunk the blocks
+            final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
 
-    if not conceptual_blocks:
-        print("⚠️  No conceptual blocks generated from graph. Check parsing logs.")
-        # We still log the files as processed to avoid trying them again.
-        newly_processed_filenames = [doc['filename'] for doc in all_new_docs_data]
-        document_loader.update_processed_docs_log(config.PROCESSED_DOCS_LOG_FILE, newly_processed_filenames)
-        return
+            if not final_chunks:
+                logger.warning("⚠️  No chunks generated for vector store")
+                return False
 
-    # 5. Chunk the blocks
-    final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
+            # 6. Fast embedding and storage
+            logger.info(f"⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
+            try:
+                client = vector_store_manager.get_weaviate_client()
+                await fast_embed_and_store_chunks(client, final_chunks, batch_size=100)
+            except Exception as e:
+                logger.error(f"❌ Failed to store in Weaviate: {e}")
+                return False
 
-    if not final_chunks:
-        print("⚠️  No chunks generated for vector store")
-        return
+            # 7. Update processed docs log
+            self._update_processed_log(all_new_docs_data)
 
-    # 6. Fast embedding and storage in Weaviate
-    print(f"\n⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
-    try:
-        client = vector_store_manager.get_weaviate_client()
-        await fast_embed_and_store_chunks(client, final_chunks, batch_size=100)
-    except Exception as e:
-        print(f"❌ Failed to store in Weaviate: {e}")
-        return
+            total_time = time.time() - self.start_time
+            logger.info(f"✅ Fast ingestion pipeline completed in {total_time:.2f} seconds!")
+            logger.info(f"   Processed: {self.processed_count} documents")
+            logger.info(f"   Errors: {self.error_count} documents")
 
-    # 7. Update processed docs log
-    newly_processed_filenames = [doc['filename'] for doc in all_new_docs_data]
-    document_loader.update_processed_docs_log(config.PROCESSED_DOCS_LOG_FILE, newly_processed_filenames)
+            if run_gnn_training:
+                logger.info("Next: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
 
-    total_time = time.time() - start_time
-    print(f"\n✅ Fast ingestion pipeline completed in {total_time:.2f} seconds!")
+            return self.error_count == 0
 
-    if run_gnn_training:
-        print("\nNext: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
+        except Exception as e:
+            logger.error(f"❌ Pipeline failed with error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+    def _update_processed_log(self, docs_data: List[Dict]):
+        """Update the processed documents log."""
+        newly_processed_filenames = [doc['filename'] for doc in docs_data]
+        document_loader.update_processed_docs_log(
+            config.PROCESSED_DOCS_LOG_FILE, 
+            newly_processed_filenames
+        )
 
-async def process_document_async(graph_parser, doc_data):
-    """Process a single document asynchronously"""
-    print(f"  🔄 Processing: {doc_data['filename']}")
-    
-    # Run the graph extraction in an executor to avoid blocking
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None,
-        graph_parser.extract_structured_nodes,
-        doc_data['parsed_content'],
-        doc_data['doc_id'],
-        doc_data['source']
-    )
-    
-    print(f"  ✓ Completed: {doc_data['filename']}")
-
+async def run_fast_ingestion_pipeline():
+    """Wrapper for backward compatibility."""
+    pipeline = FastPipeline()
+    success = await pipeline.run_ingestion()
+    if not success:
+        sys.exit(1)
 
 def run_fast_gnn_training():
     """
     Fast GNN training with optimizations
     """
     if not run_gnn_training:
-        print("❌ GNN training module not available")
-        return
+        logger.error("❌ GNN training module not available")
+        sys.exit(1)
     
-    print("--- 🧠 Starting Fast GNN Training ---")
+    logger.info("🧠 Starting Fast GNN Training")
     start_time = time.time()
     
     try:
+        # Check if required files exist
+        if not os.path.exists('data/graph_db/knowledge_graph.graphml'):
+            logger.error("❌ Knowledge graph not found. Run 'make ingest' first.")
+            sys.exit(1)
+            
+        if not os.path.exists('data/embeddings/initial_text_embeddings.pkl'):
+            logger.error("❌ Initial embeddings not found. Run 'make ingest' first.")
+            sys.exit(1)
+        
         run_gnn_training()
         total_time = time.time() - start_time
-        print(f"✅ GNN training completed in {total_time:.2f} seconds!")
-        print("\nOptimized embeddings saved to: data/embeddings/gnn_embeddings.pkl")
+        logger.info(f"✅ GNN training completed in {total_time:.2f} seconds!")
+        logger.info("Optimized embeddings saved to: data/embeddings/gnn_embeddings.pkl")
     except Exception as e:
-        print(f"❌ GNN training failed: {e}")
+        logger.error(f"❌ GNN training failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
-
-def run_performance_test():
+async def run_performance_test():
     """
     Test the performance of the optimized system
     """
-    print("--- 🏃 Running Performance Tests ---")
+    logger.info("🏃 Running Performance Tests")
     
     try:
         from src.api.fast_api import FastRAGComponents
-        import asyncio
         
-        async def test_performance():
-            print("Initializing components...")
-            components = FastRAGComponents()
-            components._init_core_components()
-            
-            print("Testing retrieval performance...")
-            start_time = time.time()
-            
-            # Test queries
-            test_queries = [
-                "vector space definition",
-                "linear algebra examples",
-                "matrix operations", 
-                "eigenvalues",
-                "proof techniques"
-            ]
-            
-            # Cold run
-            print("  Cold run (no cache)...")
-            cold_times = []
-            for query in test_queries:
-                query_start = time.time()
-                results = await components.retriever.fast_semantic_search(query, limit=5)
-                query_time = time.time() - query_start
-                cold_times.append(query_time)
-                print(f"    '{query}': {query_time:.3f}s ({len(results)} results)")
-            
-            # Warm run
-            print("  Warm run (with cache)...")
-            warm_times = []
-            for query in test_queries:
-                query_start = time.time()
-                results = await components.retriever.fast_semantic_search(query, limit=5)
-                query_time = time.time() - query_start
-                warm_times.append(query_time)
-                print(f"    '{query}': {query_time:.3f}s ({len(results)} results)")
-            
-            # Performance summary
-            avg_cold = sum(cold_times) / len(cold_times)
-            avg_warm = sum(warm_times) / len(warm_times)
-            speedup = avg_cold / avg_warm if avg_warm > 0 else 0
-            
-            print(f"\n📊 Performance Summary:")
-            print(f"  Average cold query time: {avg_cold:.3f}s")
-            print(f"  Average warm query time: {avg_warm:.3f}s")
-            print(f"  Cache speedup: {speedup:.1f}x")
-            
-            # Cache stats
-            cache_stats = components.retriever.get_cache_stats()
-            print(f"  Cache hit rate: {cache_stats['hit_rate_percent']:.1f}%")
-            print(f"  Cached embeddings: {cache_stats['embedding_cache_size']}")
-            print(f"  Cached results: {cache_stats['results_cache_size']}")
-            
-            components.cleanup()
+        logger.info("Initializing components...")
+        components = FastRAGComponents()
+        components._init_core_components()
         
-        asyncio.run(test_performance())
+        logger.info("Testing retrieval performance...")
+        
+        # Test queries
+        test_queries = [
+            "vector space definition",
+            "linear algebra examples",
+            "matrix operations", 
+            "eigenvalues",
+            "proof techniques"
+        ]
+        
+        # Run tests
+        cold_times = []
+        warm_times = []
+        
+        # Cold run
+        logger.info("  Cold run (no cache)...")
+        for query in test_queries:
+            start = time.time()
+            results = await components.retriever.fast_semantic_search(query, limit=5)
+            elapsed = time.time() - start
+            cold_times.append(elapsed)
+            logger.info(f"    '{query}': {elapsed:.3f}s ({len(results)} results)")
+        
+        # Warm run
+        logger.info("  Warm run (with cache)...")
+        for query in test_queries:
+            start = time.time()
+            results = await components.retriever.fast_semantic_search(query, limit=5)
+            elapsed = time.time() - start
+            warm_times.append(elapsed)
+            logger.info(f"    '{query}': {elapsed:.3f}s ({len(results)} results)")
+        
+        # Performance summary
+        avg_cold = sum(cold_times) / len(cold_times) if cold_times else 0
+        avg_warm = sum(warm_times) / len(warm_times) if warm_times else 0
+        speedup = avg_cold / avg_warm if avg_warm > 0 else 0
+        
+        logger.info("📊 Performance Summary:")
+        logger.info(f"  Average cold query time: {avg_cold:.3f}s")
+        logger.info(f"  Average warm query time: {avg_warm:.3f}s")
+        logger.info(f"  Cache speedup: {speedup:.1f}x")
+        
+        # Cache stats
+        cache_stats = components.retriever.get_cache_stats()
+        logger.info(f"  Cache hit rate: {cache_stats['hit_rate_percent']:.1f}%")
+        logger.info(f"  Cached embeddings: {cache_stats['embedding_cache_size']}")
+        logger.info(f"  Cached results: {cache_stats['results_cache_size']}")
+        
+        components.cleanup()
         
     except Exception as e:
-        print(f"❌ Performance test failed: {e}")
-
+        logger.error(f"❌ Performance test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 def main():
     """Main function with fast pipeline commands"""
@@ -218,16 +263,17 @@ def main():
         description="Fast RAG Math Pipeline - Optimized for speed and performance",
         formatter_class=argparse.RawTextHelpFormatter
     )
+    
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
-    # --- Fast Ingestion Command ---
+    # Fast Ingestion Command
     subparsers.add_parser(
         "ingest", 
         help="🚀 Run fast data ingestion pipeline\n"
              "Processes LaTeX docs with parallel embedding and optimized storage"
     )
     
-    # --- Fast GNN Training Command ---
+    # Fast GNN Training Command
     if run_gnn_training:
         subparsers.add_parser(
             "train-gnn", 
@@ -235,14 +281,14 @@ def main():
                  "Generates graph-aware embeddings for advanced retrieval"
         )
 
-    # --- Performance Test Command ---
+    # Performance Test Command
     subparsers.add_parser(
         "test", 
         help="🏃 Run performance tests\n"
              "Tests retrieval speed and caching effectiveness"
     )
 
-    # --- Server Command ---
+    # Server Command
     subparsers.add_parser(
         "serve", 
         help="🖥️  Start optimized API server\n"
@@ -258,17 +304,18 @@ def main():
         run_fast_gnn_training()
         
     elif args.command == "test":
-        run_performance_test()
+        asyncio.run(run_performance_test())
         
     elif args.command == "serve":
-        print("🖥️  Starting optimized API server...")
+        logger.info("🖥️  Starting optimized API server...")
         import uvicorn
         uvicorn.run(
             "src.api.fast_api:app", 
             host="0.0.0.0", 
             port=8000, 
             reload=False,  # Disable reload for better performance
-            workers=1      # Single worker to share cache
+            workers=1,     # Single worker to share cache
+            log_level="info"
         )
 
 if __name__ == '__main__':

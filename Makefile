@@ -1,5 +1,6 @@
 # Makefile for Fast RAG Math Learning System
 # ===========================================
+# IMPORTANT: Makefile requires TAB characters for indentation, not spaces!
 
 .PHONY: help setup clean ingest train-gnn serve test compare-performance status health frontend-install frontend-dev frontend-build frontend-clean
 
@@ -41,6 +42,14 @@ help:
 	@echo "  make status          - Check system status"
 	@echo "  make health          - Health check (server must be running)"
 	@echo ""
+	@echo "$(GREEN)Database Management:$(NC)"
+	@echo "  make db-stats        - Show database statistics"
+	@echo "  make check-fragments - Check for data fragments"
+	@echo "  make clean-db        - Clean all databases (with confirmation)"
+	@echo "  make clean-weaviate  - Clean only Weaviate"
+	@echo "  make clean-graph     - Clean graph and embeddings"
+	@echo "  make reset           - Complete system reset"
+	@echo ""
 	@echo "$(GREEN)Quick Start:$(NC)"
 	@echo "  make setup && make ingest && make serve"
 	@echo "  make frontend-install && make frontend-dev"
@@ -53,17 +62,14 @@ setup:
 	@mkdir -p src/retrieval/
 	@mkdir -p scripts/
 	@echo "$(GREEN)✓ Created directory structure$(NC)"
-	
 	@if [ -f "src/api/main_api.py" ]; then \
 		cp src/api/main_api.py src/api/main_api.py.backup; \
 		echo "$(GREEN)✓ Backed up main_api.py$(NC)"; \
 	fi
-	
 	@if [ -f "src/pipeline.py" ]; then \
 		cp src/pipeline.py src/pipeline.py.backup; \
 		echo "$(GREEN)✓ Backed up pipeline.py$(NC)"; \
 	fi
-	
 	@python -m compileall src/ --quiet
 	@echo "$(GREEN)✓ Pre-compiled Python files$(NC)"
 	@echo "$(BLUE)🎉 Setup complete! You can now run 'make ingest'$(NC)"
@@ -86,7 +92,6 @@ update-preamble:
 		python scripts/update_preamble.py "$$tex_file"; \
 	done
 	@echo "$(GREEN)✓ Preamble updated!$(NC)"
-
 
 ingest:
 	@echo "$(BLUE)📚 Starting fast document ingestion...$(NC)"
@@ -162,14 +167,12 @@ health:
 	@echo "$(BLUE)🏥 Health Check (server must be running)$(NC)"
 	@curl -s http://localhost:8000/api/v1/health | python -m json.tool 2>/dev/null || echo "$(RED)❌ Server not responding at localhost:8000$(NC)"
 
-
-
 # Monitor server performance (requires server to be running)
 monitor:
 	@echo "$(BLUE)📈 Monitoring server performance...$(NC)"
 	@echo "$(YELLOW)Press Ctrl+C to stop monitoring$(NC)"
 	@while true; do \
-		echo "$(BLUE)[$(shell date '+%H:%M:%S')] Performance Check:$(NC)"; \
+		echo "$(BLUE)[$$(date '+%H:%M:%S')] Performance Check:$(NC)"; \
 		curl -s http://localhost:8000/api/v1/performance | python -m json.tool 2>/dev/null || echo "$(RED)Server not responding$(NC)"; \
 		echo ""; \
 		sleep 5; \
@@ -197,6 +200,80 @@ frontend-clean:
 	@rm -rf frontend/dist 2>/dev/null || true
 	@rm -rf frontend/node_modules 2>/dev/null || true
 	@echo "$(GREEN)✓ Frontend cleanup complete$(NC)"
+
+# Database Management Commands
+db-stats:
+	@echo "$(BLUE)📊 Database Statistics$(NC)"
+	@python scripts/clean_databases.py --stats-only
+
+weaviate-count:
+	@echo "$(BLUE)📊 Weaviate Object Count$(NC)"
+	@curl -s http://localhost:8080/v1/graphql -H 'Content-Type: application/json' -d '{"query": "{ Aggregate { MathDocumentChunk { meta { count } } } }"}' | python -m json.tool
+
+check-fragments:
+	@echo "$(BLUE)🔍 Checking for data fragments...$(NC)"
+	@echo ""
+	@echo "$(CYAN)Weaviate Status:$(NC)"
+	@make weaviate-count 2>/dev/null || echo "$(RED)Weaviate not accessible$(NC)"
+	@echo ""
+	@echo "$(CYAN)Graph Database:$(NC)"
+	@if [ -f "data/graph_db/knowledge_graph.graphml" ]; then \
+		echo "$(GREEN)✓ Graph file exists$(NC)"; \
+		ls -lh data/graph_db/knowledge_graph.graphml; \
+	else \
+		echo "$(YELLOW)No graph file found$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(CYAN)Embeddings:$(NC)"
+	@ls -lh data/embeddings/*.pkl 2>/dev/null || echo "$(YELLOW)No embedding files found$(NC)"
+	@echo ""
+	@echo "$(CYAN)Processed Documents:$(NC)"
+	@if [ -f "data/processed_documents_log.txt" ]; then \
+		wc -l data/processed_documents_log.txt; \
+	else \
+		echo "$(YELLOW)No processed documents log$(NC)"; \
+	fi
+
+clean-db:
+	@echo "$(RED)⚠️  WARNING: This will delete all data in the databases!$(NC)"
+	@echo "$(YELLOW)This includes: Weaviate data, knowledge graph, embeddings$(NC)"
+	@read -p "Are you sure? (y/N): " confirm && \
+	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
+		python scripts/clean_databases.py --confirm; \
+	else \
+		echo "$(YELLOW)Cancelled$(NC)"; \
+	fi
+
+clean-db-force:
+	@echo "$(RED)🗑️  Force cleaning all databases...$(NC)"
+	@python scripts/clean_databases.py --confirm
+
+clean-weaviate:
+	@echo "$(YELLOW)🗑️  Cleaning Weaviate database only...$(NC)"
+	@python -c "import sys; sys.path.insert(0, '.'); from src.data_ingestion import vector_store_manager; client = vector_store_manager.get_weaviate_client(); client.schema.delete_class(vector_store_manager.WEAVIATE_CLASS_NAME); print('✓ Weaviate class deleted'); vector_store_manager.create_weaviate_schema(client); print('✓ Fresh schema created')"
+
+clean-graph:
+	@echo "$(YELLOW)🗑️  Cleaning graph database...$(NC)"
+	@rm -f data/graph_db/knowledge_graph.graphml
+	@rm -f data/embeddings/initial_text_embeddings.pkl
+	@rm -f data/embeddings/gnn_embeddings.pkl
+	@echo "$(GREEN)✓ Graph and embeddings cleaned$(NC)"
+
+clean-all: clean
+	@echo "$(RED)🗑️  Deep clean - removing all generated data...$(NC)"
+	@make clean-db-force
+	@rm -f data/processed_documents_log.txt
+	@rm -f data/learner_profiles.sqlite3
+	@echo "$(GREEN)✓ All data cleaned$(NC)"
+
+reset: clean-all setup
+	@echo "$(GREEN)🔄 System reset complete!$(NC)"
+	@echo "$(YELLOW)Add documents to data/raw_latex/ and run 'make ingest'$(NC)"
+
+# Testing workflows
+test-fresh: clean-db-force ingest
+	@echo "$(GREEN)✅ Fresh test environment ready!$(NC)"
+	@make db-stats
 
 # Full development workflow including frontend
 dev-workflow-full: clean setup ingest frontend-install
@@ -229,7 +306,7 @@ tips:
 	@echo "$(GREEN)Troubleshooting:$(NC)"
 	@echo "  • Check status: make status"
 	@echo "  • View logs: Check terminal output from 'make serve'"
-	@echo "  • Reset everything: make clean setup process-all"
+	@echo "  • Reset everything: make clean-all setup process-all"
 
 # Install development dependencies (optional)
 install-dev:
