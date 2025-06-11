@@ -27,35 +27,75 @@ class LatexToGraphParser:
                 return env_type
         return 'theorem' # Default if no specific type is found in the title
 
-    def _get_clean_text(self, element) -> str:
-        """Extracts text from an XML element, preserving LaTeX math mode content."""
+    def _get_clean_text(self, element, exclude_title=True) -> str:
+        """
+        Extracts text from an XML element, preserving LaTeX math mode content.
+        
+        Args:
+            element: XML element to extract text from
+            exclude_title: If True, skip the title element to avoid duplication
+        """
         if element is None:
             return ""
-            
+        
+        # Track seen text to avoid duplicates
+        seen_text = set()
         text_chunks = []
         
-        # Process the element's text content
-        if element.text:
-            text_chunks.append(element.text.strip())
+        def extract_text_recursive(elem, skip_title=False):
+            """Recursively extract text while avoiding duplicates"""
+            # Skip title elements if requested
+            if skip_title and elem.tag == 'title':
+                return
             
-        # Process all child elements
-        for child in element:
-            # If it's a math element, get the original LaTeX
-            if child.tag == 'Math':
-                tex = child.get('tex')
-                if tex:
-                    # Wrap in $ to preserve math mode
-                    text_chunks.append(f"${tex}$")
-            else:
-                # Recursively process other elements
-                text_chunks.append(self._get_clean_text(child))
+            # Add the element's text if it exists and isn't just whitespace
+            if elem.text and elem.text.strip():
+                text = elem.text.strip()
+                if text not in seen_text:
+                    seen_text.add(text)
+                    text_chunks.append(text)
+            
+            # Process all child elements
+            for child in elem:
+                # Skip title if we're excluding it
+                if exclude_title and child.tag == 'title':
+                    continue
+                    
+                # Handle math elements specially
+                if child.tag == 'Math':
+                    tex = child.get('tex')
+                    if tex and tex not in seen_text:
+                        seen_text.add(tex)
+                        # Wrap in $ to preserve math mode
+                        text_chunks.append(f"${tex}$")
+                else:
+                    # Recursively process other elements
+                    extract_text_recursive(child, skip_title=False)
                 
-            # Add the tail text (text after the element)
-            if child.tail:
-                text_chunks.append(child.tail.strip())
-                
+                # Add the tail text (text after the element)
+                if child.tail and child.tail.strip():
+                    tail_text = child.tail.strip()
+                    if tail_text not in seen_text:
+                        seen_text.add(tail_text)
+                        text_chunks.append(tail_text)
+        
+        # Start extraction
+        extract_text_recursive(element, skip_title=exclude_title)
+        
         # Join all text chunks with spaces
-        return " ".join(chunk for chunk in text_chunks if chunk)
+        full_text = " ".join(text_chunks)
+        
+        # Clean up any repeated patterns that might have slipped through
+        # Remove patterns like "Proof 12 12 Proof 12 Proof"
+        full_text = re.sub(r'(\b\w+\b)(\s+\d+)*(\s+\1)+', r'\1', full_text)
+        
+        # Remove standalone numbers that might be labels
+        full_text = re.sub(r'\b\d+\b\s*', '', full_text)
+        
+        # Clean up multiple spaces
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        return full_text
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
@@ -67,6 +107,7 @@ class LatexToGraphParser:
             print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}. Skipping.")
             return
 
+        # Remove namespace to make parsing easier
         xml_output = re.sub(r' xmlns="[^"]+"', '', xml_output, count=1)
 
         try:
@@ -82,22 +123,55 @@ class LatexToGraphParser:
         # Store nodes for later edge creation
         nodes_by_type = {}
         nodes_by_doc = {}
+        
+        # Also look for proof environments which might be tagged differently
+        proof_elements = root.findall(".//proof")
+        all_elements = theorem_elements + proof_elements
+        
+        print(f"Total environments found (including proofs): {len(all_elements)}")
 
-        for element in theorem_elements:
+        for element in all_elements:
+            # Extract title if present
             title_element = element.find('title')
-            title_text = "".join(title_element.itertext()).strip() if title_element is not None else ""
+            title_text = ""
             
-            # Determine the node type from the title text
-            node_type = self._get_node_type_from_title(title_text)
+            if title_element is not None:
+                # Get just the title text, avoiding duplicates
+                title_parts = []
+                if title_element.text:
+                    title_parts.append(title_element.text.strip())
+                for child in title_element:
+                    if child.text:
+                        title_parts.append(child.text.strip())
+                    if child.tail:
+                        title_parts.append(child.tail.strip())
+                
+                # Join and clean title
+                title_text = " ".join(title_parts)
+                title_text = re.sub(r'\s+', ' ', title_text).strip()
             
-            # Extract main content text to avoid duplication
-            main_text = self._get_clean_text(element)
+            # Determine the node type
+            if element.tag == 'proof':
+                node_type = 'proof'
+                if not title_text:
+                    title_text = "Proof"
+            else:
+                node_type = self._get_node_type_from_title(title_text)
+            
+            # Extract main content text, excluding the title to avoid duplication
+            main_text = self._get_clean_text(element, exclude_title=True)
 
             if not main_text.strip():
+                print(f"Skipping empty {node_type} in {doc_id}")
                 continue
 
+            # Generate a unique ID
             label = element.get('id', f"{node_type}-{uuid.uuid4().hex[:8]}")
+            
+            # Extract references
             refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
+            
+            # Generate embedding
             embedding = self.embedding_model.encode(main_text, convert_to_tensor=False)
 
             # Add node to graph
@@ -107,8 +181,11 @@ class LatexToGraphParser:
                 doc_id=doc_id,
                 source=source,
                 text=main_text,
+                title=title_text,
                 embedding=embedding
             )
+
+            print(f"Added {node_type}: {title_text[:50]}... (text length: {len(main_text)})")
 
             # Store node in type and doc collections
             if node_type not in nodes_by_type:
@@ -166,12 +243,18 @@ class LatexToGraphParser:
         """Returns all nodes from the graph as conceptual blocks."""
         blocks = []
         for node, data in self.graph.nodes(data=True):
+            # Use title if available, otherwise create from type
+            concept_name = data.get('title', '')
+            if not concept_name:
+                concept_name = f"{data.get('node_type', 'unknown').title()} {node[-6:]}"
+            
             blocks.append({
                 'id': node,
                 'type': data.get('node_type', 'unknown'),
                 'text': data.get('text', ''),
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
-                'embedding': data.get('embedding', None)
+                'embedding': data.get('embedding', None),
+                'concept_name': concept_name
             })
         return blocks
