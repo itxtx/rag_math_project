@@ -1,17 +1,36 @@
+# /docker-compose.yaml
 version: '3.4'
 services:
-  weaviate:
-    image: semitechnologies/weaviate:1.24.10 # You can check for the latest stable version
+  # The new service for your main RAG application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "8080:8080" # REST API
-      - "50051:50051" # gRPC API
+      - "8000:8000" # Expose the API port to your local machine
+    volumes:
+      # Mount your source code for live-reloading during development
+      - .:/app
+      # Mount the data directories to persist them
+      - ./data:/app/data
+    depends_on:
+      - weaviate # Make sure Weaviate starts before your app
+    environment:
+      # Pass any necessary environment variables to your app
+      WEAVIATE_URL: "http://weaviate:8080"
+
+  weaviate:
+    image: semitechnologies/weaviate:1.24.10
+    ports:
+      - "8080:8080"
+      - "50051:50051"
     restart: on-failure:0
     volumes:
-      - ./weaviate_data:/var/lib/weaviate # Persist Weaviate data
+      - ./weaviate_data:/var/lib/weaviate
     environment:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      DEFAULT_VECTORIZER_MODULE: 'none' # We'll handle embeddings in Python for now
-      ENABLE_MODULES: 'text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai' # Example modules, can be adjusted
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: 'text2vec-openai,text2vec-cohere,text2vec-huggingface,ref2vec-centroid,generative-openai,qna-openai'
       CLUSTER_HOSTNAME: 'node1'

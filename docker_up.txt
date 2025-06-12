@@ -1,0 +1,1331 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [app internal] load .dockerignore
+#1 transferring context: 2B done
+#1 DONE 0.0s
+
+#2 [app internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.37kB done
+#2 DONE 0.0s
+
+#3 [app internal] load metadata for docker.io/library/python:3.10-slim-bookworm
+#3 DONE 1.9s
+
+#4 [app 1/8] FROM docker.io/library/python:3.10-slim-bookworm@sha256:034724ef64585eeb0e82385e9aabcbeabfe5f7cae2c2dcedb1da95114372b6d7
+#4 CACHED
+
+#5 [app internal] load build context
+#5 transferring context: 8.13MB 3.1s
+#5 transferring context: 10.72MB 4.1s done
+#5 DONE 4.2s
+
+#6 [app 2/8] RUN apt-get update &&     apt-get install -y --no-install-recommends     build-essential     perl     cpanminus     pkg-config     libxml2-dev     libxslt1-dev     zlib1g-dev     texlive-latex-base     texlive-latex-recommended     texlive-science     texlive-fonts-recommended     && rm -rf /var/lib/apt/lists/*
+#6 0.418 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#6 0.483 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#6 0.513 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+#6 0.544 Get:4 http://deb.debian.org/debian bookworm/main arm64 Packages [8693 kB]
+#6 1.771 Get:5 http://deb.debian.org/debian bookworm-updates/main arm64 Packages [512 B]
+#6 1.771 Get:6 http://deb.debian.org/debian-security bookworm-security/main arm64 Packages [262 kB]
+#6 2.515 Fetched 9210 kB in 2s (4171 kB/s)
+#6 2.515 Reading package lists...
+#6 2.893 Reading package lists...
+#6 3.327 Building dependency tree...
+#6 3.415 Reading state information...
+#6 3.525 The following additional packages will be installed:
+#6 3.525   binutils binutils-aarch64-linux-gnu binutils-common bzip2 cpp cpp-12
+#6 3.525   dpkg-dev fontconfig-config fonts-dejavu-core fonts-gfs-baskerville
+#6 3.525   fonts-gfs-porson fonts-lmodern g++ g++-12 gcc gcc-12 icu-devtools libasan8
+#6 3.525   libatomic1 libbinutils libbrotli1 libbsd0 libc-dev-bin libc6-dev libcairo2
+#6 3.525   libcc1-0 libcpan-distnameinfo-perl libcpan-meta-check-perl libcrypt-dev
+#6 3.525   libctf-nobfd0 libctf0 libdpkg-perl libexpat1 libfile-pushd-perl
+#6 3.525   libfontconfig1 libfreetype6 libgcc-12-dev libgdbm-compat4 libglib2.0-0
+#6 3.525   libgomp1 libgprofng0 libgraphite2-3 libharfbuzz0b libhwasan0 libice6
+#6 3.525   libicu-dev libicu72 libisl23 libitm1 libjansson4 libkpathsea6
+#6 3.525   liblocal-lib-perl liblsan0 libmodule-build-perl libmodule-cpanfile-perl
+#6 3.525   libmpc3 libmpfr6 libnsl-dev libpaper-utils libpaper1 libparse-pmfile-perl
+#6 3.525   libperl5.36 libpixman-1-0 libpkgconf3 libpng16-16 libptexenc1
+#6 3.525   libpython3-stdlib libpython3.11-minimal libpython3.11-stdlib libsm6
+#6 3.525   libstdc++-12-dev libstring-shellquote-perl libsynctex2 libteckit0
+#6 3.525   libtexlua53-5 libtirpc-dev libtsan2 libubsan1 libx11-6 libx11-data libxau6
+#6 3.525   libxaw7 libxcb-render0 libxcb-shm0 libxcb1 libxdmcp6 libxext6 libxi6 libxml2
+#6 3.525   libxmu6 libxpm4 libxrender1 libxslt1.1 libxt6 libzzip-0-13 linux-libc-dev
+#6 3.526   make media-types patch perl-modules-5.36 pkgconf pkgconf-bin python3
+#6 3.526   python3-minimal python3.11 python3.11-minimal rpcsvc-proto sensible-utils
+#6 3.526   t1utils tex-common texlive-base texlive-binaries texlive-lang-greek ucf
+#6 3.526   x11-common xdg-utils xz-utils
+#6 3.526 Suggested packages:
+#6 3.526   binutils-doc bzip2-doc cpp-doc gcc-12-locales cpp-12-doc debian-keyring
+#6 3.526   gcc-12-doc gcc-multilib manpages-dev autoconf automake libtool flex bison
+#6 3.526   gdb gcc-doc glibc-doc gnupg | sq | sqop | pgpainless-cli git bzr
+#6 3.526   low-memory-monitor icu-doc libstdc++-12-doc make-doc ed diffutils-doc
+#6 3.526   perl-doc libterm-readline-gnu-perl | libterm-readline-perl-perl
+#6 3.526   libtap-harness-archive-perl python3-doc python3-tk python3-venv
+#6 3.526   python3.11-venv python3.11-doc binfmt-support debhelper ghostscript gv
+#6 3.526   | postscript-viewer perl-tk xpdf | pdf-viewer xzdec
+#6 3.526   texlive-fonts-recommended-doc texlive-latex-base-doc wp2latex
+#6 3.526   texlive-latex-recommended-doc texlive-luatex texlive-pstricks
+#6 3.526   texlive-science-doc
+#6 3.526 Recommended packages:
+#6 3.526   fakeroot gnupg | sq | sqop | pgpainless-cli libalgorithm-merge-perl manpages
+#6 3.526   manpages-dev libc-devtools libfile-fcntllock-perl liblocale-gettext-perl
+#6 3.526   libglib2.0-data shared-mime-info xdg-user-dirs libmodule-signature-perl
+#6 3.526   libpod-readme-perl libsoftware-license-perl lmodern dvisvgm tex-gyre tipa
+#6 3.526   libfile-mimeinfo-perl libnet-dbus-perl libx11-protocol-perl x11-utils
+#6 3.526   x11-xserver-utils
+#6 4.035 The following NEW packages will be installed:
+#6 4.035   binutils binutils-aarch64-linux-gnu binutils-common build-essential bzip2
+#6 4.035   cpanminus cpp cpp-12 dpkg-dev fontconfig-config fonts-dejavu-core
+#6 4.035   fonts-gfs-baskerville fonts-gfs-porson fonts-lmodern g++ g++-12 gcc gcc-12
+#6 4.035   icu-devtools libasan8 libatomic1 libbinutils libbrotli1 libbsd0 libc-dev-bin
+#6 4.035   libc6-dev libcairo2 libcc1-0 libcpan-distnameinfo-perl
+#6 4.035   libcpan-meta-check-perl libcrypt-dev libctf-nobfd0 libctf0 libdpkg-perl
+#6 4.035   libexpat1 libfile-pushd-perl libfontconfig1 libfreetype6 libgcc-12-dev
+#6 4.035   libgdbm-compat4 libglib2.0-0 libgomp1 libgprofng0 libgraphite2-3
+#6 4.035   libharfbuzz0b libhwasan0 libice6 libicu-dev libicu72 libisl23 libitm1
+#6 4.035   libjansson4 libkpathsea6 liblocal-lib-perl liblsan0 libmodule-build-perl
+#6 4.035   libmodule-cpanfile-perl libmpc3 libmpfr6 libnsl-dev libpaper-utils libpaper1
+#6 4.035   libparse-pmfile-perl libperl5.36 libpixman-1-0 libpkgconf3 libpng16-16
+#6 4.036   libptexenc1 libpython3-stdlib libpython3.11-minimal libpython3.11-stdlib
+#6 4.036   libsm6 libstdc++-12-dev libstring-shellquote-perl libsynctex2 libteckit0
+#6 4.036   libtexlua53-5 libtirpc-dev libtsan2 libubsan1 libx11-6 libx11-data libxau6
+#6 4.036   libxaw7 libxcb-render0 libxcb-shm0 libxcb1 libxdmcp6 libxext6 libxi6 libxml2
+#6 4.036   libxml2-dev libxmu6 libxpm4 libxrender1 libxslt1-dev libxslt1.1 libxt6
+#6 4.036   libzzip-0-13 linux-libc-dev make media-types patch perl perl-modules-5.36
+#6 4.036   pkg-config pkgconf pkgconf-bin python3 python3-minimal python3.11
+#6 4.036   python3.11-minimal rpcsvc-proto sensible-utils t1utils tex-common
+#6 4.036   texlive-base texlive-binaries texlive-fonts-recommended texlive-lang-greek
+#6 4.036   texlive-latex-base texlive-latex-recommended texlive-science ucf x11-common
+#6 4.036   xdg-utils xz-utils zlib1g-dev
+#6 4.096 0 upgraded, 128 newly installed, 0 to remove and 0 not upgraded.
+#6 4.096 Need to get 236 MB of archives.
+#6 4.096 After this operation, 713 MB of additional disk space will be used.
+#6 4.096 Get:1 http://deb.debian.org/debian bookworm/main arm64 perl-modules-5.36 all 5.36.0-7+deb12u2 [2815 kB]
+#6 4.521 Get:2 http://deb.debian.org/debian bookworm/main arm64 libgdbm-compat4 arm64 1.23-3 [48.0 kB]
+#6 4.528 Get:3 http://deb.debian.org/debian bookworm/main arm64 libperl5.36 arm64 5.36.0-7+deb12u2 [4027 kB]
+#6 5.111 Get:4 http://deb.debian.org/debian bookworm/main arm64 perl arm64 5.36.0-7+deb12u2 [239 kB]
+#6 5.146 Get:5 http://deb.debian.org/debian bookworm/main arm64 libpython3.11-minimal arm64 3.11.2-6+deb12u6 [810 kB]
+#6 5.258 Get:6 http://deb.debian.org/debian bookworm/main arm64 libexpat1 arm64 2.5.0-1+deb12u1 [84.6 kB]
+#6 5.269 Get:7 http://deb.debian.org/debian bookworm/main arm64 python3.11-minimal arm64 3.11.2-6+deb12u6 [1859 kB]
+#6 5.523 Get:8 http://deb.debian.org/debian bookworm/main arm64 python3-minimal arm64 3.11.2-1+b1 [26.3 kB]
+#6 5.525 Get:9 http://deb.debian.org/debian bookworm/main arm64 media-types all 10.0.0 [26.1 kB]
+#6 5.529 Get:10 http://deb.debian.org/debian bookworm/main arm64 libpython3.11-stdlib arm64 3.11.2-6+deb12u6 [1746 kB]
+#6 5.788 Get:11 http://deb.debian.org/debian bookworm/main arm64 python3.11 arm64 3.11.2-6+deb12u6 [573 kB]
+#6 5.936 Get:12 http://deb.debian.org/debian bookworm/main arm64 libpython3-stdlib arm64 3.11.2-1+b1 [9296 B]
+#6 5.936 Get:13 http://deb.debian.org/debian bookworm/main arm64 python3 arm64 3.11.2-1+b1 [26.3 kB]
+#6 5.936 Get:14 http://deb.debian.org/debian bookworm/main arm64 sensible-utils all 0.0.17+nmu1 [19.0 kB]
+#6 5.937 Get:15 http://deb.debian.org/debian bookworm/main arm64 bzip2 arm64 1.0.8-5+b1 [48.9 kB]
+#6 5.937 Get:16 http://deb.debian.org/debian bookworm/main arm64 ucf all 3.0043+nmu1+deb12u1 [55.3 kB]
+#6 5.938 Get:17 http://deb.debian.org/debian bookworm/main arm64 xz-utils arm64 5.4.1-1 [469 kB]
+#6 5.971 Get:18 http://deb.debian.org/debian bookworm/main arm64 binutils-common arm64 2.40-2 [2487 kB]
+#6 6.333 Get:19 http://deb.debian.org/debian bookworm/main arm64 libbinutils arm64 2.40-2 [645 kB]
+#6 6.447 Get:20 http://deb.debian.org/debian bookworm/main arm64 libctf-nobfd0 arm64 2.40-2 [144 kB]
+#6 6.465 Get:21 http://deb.debian.org/debian bookworm/main arm64 libctf0 arm64 2.40-2 [79.2 kB]
+#6 6.477 Get:22 http://deb.debian.org/debian bookworm/main arm64 libgprofng0 arm64 2.40-2 [680 kB]
+#6 6.575 Get:23 http://deb.debian.org/debian bookworm/main arm64 libjansson4 arm64 2.14-2 [40.2 kB]
+#6 6.580 Get:24 http://deb.debian.org/debian bookworm/main arm64 binutils-aarch64-linux-gnu arm64 2.40-2 [2637 kB]
+#6 6.954 Get:25 http://deb.debian.org/debian bookworm/main arm64 binutils arm64 2.40-2 [64.9 kB]
+#6 6.962 Get:26 http://deb.debian.org/debian bookworm/main arm64 libc-dev-bin arm64 2.36-9+deb12u10 [46.2 kB]
+#6 6.968 Get:27 http://deb.debian.org/debian-security bookworm-security/main arm64 linux-libc-dev arm64 6.1.140-1 [2120 kB]
+#6 7.257 Get:28 http://deb.debian.org/debian bookworm/main arm64 libcrypt-dev arm64 1:4.4.33-2 [121 kB]
+#6 7.270 Get:29 http://deb.debian.org/debian bookworm/main arm64 libtirpc-dev arm64 1.3.3+ds-1 [194 kB]
+#6 7.298 Get:30 http://deb.debian.org/debian bookworm/main arm64 libnsl-dev arm64 1.3.0-2 [66.1 kB]
+#6 7.306 Get:31 http://deb.debian.org/debian bookworm/main arm64 rpcsvc-proto arm64 1.4.3-1 [59.7 kB]
+#6 7.335 Get:32 http://deb.debian.org/debian bookworm/main arm64 libc6-dev arm64 2.36-9+deb12u10 [1431 kB]
+#6 7.533 Get:33 http://deb.debian.org/debian bookworm/main arm64 libisl23 arm64 0.25-1.1 [610 kB]
+#6 7.615 Get:34 http://deb.debian.org/debian bookworm/main arm64 libmpfr6 arm64 4.2.0-1 [600 kB]
+#6 7.701 Get:35 http://deb.debian.org/debian bookworm/main arm64 libmpc3 arm64 1.3.1-1 [49.2 kB]
+#6 7.709 Get:36 http://deb.debian.org/debian bookworm/main arm64 cpp-12 arm64 12.2.0-14+deb12u1 [8228 kB]
+#6 8.976 Get:37 http://deb.debian.org/debian bookworm/main arm64 cpp arm64 4:12.2.0-3 [6832 B]
+#6 8.976 Get:38 http://deb.debian.org/debian bookworm/main arm64 libcc1-0 arm64 12.2.0-14+deb12u1 [37.7 kB]
+#6 8.980 Get:39 http://deb.debian.org/debian bookworm/main arm64 libgomp1 arm64 12.2.0-14+deb12u1 [104 kB]
+#6 8.990 Get:40 http://deb.debian.org/debian bookworm/main arm64 libitm1 arm64 12.2.0-14+deb12u1 [24.0 kB]
+#6 8.993 Get:41 http://deb.debian.org/debian bookworm/main arm64 libatomic1 arm64 12.2.0-14+deb12u1 [9568 B]
+#6 8.995 Get:42 http://deb.debian.org/debian bookworm/main arm64 libasan8 arm64 12.2.0-14+deb12u1 [2096 kB]
+#6 9.285 Get:43 http://deb.debian.org/debian bookworm/main arm64 liblsan0 arm64 12.2.0-14+deb12u1 [926 kB]
+#6 9.411 Get:44 http://deb.debian.org/debian bookworm/main arm64 libtsan2 arm64 12.2.0-14+deb12u1 [2178 kB]
+#6 9.714 Get:45 http://deb.debian.org/debian bookworm/main arm64 libubsan1 arm64 12.2.0-14+deb12u1 [862 kB]
+#6 9.849 Get:46 http://deb.debian.org/debian bookworm/main arm64 libhwasan0 arm64 12.2.0-14+deb12u1 [999 kB]
+#6 9.986 Get:47 http://deb.debian.org/debian bookworm/main arm64 libgcc-12-dev arm64 12.2.0-14+deb12u1 [956 kB]
+#6 10.12 Get:48 http://deb.debian.org/debian bookworm/main arm64 gcc-12 arm64 12.2.0-14+deb12u1 [16.3 MB]
+#6 12.36 Get:49 http://deb.debian.org/debian bookworm/main arm64 gcc arm64 4:12.2.0-3 [5244 B]
+#6 12.36 Get:50 http://deb.debian.org/debian bookworm/main arm64 libstdc++-12-dev arm64 12.2.0-14+deb12u1 [2007 kB]
+#6 12.63 Get:51 http://deb.debian.org/debian bookworm/main arm64 g++-12 arm64 12.2.0-14+deb12u1 [9072 kB]
+#6 13.88 Get:52 http://deb.debian.org/debian bookworm/main arm64 g++ arm64 4:12.2.0-3 [1336 B]
+#6 13.88 Get:53 http://deb.debian.org/debian bookworm/main arm64 make arm64 4.3-4.1 [391 kB]
+#6 13.92 Get:54 http://deb.debian.org/debian bookworm/main arm64 libdpkg-perl all 1.21.22 [603 kB]
+#6 14.01 Get:55 http://deb.debian.org/debian bookworm/main arm64 patch arm64 2.7.6-7 [121 kB]
+#6 14.03 Get:56 http://deb.debian.org/debian bookworm/main arm64 dpkg-dev all 1.21.22 [1353 kB]
+#6 14.21 Get:57 http://deb.debian.org/debian bookworm/main arm64 build-essential arm64 12.9 [7704 B]
+#6 14.21 Get:58 http://deb.debian.org/debian bookworm/main arm64 libcpan-distnameinfo-perl all 0.12-3 [8252 B]
+#6 14.21 Get:59 http://deb.debian.org/debian bookworm/main arm64 libcpan-meta-check-perl all 0.017-1 [7340 B]
+#6 14.21 Get:60 http://deb.debian.org/debian bookworm/main arm64 libfile-pushd-perl all 1.016-2 [13.5 kB]
+#6 14.23 Get:61 http://deb.debian.org/debian bookworm/main arm64 libmodule-build-perl all 0.423200-1 [253 kB]
+#6 14.29 Get:62 http://deb.debian.org/debian bookworm/main arm64 liblocal-lib-perl all 2.000029-1 [54.5 kB]
+#6 14.32 Get:63 http://deb.debian.org/debian bookworm/main arm64 libmodule-cpanfile-perl all 1.1004-2 [25.7 kB]
+#6 14.32 Get:64 http://deb.debian.org/debian bookworm/main arm64 libparse-pmfile-perl all 0.43-2 [16.2 kB]
+#6 14.32 Get:65 http://deb.debian.org/debian bookworm/main arm64 libstring-shellquote-perl all 1.04-3 [11.9 kB]
+#6 14.33 Get:66 http://deb.debian.org/debian bookworm/main arm64 cpanminus all 1.7046-1 [71.0 kB]
+#6 14.35 Get:67 http://deb.debian.org/debian bookworm/main arm64 fonts-dejavu-core all 2.37-6 [1068 kB]
+#6 14.52 Get:68 http://deb.debian.org/debian bookworm/main arm64 fontconfig-config arm64 2.14.1-4 [315 kB]
+#6 14.58 Get:69 http://deb.debian.org/debian bookworm/main arm64 fonts-gfs-baskerville all 1.1-6 [43.7 kB]
+#6 14.61 Get:70 http://deb.debian.org/debian bookworm/main arm64 fonts-gfs-porson all 1.1-7 [33.8 kB]
+#6 14.63 Get:71 http://deb.debian.org/debian bookworm/main arm64 fonts-lmodern all 2.005-1 [4540 kB]
+#6 15.28 Get:72 http://deb.debian.org/debian bookworm/main arm64 libicu72 arm64 72.1-3 [9204 kB]
+#6 16.59 Get:73 http://deb.debian.org/debian bookworm/main arm64 icu-devtools arm64 72.1-3 [192 kB]
+#6 16.64 Get:74 http://deb.debian.org/debian bookworm/main arm64 libbrotli1 arm64 1.0.9-2+b6 [269 kB]
+#6 16.67 Get:75 http://deb.debian.org/debian bookworm/main arm64 libbsd0 arm64 0.11.7-2 [115 kB]
+#6 16.69 Get:76 http://deb.debian.org/debian bookworm/main arm64 libpng16-16 arm64 1.6.39-2 [269 kB]
+#6 16.72 Get:77 http://deb.debian.org/debian bookworm/main arm64 libfreetype6 arm64 2.12.1+dfsg-5+deb12u4 [368 kB]
+#6 16.78 Get:78 http://deb.debian.org/debian bookworm/main arm64 libfontconfig1 arm64 2.14.1-4 [381 kB]
+#6 16.85 Get:79 http://deb.debian.org/debian bookworm/main arm64 libpixman-1-0 arm64 0.42.2-1 [470 kB]
+#6 16.91 Get:80 http://deb.debian.org/debian bookworm/main arm64 libxau6 arm64 1:1.0.9-1 [19.7 kB]
+#6 16.92 Get:81 http://deb.debian.org/debian bookworm/main arm64 libxdmcp6 arm64 1:1.1.2-3 [25.4 kB]
+#6 16.92 Get:82 http://deb.debian.org/debian bookworm/main arm64 libxcb1 arm64 1.15-1 [143 kB]
+#6 16.94 Get:83 http://deb.debian.org/debian bookworm/main arm64 libx11-data all 2:1.8.4-2+deb12u2 [292 kB]
+#6 16.98 Get:84 http://deb.debian.org/debian bookworm/main arm64 libx11-6 arm64 2:1.8.4-2+deb12u2 [735 kB]
+#6 17.08 Get:85 http://deb.debian.org/debian bookworm/main arm64 libxcb-render0 arm64 1.15-1 [115 kB]
+#6 17.10 Get:86 http://deb.debian.org/debian bookworm/main arm64 libxcb-shm0 arm64 1.15-1 [106 kB]
+#6 17.11 Get:87 http://deb.debian.org/debian bookworm/main arm64 libxext6 arm64 2:1.3.4-1+b1 [51.7 kB]
+#6 17.12 Get:88 http://deb.debian.org/debian bookworm/main arm64 libxrender1 arm64 1:0.9.10-1.1 [32.0 kB]
+#6 17.12 Get:89 http://deb.debian.org/debian bookworm/main arm64 libcairo2 arm64 1.16.0-7 [527 kB]
+#6 17.21 Get:90 http://deb.debian.org/debian bookworm/main arm64 libglib2.0-0 arm64 2.74.6-2+deb12u6 [1313 kB]
+#6 17.39 Get:91 http://deb.debian.org/debian bookworm/main arm64 libgraphite2-3 arm64 1.3.14-1 [75.6 kB]
+#6 17.40 Get:92 http://deb.debian.org/debian bookworm/main arm64 libharfbuzz0b arm64 6.0.0+dfsg-3 [1914 kB]
+#6 17.67 Get:93 http://deb.debian.org/debian bookworm/main arm64 x11-common all 1:7.7+23 [252 kB]
+#6 17.72 Get:94 http://deb.debian.org/debian bookworm/main arm64 libice6 arm64 2:1.0.10-1 [55.6 kB]
+#6 17.74 Get:95 http://deb.debian.org/debian bookworm/main arm64 libicu-dev arm64 72.1-3 [10.2 MB]
+#6 19.16 Get:96 http://deb.debian.org/debian bookworm/main arm64 libkpathsea6 arm64 2022.20220321.62855-5.1+deb12u2 [149 kB]
+#6 19.18 Get:97 http://deb.debian.org/debian bookworm/main arm64 libpaper1 arm64 1.1.29 [12.6 kB]
+#6 19.18 Get:98 http://deb.debian.org/debian bookworm/main arm64 libpaper-utils arm64 1.1.29 [8776 B]
+#6 19.20 Get:99 http://deb.debian.org/debian bookworm/main arm64 libpkgconf3 arm64 1.8.1-1 [35.3 kB]
+#6 19.23 Get:100 http://deb.debian.org/debian bookworm/main arm64 libptexenc1 arm64 2022.20220321.62855-5.1+deb12u2 [43.0 kB]
+#6 19.26 Get:101 http://deb.debian.org/debian bookworm/main arm64 libsm6 arm64 2:1.2.3-1 [34.0 kB]
+#6 19.28 Get:102 http://deb.debian.org/debian bookworm/main arm64 libsynctex2 arm64 2022.20220321.62855-5.1+deb12u2 [57.2 kB]
+#6 19.31 Get:103 http://deb.debian.org/debian bookworm/main arm64 libteckit0 arm64 2.5.11+ds1-1+b1 [299 kB]
+#6 19.37 Get:104 http://deb.debian.org/debian bookworm/main arm64 libtexlua53-5 arm64 2022.20220321.62855-5.1+deb12u2 [103 kB]
+#6 19.41 Get:105 http://deb.debian.org/debian bookworm/main arm64 libxt6 arm64 1:1.2.1-1.1 [172 kB]
+#6 19.43 Get:106 http://deb.debian.org/debian bookworm/main arm64 libxmu6 arm64 2:1.1.3-3 [57.2 kB]
+#6 19.44 Get:107 http://deb.debian.org/debian bookworm/main arm64 libxpm4 arm64 1:3.5.12-1.1+deb12u1 [45.4 kB]
+#6 19.44 Get:108 http://deb.debian.org/debian bookworm/main arm64 libxaw7 arm64 2:1.0.14-1 [184 kB]
+#6 19.47 Get:109 http://deb.debian.org/debian bookworm/main arm64 libxi6 arm64 2:1.8-1+b1 [82.3 kB]
+#6 19.50 Get:110 http://deb.debian.org/debian bookworm/main arm64 libxml2 arm64 2.9.14+dfsg-1.3~deb12u1 [619 kB]
+#6 19.61 Get:111 http://deb.debian.org/debian bookworm/main arm64 libxml2-dev arm64 2.9.14+dfsg-1.3~deb12u1 [740 kB]
+#6 19.73 Get:112 http://deb.debian.org/debian bookworm/main arm64 libxslt1.1 arm64 1.1.35-1+deb12u1 [220 kB]
+#6 19.79 Get:113 http://deb.debian.org/debian bookworm/main arm64 libxslt1-dev arm64 1.1.35-1+deb12u1 [345 kB]
+#6 19.85 Get:114 http://deb.debian.org/debian bookworm/main arm64 libzzip-0-13 arm64 0.13.72+dfsg.1-1.1 [58.3 kB]
+#6 19.88 Get:115 http://deb.debian.org/debian bookworm/main arm64 pkgconf-bin arm64 1.8.1-1 [28.9 kB]
+#6 19.88 Get:116 http://deb.debian.org/debian bookworm/main arm64 pkgconf arm64 1.8.1-1 [25.9 kB]
+#6 19.89 Get:117 http://deb.debian.org/debian bookworm/main arm64 pkg-config arm64 1.8.1-1 [13.7 kB]
+#6 19.91 Get:118 http://deb.debian.org/debian bookworm/main arm64 t1utils arm64 1.41-4 [59.8 kB]
+#6 19.94 Get:119 http://deb.debian.org/debian bookworm/main arm64 tex-common all 6.18 [32.5 kB]
+#6 19.98 Get:120 http://deb.debian.org/debian bookworm/main arm64 texlive-binaries arm64 2022.20220321.62855-5.1+deb12u2 [7557 kB]
+#6 21.04 Get:121 http://deb.debian.org/debian bookworm/main arm64 xdg-utils all 1.1.3-4.1 [75.5 kB]
+#6 21.07 Get:122 http://deb.debian.org/debian bookworm/main arm64 texlive-base all 2022.20230122-3 [21.9 MB]
+#6 24.09 Get:123 http://deb.debian.org/debian bookworm/main arm64 texlive-fonts-recommended all 2022.20230122-3 [4988 kB]
+#6 24.79 Get:124 http://deb.debian.org/debian bookworm/main arm64 texlive-lang-greek all 2022.20230122-1 [78.1 MB]
+#6 35.64 Get:125 http://deb.debian.org/debian bookworm/main arm64 texlive-latex-base all 2022.20230122-3 [1182 kB]
+#6 35.82 Get:126 http://deb.debian.org/debian bookworm/main arm64 texlive-latex-recommended all 2022.20230122-3 [8880 kB]
+#6 37.06 Get:127 http://deb.debian.org/debian bookworm/main arm64 texlive-science all 2022.20230122-4 [3722 kB]
+#6 37.64 Get:128 http://deb.debian.org/debian bookworm/main arm64 zlib1g-dev arm64 1:1.2.13.dfsg-1 [913 kB]
+#6 38.16 debconf: delaying package configuration, since apt-utils is not installed
+#6 38.18 Fetched 236 MB in 34s (6984 kB/s)
+#6 38.20 Selecting previously unselected package perl-modules-5.36.
+#6 38.20 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6680 files and directories currently installed.)
+#6 38.22 Preparing to unpack .../0-perl-modules-5.36_5.36.0-7+deb12u2_all.deb ...
+#6 38.22 Unpacking perl-modules-5.36 (5.36.0-7+deb12u2) ...
+#6 38.57 Selecting previously unselected package libgdbm-compat4:arm64.
+#6 38.57 Preparing to unpack .../1-libgdbm-compat4_1.23-3_arm64.deb ...
+#6 38.57 Unpacking libgdbm-compat4:arm64 (1.23-3) ...
+#6 38.59 Selecting previously unselected package libperl5.36:arm64.
+#6 38.59 Preparing to unpack .../2-libperl5.36_5.36.0-7+deb12u2_arm64.deb ...
+#6 38.60 Unpacking libperl5.36:arm64 (5.36.0-7+deb12u2) ...
+#6 38.97 Selecting previously unselected package perl.
+#6 38.97 Preparing to unpack .../3-perl_5.36.0-7+deb12u2_arm64.deb ...
+#6 38.99 Unpacking perl (5.36.0-7+deb12u2) ...
+#6 39.02 Selecting previously unselected package libpython3.11-minimal:arm64.
+#6 39.02 Preparing to unpack .../4-libpython3.11-minimal_3.11.2-6+deb12u6_arm64.deb ...
+#6 39.02 Unpacking libpython3.11-minimal:arm64 (3.11.2-6+deb12u6) ...
+#6 39.10 Selecting previously unselected package libexpat1:arm64.
+#6 39.10 Preparing to unpack .../5-libexpat1_2.5.0-1+deb12u1_arm64.deb ...
+#6 39.10 Unpacking libexpat1:arm64 (2.5.0-1+deb12u1) ...
+#6 39.14 Selecting previously unselected package python3.11-minimal.
+#6 39.14 Preparing to unpack .../6-python3.11-minimal_3.11.2-6+deb12u6_arm64.deb ...
+#6 39.14 Unpacking python3.11-minimal (3.11.2-6+deb12u6) ...
+#6 39.30 Setting up libpython3.11-minimal:arm64 (3.11.2-6+deb12u6) ...
+#6 39.31 Setting up libexpat1:arm64 (2.5.0-1+deb12u1) ...
+#6 39.31 Setting up python3.11-minimal (3.11.2-6+deb12u6) ...
+#6 39.71 Selecting previously unselected package python3-minimal.
+#6 39.71 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9002 files and directories currently installed.)
+#6 39.71 Preparing to unpack .../python3-minimal_3.11.2-1+b1_arm64.deb ...
+#6 39.71 Unpacking python3-minimal (3.11.2-1+b1) ...
+#6 39.73 Selecting previously unselected package media-types.
+#6 39.73 Preparing to unpack .../media-types_10.0.0_all.deb ...
+#6 39.73 Unpacking media-types (10.0.0) ...
+#6 39.75 Selecting previously unselected package libpython3.11-stdlib:arm64.
+#6 39.75 Preparing to unpack .../libpython3.11-stdlib_3.11.2-6+deb12u6_arm64.deb ...
+#6 39.75 Unpacking libpython3.11-stdlib:arm64 (3.11.2-6+deb12u6) ...
+#6 39.88 Selecting previously unselected package python3.11.
+#6 39.88 Preparing to unpack .../python3.11_3.11.2-6+deb12u6_arm64.deb ...
+#6 39.88 Unpacking python3.11 (3.11.2-6+deb12u6) ...
+#6 39.90 Selecting previously unselected package libpython3-stdlib:arm64.
+#6 39.90 Preparing to unpack .../libpython3-stdlib_3.11.2-1+b1_arm64.deb ...
+#6 39.91 Unpacking libpython3-stdlib:arm64 (3.11.2-1+b1) ...
+#6 39.92 Setting up python3-minimal (3.11.2-1+b1) ...
+#6 40.01 Selecting previously unselected package python3.
+#6 40.01 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9412 files and directories currently installed.)
+#6 40.01 Preparing to unpack .../000-python3_3.11.2-1+b1_arm64.deb ...
+#6 40.02 Unpacking python3 (3.11.2-1+b1) ...
+#6 40.03 Selecting previously unselected package sensible-utils.
+#6 40.03 Preparing to unpack .../001-sensible-utils_0.0.17+nmu1_all.deb ...
+#6 40.03 Unpacking sensible-utils (0.0.17+nmu1) ...
+#6 40.05 Selecting previously unselected package bzip2.
+#6 40.05 Preparing to unpack .../002-bzip2_1.0.8-5+b1_arm64.deb ...
+#6 40.05 Unpacking bzip2 (1.0.8-5+b1) ...
+#6 40.07 Selecting previously unselected package ucf.
+#6 40.07 Preparing to unpack .../003-ucf_3.0043+nmu1+deb12u1_all.deb ...
+#6 40.08 Moving old data out of the way
+#6 40.08 Unpacking ucf (3.0043+nmu1+deb12u1) ...
+#6 40.10 Selecting previously unselected package xz-utils.
+#6 40.10 Preparing to unpack .../004-xz-utils_5.4.1-1_arm64.deb ...
+#6 40.10 Unpacking xz-utils (5.4.1-1) ...
+#6 40.14 Selecting previously unselected package binutils-common:arm64.
+#6 40.14 Preparing to unpack .../005-binutils-common_2.40-2_arm64.deb ...
+#6 40.14 Unpacking binutils-common:arm64 (2.40-2) ...
+#6 40.30 Selecting previously unselected package libbinutils:arm64.
+#6 40.30 Preparing to unpack .../006-libbinutils_2.40-2_arm64.deb ...
+#6 40.30 Unpacking libbinutils:arm64 (2.40-2) ...
+#6 40.35 Selecting previously unselected package libctf-nobfd0:arm64.
+#6 40.35 Preparing to unpack .../007-libctf-nobfd0_2.40-2_arm64.deb ...
+#6 40.36 Unpacking libctf-nobfd0:arm64 (2.40-2) ...
+#6 40.37 Selecting previously unselected package libctf0:arm64.
+#6 40.37 Preparing to unpack .../008-libctf0_2.40-2_arm64.deb ...
+#6 40.38 Unpacking libctf0:arm64 (2.40-2) ...
+#6 40.40 Selecting previously unselected package libgprofng0:arm64.
+#6 40.40 Preparing to unpack .../009-libgprofng0_2.40-2_arm64.deb ...
+#6 40.40 Unpacking libgprofng0:arm64 (2.40-2) ...
+#6 40.50 Selecting previously unselected package libjansson4:arm64.
+#6 40.50 Preparing to unpack .../010-libjansson4_2.14-2_arm64.deb ...
+#6 40.50 Unpacking libjansson4:arm64 (2.14-2) ...
+#6 40.52 Selecting previously unselected package binutils-aarch64-linux-gnu.
+#6 40.52 Preparing to unpack .../011-binutils-aarch64-linux-gnu_2.40-2_arm64.deb ...
+#6 40.52 Unpacking binutils-aarch64-linux-gnu (2.40-2) ...
+#6 40.74 Selecting previously unselected package binutils.
+#6 40.74 Preparing to unpack .../012-binutils_2.40-2_arm64.deb ...
+#6 40.75 Unpacking binutils (2.40-2) ...
+#6 40.77 Selecting previously unselected package libc-dev-bin.
+#6 40.77 Preparing to unpack .../013-libc-dev-bin_2.36-9+deb12u10_arm64.deb ...
+#6 40.77 Unpacking libc-dev-bin (2.36-9+deb12u10) ...
+#6 40.79 Selecting previously unselected package linux-libc-dev:arm64.
+#6 40.79 Preparing to unpack .../014-linux-libc-dev_6.1.140-1_arm64.deb ...
+#6 40.79 Unpacking linux-libc-dev:arm64 (6.1.140-1) ...
+#6 40.92 Selecting previously unselected package libcrypt-dev:arm64.
+#6 40.92 Preparing to unpack .../015-libcrypt-dev_1%3a4.4.33-2_arm64.deb ...
+#6 40.92 Unpacking libcrypt-dev:arm64 (1:4.4.33-2) ...
+#6 40.94 Selecting previously unselected package libtirpc-dev:arm64.
+#6 40.94 Preparing to unpack .../016-libtirpc-dev_1.3.3+ds-1_arm64.deb ...
+#6 40.95 Unpacking libtirpc-dev:arm64 (1.3.3+ds-1) ...
+#6 40.97 Selecting previously unselected package libnsl-dev:arm64.
+#6 40.97 Preparing to unpack .../017-libnsl-dev_1.3.0-2_arm64.deb ...
+#6 40.97 Unpacking libnsl-dev:arm64 (1.3.0-2) ...
+#6 40.99 Selecting previously unselected package rpcsvc-proto.
+#6 40.99 Preparing to unpack .../018-rpcsvc-proto_1.4.3-1_arm64.deb ...
+#6 40.99 Unpacking rpcsvc-proto (1.4.3-1) ...
+#6 41.01 Selecting previously unselected package libc6-dev:arm64.
+#6 41.01 Preparing to unpack .../019-libc6-dev_2.36-9+deb12u10_arm64.deb ...
+#6 41.01 Unpacking libc6-dev:arm64 (2.36-9+deb12u10) ...
+#6 41.14 Selecting previously unselected package libisl23:arm64.
+#6 41.14 Preparing to unpack .../020-libisl23_0.25-1.1_arm64.deb ...
+#6 41.14 Unpacking libisl23:arm64 (0.25-1.1) ...
+#6 41.19 Selecting previously unselected package libmpfr6:arm64.
+#6 41.19 Preparing to unpack .../021-libmpfr6_4.2.0-1_arm64.deb ...
+#6 41.20 Unpacking libmpfr6:arm64 (4.2.0-1) ...
+#6 41.23 Selecting previously unselected package libmpc3:arm64.
+#6 41.23 Preparing to unpack .../022-libmpc3_1.3.1-1_arm64.deb ...
+#6 41.23 Unpacking libmpc3:arm64 (1.3.1-1) ...
+#6 41.24 Selecting previously unselected package cpp-12.
+#6 41.25 Preparing to unpack .../023-cpp-12_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.25 Unpacking cpp-12 (12.2.0-14+deb12u1) ...
+#6 41.78 Selecting previously unselected package cpp.
+#6 41.78 Preparing to unpack .../024-cpp_4%3a12.2.0-3_arm64.deb ...
+#6 41.78 Unpacking cpp (4:12.2.0-3) ...
+#6 41.80 Selecting previously unselected package libcc1-0:arm64.
+#6 41.80 Preparing to unpack .../025-libcc1-0_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.80 Unpacking libcc1-0:arm64 (12.2.0-14+deb12u1) ...
+#6 41.81 Selecting previously unselected package libgomp1:arm64.
+#6 41.82 Preparing to unpack .../026-libgomp1_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.82 Unpacking libgomp1:arm64 (12.2.0-14+deb12u1) ...
+#6 41.84 Selecting previously unselected package libitm1:arm64.
+#6 41.84 Preparing to unpack .../027-libitm1_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.84 Unpacking libitm1:arm64 (12.2.0-14+deb12u1) ...
+#6 41.86 Selecting previously unselected package libatomic1:arm64.
+#6 41.86 Preparing to unpack .../028-libatomic1_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.86 Unpacking libatomic1:arm64 (12.2.0-14+deb12u1) ...
+#6 41.87 Selecting previously unselected package libasan8:arm64.
+#6 41.87 Preparing to unpack .../029-libasan8_12.2.0-14+deb12u1_arm64.deb ...
+#6 41.88 Unpacking libasan8:arm64 (12.2.0-14+deb12u1) ...
+#6 42.00 Selecting previously unselected package liblsan0:arm64.
+#6 42.00 Preparing to unpack .../030-liblsan0_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.01 Unpacking liblsan0:arm64 (12.2.0-14+deb12u1) ...
+#6 42.08 Selecting previously unselected package libtsan2:arm64.
+#6 42.08 Preparing to unpack .../031-libtsan2_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.08 Unpacking libtsan2:arm64 (12.2.0-14+deb12u1) ...
+#6 42.22 Selecting previously unselected package libubsan1:arm64.
+#6 42.22 Preparing to unpack .../032-libubsan1_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.23 Unpacking libubsan1:arm64 (12.2.0-14+deb12u1) ...
+#6 42.29 Selecting previously unselected package libhwasan0:arm64.
+#6 42.29 Preparing to unpack .../033-libhwasan0_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.29 Unpacking libhwasan0:arm64 (12.2.0-14+deb12u1) ...
+#6 42.36 Selecting previously unselected package libgcc-12-dev:arm64.
+#6 42.36 Preparing to unpack .../034-libgcc-12-dev_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.36 Unpacking libgcc-12-dev:arm64 (12.2.0-14+deb12u1) ...
+#6 42.48 Selecting previously unselected package gcc-12.
+#6 42.48 Preparing to unpack .../035-gcc-12_12.2.0-14+deb12u1_arm64.deb ...
+#6 42.48 Unpacking gcc-12 (12.2.0-14+deb12u1) ...
+#6 43.08 Selecting previously unselected package gcc.
+#6 43.08 Preparing to unpack .../036-gcc_4%3a12.2.0-3_arm64.deb ...
+#6 43.08 Unpacking gcc (4:12.2.0-3) ...
+#6 43.11 Selecting previously unselected package libstdc++-12-dev:arm64.
+#6 43.11 Preparing to unpack .../037-libstdc++-12-dev_12.2.0-14+deb12u1_arm64.deb ...
+#6 43.11 Unpacking libstdc++-12-dev:arm64 (12.2.0-14+deb12u1) ...
+#6 43.26 Selecting previously unselected package g++-12.
+#6 43.27 Preparing to unpack .../038-g++-12_12.2.0-14+deb12u1_arm64.deb ...
+#6 43.27 Unpacking g++-12 (12.2.0-14+deb12u1) ...
+#6 43.68 Selecting previously unselected package g++.
+#6 43.68 Preparing to unpack .../039-g++_4%3a12.2.0-3_arm64.deb ...
+#6 43.69 Unpacking g++ (4:12.2.0-3) ...
+#6 43.70 Selecting previously unselected package make.
+#6 43.70 Preparing to unpack .../040-make_4.3-4.1_arm64.deb ...
+#6 43.70 Unpacking make (4.3-4.1) ...
+#6 43.74 Selecting previously unselected package libdpkg-perl.
+#6 43.74 Preparing to unpack .../041-libdpkg-perl_1.21.22_all.deb ...
+#6 43.74 Unpacking libdpkg-perl (1.21.22) ...
+#6 43.78 Selecting previously unselected package patch.
+#6 43.78 Preparing to unpack .../042-patch_2.7.6-7_arm64.deb ...
+#6 43.78 Unpacking patch (2.7.6-7) ...
+#6 43.80 Selecting previously unselected package dpkg-dev.
+#6 43.80 Preparing to unpack .../043-dpkg-dev_1.21.22_all.deb ...
+#6 43.80 Unpacking dpkg-dev (1.21.22) ...
+#6 43.88 Selecting previously unselected package build-essential.
+#6 43.88 Preparing to unpack .../044-build-essential_12.9_arm64.deb ...
+#6 43.88 Unpacking build-essential (12.9) ...
+#6 43.89 Selecting previously unselected package libcpan-distnameinfo-perl.
+#6 43.90 Preparing to unpack .../045-libcpan-distnameinfo-perl_0.12-3_all.deb ...
+#6 43.90 Unpacking libcpan-distnameinfo-perl (0.12-3) ...
+#6 43.91 Selecting previously unselected package libcpan-meta-check-perl.
+#6 43.91 Preparing to unpack .../046-libcpan-meta-check-perl_0.017-1_all.deb ...
+#6 43.91 Unpacking libcpan-meta-check-perl (0.017-1) ...
+#6 43.93 Selecting previously unselected package libfile-pushd-perl.
+#6 43.93 Preparing to unpack .../047-libfile-pushd-perl_1.016-2_all.deb ...
+#6 43.93 Unpacking libfile-pushd-perl (1.016-2) ...
+#6 43.94 Selecting previously unselected package libmodule-build-perl.
+#6 43.95 Preparing to unpack .../048-libmodule-build-perl_0.423200-1_all.deb ...
+#6 43.96 Adding 'diversion of /usr/bin/config_data to /usr/bin/config_data.diverted by libmodule-build-perl'
+#6 43.96 Adding 'diversion of /usr/share/man/man1/config_data.1.gz to /usr/share/man/man1/config_data.diverted.1.gz by libmodule-build-perl'
+#6 43.97 Unpacking libmodule-build-perl (0.423200-1) ...
+#6 43.99 Selecting previously unselected package liblocal-lib-perl.
+#6 43.99 Preparing to unpack .../049-liblocal-lib-perl_2.000029-1_all.deb ...
+#6 43.99 Unpacking liblocal-lib-perl (2.000029-1) ...
+#6 44.01 Selecting previously unselected package libmodule-cpanfile-perl.
+#6 44.01 Preparing to unpack .../050-libmodule-cpanfile-perl_1.1004-2_all.deb ...
+#6 44.01 Unpacking libmodule-cpanfile-perl (1.1004-2) ...
+#6 44.03 Selecting previously unselected package libparse-pmfile-perl.
+#6 44.03 Preparing to unpack .../051-libparse-pmfile-perl_0.43-2_all.deb ...
+#6 44.03 Unpacking libparse-pmfile-perl (0.43-2) ...
+#6 44.05 Selecting previously unselected package libstring-shellquote-perl.
+#6 44.05 Preparing to unpack .../052-libstring-shellquote-perl_1.04-3_all.deb ...
+#6 44.05 Unpacking libstring-shellquote-perl (1.04-3) ...
+#6 44.06 Selecting previously unselected package cpanminus.
+#6 44.07 Preparing to unpack .../053-cpanminus_1.7046-1_all.deb ...
+#6 44.07 Unpacking cpanminus (1.7046-1) ...
+#6 44.08 Selecting previously unselected package fonts-dejavu-core.
+#6 44.08 Preparing to unpack .../054-fonts-dejavu-core_2.37-6_all.deb ...
+#6 44.09 Unpacking fonts-dejavu-core (2.37-6) ...
+#6 44.16 Selecting previously unselected package fontconfig-config.
+#6 44.17 Preparing to unpack .../055-fontconfig-config_2.14.1-4_arm64.deb ...
+#6 44.23 Unpacking fontconfig-config (2.14.1-4) ...
+#6 44.25 Selecting previously unselected package fonts-gfs-baskerville.
+#6 44.25 Preparing to unpack .../056-fonts-gfs-baskerville_1.1-6_all.deb ...
+#6 44.25 Unpacking fonts-gfs-baskerville (1.1-6) ...
+#6 44.26 Selecting previously unselected package fonts-gfs-porson.
+#6 44.26 Preparing to unpack .../057-fonts-gfs-porson_1.1-7_all.deb ...
+#6 44.27 Unpacking fonts-gfs-porson (1.1-7) ...
+#6 44.28 Selecting previously unselected package fonts-lmodern.
+#6 44.28 Preparing to unpack .../058-fonts-lmodern_2.005-1_all.deb ...
+#6 44.28 Unpacking fonts-lmodern (2.005-1) ...
+#6 44.53 Selecting previously unselected package libicu72:arm64.
+#6 44.53 Preparing to unpack .../059-libicu72_72.1-3_arm64.deb ...
+#6 44.53 Unpacking libicu72:arm64 (72.1-3) ...
+#6 44.97 Selecting previously unselected package icu-devtools.
+#6 44.97 Preparing to unpack .../060-icu-devtools_72.1-3_arm64.deb ...
+#6 44.97 Unpacking icu-devtools (72.1-3) ...
+#6 45.00 Selecting previously unselected package libbrotli1:arm64.
+#6 45.00 Preparing to unpack .../061-libbrotli1_1.0.9-2+b6_arm64.deb ...
+#6 45.00 Unpacking libbrotli1:arm64 (1.0.9-2+b6) ...
+#6 45.03 Selecting previously unselected package libbsd0:arm64.
+#6 45.03 Preparing to unpack .../062-libbsd0_0.11.7-2_arm64.deb ...
+#6 45.03 Unpacking libbsd0:arm64 (0.11.7-2) ...
+#6 45.05 Selecting previously unselected package libpng16-16:arm64.
+#6 45.05 Preparing to unpack .../063-libpng16-16_1.6.39-2_arm64.deb ...
+#6 45.05 Unpacking libpng16-16:arm64 (1.6.39-2) ...
+#6 45.08 Selecting previously unselected package libfreetype6:arm64.
+#6 45.08 Preparing to unpack .../064-libfreetype6_2.12.1+dfsg-5+deb12u4_arm64.deb ...
+#6 45.08 Unpacking libfreetype6:arm64 (2.12.1+dfsg-5+deb12u4) ...
+#6 45.11 Selecting previously unselected package libfontconfig1:arm64.
+#6 45.11 Preparing to unpack .../065-libfontconfig1_2.14.1-4_arm64.deb ...
+#6 45.11 Unpacking libfontconfig1:arm64 (2.14.1-4) ...
+#6 45.13 Selecting previously unselected package libpixman-1-0:arm64.
+#6 45.14 Preparing to unpack .../066-libpixman-1-0_0.42.2-1_arm64.deb ...
+#6 45.14 Unpacking libpixman-1-0:arm64 (0.42.2-1) ...
+#6 45.16 Selecting previously unselected package libxau6:arm64.
+#6 45.16 Preparing to unpack .../067-libxau6_1%3a1.0.9-1_arm64.deb ...
+#6 45.17 Unpacking libxau6:arm64 (1:1.0.9-1) ...
+#6 45.18 Selecting previously unselected package libxdmcp6:arm64.
+#6 45.18 Preparing to unpack .../068-libxdmcp6_1%3a1.1.2-3_arm64.deb ...
+#6 45.18 Unpacking libxdmcp6:arm64 (1:1.1.2-3) ...
+#6 45.19 Selecting previously unselected package libxcb1:arm64.
+#6 45.19 Preparing to unpack .../069-libxcb1_1.15-1_arm64.deb ...
+#6 45.20 Unpacking libxcb1:arm64 (1.15-1) ...
+#6 45.21 Selecting previously unselected package libx11-data.
+#6 45.21 Preparing to unpack .../070-libx11-data_2%3a1.8.4-2+deb12u2_all.deb ...
+#6 45.21 Unpacking libx11-data (2:1.8.4-2+deb12u2) ...
+#6 45.26 Selecting previously unselected package libx11-6:arm64.
+#6 45.26 Preparing to unpack .../071-libx11-6_2%3a1.8.4-2+deb12u2_arm64.deb ...
+#6 45.26 Unpacking libx11-6:arm64 (2:1.8.4-2+deb12u2) ...
+#6 45.30 Selecting previously unselected package libxcb-render0:arm64.
+#6 45.30 Preparing to unpack .../072-libxcb-render0_1.15-1_arm64.deb ...
+#6 45.30 Unpacking libxcb-render0:arm64 (1.15-1) ...
+#6 45.32 Selecting previously unselected package libxcb-shm0:arm64.
+#6 45.32 Preparing to unpack .../073-libxcb-shm0_1.15-1_arm64.deb ...
+#6 45.32 Unpacking libxcb-shm0:arm64 (1.15-1) ...
+#6 45.34 Selecting previously unselected package libxext6:arm64.
+#6 45.34 Preparing to unpack .../074-libxext6_2%3a1.3.4-1+b1_arm64.deb ...
+#6 45.34 Unpacking libxext6:arm64 (2:1.3.4-1+b1) ...
+#6 45.36 Selecting previously unselected package libxrender1:arm64.
+#6 45.36 Preparing to unpack .../075-libxrender1_1%3a0.9.10-1.1_arm64.deb ...
+#6 45.36 Unpacking libxrender1:arm64 (1:0.9.10-1.1) ...
+#6 45.37 Selecting previously unselected package libcairo2:arm64.
+#6 45.37 Preparing to unpack .../076-libcairo2_1.16.0-7_arm64.deb ...
+#6 45.38 Unpacking libcairo2:arm64 (1.16.0-7) ...
+#6 45.41 Selecting previously unselected package libglib2.0-0:arm64.
+#6 45.41 Preparing to unpack .../077-libglib2.0-0_2.74.6-2+deb12u6_arm64.deb ...
+#6 45.42 Unpacking libglib2.0-0:arm64 (2.74.6-2+deb12u6) ...
+#6 45.49 Selecting previously unselected package libgraphite2-3:arm64.
+#6 45.49 Preparing to unpack .../078-libgraphite2-3_1.3.14-1_arm64.deb ...
+#6 45.49 Unpacking libgraphite2-3:arm64 (1.3.14-1) ...
+#6 45.51 Selecting previously unselected package libharfbuzz0b:arm64.
+#6 45.51 Preparing to unpack .../079-libharfbuzz0b_6.0.0+dfsg-3_arm64.deb ...
+#6 45.51 Unpacking libharfbuzz0b:arm64 (6.0.0+dfsg-3) ...
+#6 45.55 Selecting previously unselected package x11-common.
+#6 45.55 Preparing to unpack .../080-x11-common_1%3a7.7+23_all.deb ...
+#6 45.55 Unpacking x11-common (1:7.7+23) ...
+#6 45.57 Selecting previously unselected package libice6:arm64.
+#6 45.57 Preparing to unpack .../081-libice6_2%3a1.0.10-1_arm64.deb ...
+#6 45.57 Unpacking libice6:arm64 (2:1.0.10-1) ...
+#6 45.59 Selecting previously unselected package libicu-dev:arm64.
+#6 45.59 Preparing to unpack .../082-libicu-dev_72.1-3_arm64.deb ...
+#6 45.59 Unpacking libicu-dev:arm64 (72.1-3) ...
+#6 46.15 Selecting previously unselected package libkpathsea6:arm64.
+#6 46.15 Preparing to unpack .../083-libkpathsea6_2022.20220321.62855-5.1+deb12u2_arm64.deb ...
+#6 46.15 Unpacking libkpathsea6:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 46.20 Selecting previously unselected package libpaper1:arm64.
+#6 46.21 Preparing to unpack .../084-libpaper1_1.1.29_arm64.deb ...
+#6 46.21 Unpacking libpaper1:arm64 (1.1.29) ...
+#6 46.22 Selecting previously unselected package libpaper-utils.
+#6 46.22 Preparing to unpack .../085-libpaper-utils_1.1.29_arm64.deb ...
+#6 46.23 Unpacking libpaper-utils (1.1.29) ...
+#6 46.24 Selecting previously unselected package libpkgconf3:arm64.
+#6 46.25 Preparing to unpack .../086-libpkgconf3_1.8.1-1_arm64.deb ...
+#6 46.25 Unpacking libpkgconf3:arm64 (1.8.1-1) ...
+#6 46.27 Selecting previously unselected package libptexenc1:arm64.
+#6 46.27 Preparing to unpack .../087-libptexenc1_2022.20220321.62855-5.1+deb12u2_arm64.deb ...
+#6 46.27 Unpacking libptexenc1:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 46.29 Selecting previously unselected package libsm6:arm64.
+#6 46.29 Preparing to unpack .../088-libsm6_2%3a1.2.3-1_arm64.deb ...
+#6 46.29 Unpacking libsm6:arm64 (2:1.2.3-1) ...
+#6 46.30 Selecting previously unselected package libsynctex2:arm64.
+#6 46.30 Preparing to unpack .../089-libsynctex2_2022.20220321.62855-5.1+deb12u2_arm64.deb ...
+#6 46.31 Unpacking libsynctex2:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 46.32 Selecting previously unselected package libteckit0:arm64.
+#6 46.32 Preparing to unpack .../090-libteckit0_2.5.11+ds1-1+b1_arm64.deb ...
+#6 46.33 Unpacking libteckit0:arm64 (2.5.11+ds1-1+b1) ...
+#6 46.36 Selecting previously unselected package libtexlua53-5:arm64.
+#6 46.36 Preparing to unpack .../091-libtexlua53-5_2022.20220321.62855-5.1+deb12u2_arm64.deb ...
+#6 46.36 Unpacking libtexlua53-5:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 46.38 Selecting previously unselected package libxt6:arm64.
+#6 46.39 Preparing to unpack .../092-libxt6_1%3a1.2.1-1.1_arm64.deb ...
+#6 46.39 Unpacking libxt6:arm64 (1:1.2.1-1.1) ...
+#6 46.41 Selecting previously unselected package libxmu6:arm64.
+#6 46.41 Preparing to unpack .../093-libxmu6_2%3a1.1.3-3_arm64.deb ...
+#6 46.42 Unpacking libxmu6:arm64 (2:1.1.3-3) ...
+#6 46.44 Selecting previously unselected package libxpm4:arm64.
+#6 46.45 Preparing to unpack .../094-libxpm4_1%3a3.5.12-1.1+deb12u1_arm64.deb ...
+#6 46.45 Unpacking libxpm4:arm64 (1:3.5.12-1.1+deb12u1) ...
+#6 46.47 Selecting previously unselected package libxaw7:arm64.
+#6 46.47 Preparing to unpack .../095-libxaw7_2%3a1.0.14-1_arm64.deb ...
+#6 46.47 Unpacking libxaw7:arm64 (2:1.0.14-1) ...
+#6 46.50 Selecting previously unselected package libxi6:arm64.
+#6 46.50 Preparing to unpack .../096-libxi6_2%3a1.8-1+b1_arm64.deb ...
+#6 46.50 Unpacking libxi6:arm64 (2:1.8-1+b1) ...
+#6 46.52 Selecting previously unselected package libxml2:arm64.
+#6 46.52 Preparing to unpack .../097-libxml2_2.9.14+dfsg-1.3~deb12u1_arm64.deb ...
+#6 46.52 Unpacking libxml2:arm64 (2.9.14+dfsg-1.3~deb12u1) ...
+#6 46.56 Selecting previously unselected package libxml2-dev:arm64.
+#6 46.56 Preparing to unpack .../098-libxml2-dev_2.9.14+dfsg-1.3~deb12u1_arm64.deb ...
+#6 46.57 Unpacking libxml2-dev:arm64 (2.9.14+dfsg-1.3~deb12u1) ...
+#6 46.62 Selecting previously unselected package libxslt1.1:arm64.
+#6 46.62 Preparing to unpack .../099-libxslt1.1_1.1.35-1+deb12u1_arm64.deb ...
+#6 46.62 Unpacking libxslt1.1:arm64 (1.1.35-1+deb12u1) ...
+#6 46.65 Selecting previously unselected package libxslt1-dev:arm64.
+#6 46.65 Preparing to unpack .../100-libxslt1-dev_1.1.35-1+deb12u1_arm64.deb ...
+#6 46.65 Unpacking libxslt1-dev:arm64 (1.1.35-1+deb12u1) ...
+#6 46.69 Selecting previously unselected package libzzip-0-13:arm64.
+#6 46.69 Preparing to unpack .../101-libzzip-0-13_0.13.72+dfsg.1-1.1_arm64.deb ...
+#6 46.69 Unpacking libzzip-0-13:arm64 (0.13.72+dfsg.1-1.1) ...
+#6 46.70 Selecting previously unselected package pkgconf-bin.
+#6 46.70 Preparing to unpack .../102-pkgconf-bin_1.8.1-1_arm64.deb ...
+#6 46.71 Unpacking pkgconf-bin (1.8.1-1) ...
+#6 46.72 Selecting previously unselected package pkgconf:arm64.
+#6 46.72 Preparing to unpack .../103-pkgconf_1.8.1-1_arm64.deb ...
+#6 46.73 Unpacking pkgconf:arm64 (1.8.1-1) ...
+#6 46.74 Selecting previously unselected package pkg-config:arm64.
+#6 46.74 Preparing to unpack .../104-pkg-config_1.8.1-1_arm64.deb ...
+#6 46.74 Unpacking pkg-config:arm64 (1.8.1-1) ...
+#6 46.75 Selecting previously unselected package t1utils.
+#6 46.75 Preparing to unpack .../105-t1utils_1.41-4_arm64.deb ...
+#6 46.75 Unpacking t1utils (1.41-4) ...
+#6 46.77 Selecting previously unselected package tex-common.
+#6 46.78 Preparing to unpack .../106-tex-common_6.18_all.deb ...
+#6 46.78 Unpacking tex-common (6.18) ...
+#6 46.80 Selecting previously unselected package texlive-binaries.
+#6 46.80 Preparing to unpack .../107-texlive-binaries_2022.20220321.62855-5.1+deb12u2_arm64.deb ...
+#6 46.81 Unpacking texlive-binaries (2022.20220321.62855-5.1+deb12u2) ...
+#6 47.13 Selecting previously unselected package xdg-utils.
+#6 47.13 Preparing to unpack .../108-xdg-utils_1.1.3-4.1_all.deb ...
+#6 47.13 Unpacking xdg-utils (1.1.3-4.1) ...
+#6 47.16 Selecting previously unselected package texlive-base.
+#6 47.16 Preparing to unpack .../109-texlive-base_2022.20230122-3_all.deb ...
+#6 47.16 Unpacking texlive-base (2022.20230122-3) ...
+#6 48.18 Selecting previously unselected package texlive-fonts-recommended.
+#6 48.18 Preparing to unpack .../110-texlive-fonts-recommended_2022.20230122-3_all.deb ...
+#6 48.18 Unpacking texlive-fonts-recommended (2022.20230122-3) ...
+#6 48.58 Selecting previously unselected package texlive-lang-greek.
+#6 48.58 Preparing to unpack .../111-texlive-lang-greek_2022.20230122-1_all.deb ...
+#6 48.59 Unpacking texlive-lang-greek (2022.20230122-1) ...
+#6 49.68 Selecting previously unselected package texlive-latex-base.
+#6 49.68 Preparing to unpack .../112-texlive-latex-base_2022.20230122-3_all.deb ...
+#6 49.68 Unpacking texlive-latex-base (2022.20230122-3) ...
+#6 50.00 Selecting previously unselected package texlive-latex-recommended.
+#6 50.01 Preparing to unpack .../113-texlive-latex-recommended_2022.20230122-3_all.deb ...
+#6 50.01 Unpacking texlive-latex-recommended (2022.20230122-3) ...
+#6 50.53 Selecting previously unselected package texlive-science.
+#6 50.53 Preparing to unpack .../114-texlive-science_2022.20230122-4_all.deb ...
+#6 50.54 Unpacking texlive-science (2022.20230122-4) ...
+#6 50.76 Selecting previously unselected package zlib1g-dev:arm64.
+#6 50.76 Preparing to unpack .../115-zlib1g-dev_1%3a1.2.13.dfsg-1_arm64.deb ...
+#6 50.76 Unpacking zlib1g-dev:arm64 (1:1.2.13.dfsg-1) ...
+#6 50.80 Setting up media-types (10.0.0) ...
+#6 50.81 Setting up libgraphite2-3:arm64 (1.3.14-1) ...
+#6 50.81 Setting up libpixman-1-0:arm64 (0.42.2-1) ...
+#6 50.82 Setting up libxau6:arm64 (1:1.0.9-1) ...
+#6 50.82 Setting up libicu72:arm64 (72.1-3) ...
+#6 50.83 Setting up fonts-gfs-porson (1.1-7) ...
+#6 50.83 Setting up libglib2.0-0:arm64 (2.74.6-2+deb12u6) ...
+#6 50.84 No schema files found: doing nothing.
+#6 50.84 Setting up libpython3.11-stdlib:arm64 (3.11.2-6+deb12u6) ...
+#6 50.85 Setting up libbrotli1:arm64 (1.0.9-2+b6) ...
+#6 50.85 Setting up binutils-common:arm64 (2.40-2) ...
+#6 50.86 Setting up x11-common (1:7.7+23) ...
+#6 50.92 invoke-rc.d: could not determine current runlevel
+#6 50.92 invoke-rc.d: policy-rc.d denied execution of restart.
+#6 50.93 Setting up linux-libc-dev:arm64 (6.1.140-1) ...
+#6 50.93 Setting up libctf-nobfd0:arm64 (2.40-2) ...
+#6 50.93 Setting up libzzip-0-13:arm64 (0.13.72+dfsg.1-1.1) ...
+#6 50.94 Setting up libgomp1:arm64 (12.2.0-14+deb12u1) ...
+#6 50.94 Setting up bzip2 (1.0.8-5+b1) ...
+#6 50.95 Setting up libjansson4:arm64 (2.14-2) ...
+#6 50.95 Setting up perl-modules-5.36 (5.36.0-7+deb12u2) ...
+#6 50.95 Setting up libtirpc-dev:arm64 (1.3.3+ds-1) ...
+#6 50.96 Setting up libpkgconf3:arm64 (1.8.1-1) ...
+#6 50.96 Setting up rpcsvc-proto (1.4.3-1) ...
+#6 50.96 Setting up libx11-data (2:1.8.4-2+deb12u2) ...
+#6 50.97 Setting up make (4.3-4.1) ...
+#6 50.97 Setting up libmpfr6:arm64 (4.2.0-1) ...
+#6 50.97 Setting up libteckit0:arm64 (2.5.11+ds1-1+b1) ...
+#6 50.98 Setting up xz-utils (5.4.1-1) ...
+#6 50.98 update-alternatives: using /usr/bin/xz to provide /usr/bin/lzma (lzma) in auto mode
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzma.1.gz because associated file /usr/share/man/man1/xz.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/unlzma.1.gz because associated file /usr/share/man/man1/unxz.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcat.1.gz because associated file /usr/share/man/man1/xzcat.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzmore.1.gz because associated file /usr/share/man/man1/xzmore.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzless.1.gz because associated file /usr/share/man/man1/xzless.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzdiff.1.gz because associated file /usr/share/man/man1/xzdiff.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcmp.1.gz because associated file /usr/share/man/man1/xzcmp.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzgrep.1.gz because associated file /usr/share/man/man1/xzgrep.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzegrep.1.gz because associated file /usr/share/man/man1/xzegrep.1.gz (of link group lzma) doesn't exist
+#6 50.99 update-alternatives: warning: skip creation of /usr/share/man/man1/lzfgrep.1.gz because associated file /usr/share/man/man1/xzfgrep.1.gz (of link group lzma) doesn't exist
+#6 50.99 Setting up t1utils (1.41-4) ...
+#6 51.00 Setting up libtexlua53-5:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 51.00 Setting up libpng16-16:arm64 (1.6.39-2) ...
+#6 51.01 Setting up libmpc3:arm64 (1.3.1-1) ...
+#6 51.01 Setting up libatomic1:arm64 (12.2.0-14+deb12u1) ...
+#6 51.02 Setting up patch (2.7.6-7) ...
+#6 51.02 Setting up icu-devtools (72.1-3) ...
+#6 51.02 Setting up fonts-dejavu-core (2.37-6) ...
+#6 51.04 Setting up libgdbm-compat4:arm64 (1.23-3) ...
+#6 51.05 Setting up pkgconf-bin (1.8.1-1) ...
+#6 51.05 Setting up libkpathsea6:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 51.05 Setting up libubsan1:arm64 (12.2.0-14+deb12u1) ...
+#6 51.06 Setting up fonts-gfs-baskerville (1.1-6) ...
+#6 51.06 Setting up libnsl-dev:arm64 (1.3.0-2) ...
+#6 51.07 Setting up sensible-utils (0.0.17+nmu1) ...
+#6 51.07 Setting up libhwasan0:arm64 (12.2.0-14+deb12u1) ...
+#6 51.08 Setting up libcrypt-dev:arm64 (1:4.4.33-2) ...
+#6 51.08 Setting up libasan8:arm64 (12.2.0-14+deb12u1) ...
+#6 51.09 Setting up fonts-lmodern (2.005-1) ...
+#6 51.09 Setting up libtsan2:arm64 (12.2.0-14+deb12u1) ...
+#6 51.10 Setting up libbinutils:arm64 (2.40-2) ...
+#6 51.10 Setting up libisl23:arm64 (0.25-1.1) ...
+#6 51.10 Setting up libc-dev-bin (2.36-9+deb12u10) ...
+#6 51.11 Setting up libbsd0:arm64 (0.11.7-2) ...
+#6 51.11 Setting up libxml2:arm64 (2.9.14+dfsg-1.3~deb12u1) ...
+#6 51.11 Setting up xdg-utils (1.1.3-4.1) ...
+#6 51.12 update-alternatives: using /usr/bin/xdg-open to provide /usr/bin/open (open) in auto mode
+#6 51.12 update-alternatives: warning: skip creation of /usr/share/man/man1/open.1.gz because associated file /usr/share/man/man1/xdg-open.1.gz (of link group open) doesn't exist
+#6 51.12 Setting up libcc1-0:arm64 (12.2.0-14+deb12u1) ...
+#6 51.13 Setting up libperl5.36:arm64 (5.36.0-7+deb12u2) ...
+#6 51.13 Setting up liblsan0:arm64 (12.2.0-14+deb12u1) ...
+#6 51.13 Setting up libitm1:arm64 (12.2.0-14+deb12u1) ...
+#6 51.14 Setting up libsynctex2:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 51.14 Setting up libpython3-stdlib:arm64 (3.11.2-1+b1) ...
+#6 51.15 Setting up libctf0:arm64 (2.40-2) ...
+#6 51.15 Setting up python3.11 (3.11.2-6+deb12u6) ...
+#6 51.51 Setting up libice6:arm64 (2:1.0.10-1) ...
+#6 51.52 Setting up libxdmcp6:arm64 (1:1.1.2-3) ...
+#6 51.52 Setting up cpp-12 (12.2.0-14+deb12u1) ...
+#6 51.52 Setting up libxcb1:arm64 (1.15-1) ...
+#6 51.53 Setting up libxcb-render0:arm64 (1.15-1) ...
+#6 51.53 Setting up fontconfig-config (2.14.1-4) ...
+#6 51.67 Setting up python3 (3.11.2-1+b1) ...
+#6 51.72 Setting up libxcb-shm0:arm64 (1.15-1) ...
+#6 51.73 Setting up pkgconf:arm64 (1.8.1-1) ...
+#6 51.73 Setting up perl (5.36.0-7+deb12u2) ...
+#6 51.74 Setting up libgprofng0:arm64 (2.40-2) ...
+#6 51.74 Setting up libptexenc1:arm64 (2022.20220321.62855-5.1+deb12u2) ...
+#6 51.75 Setting up libfreetype6:arm64 (2.12.1+dfsg-5+deb12u4) ...
+#6 51.76 Setting up libgcc-12-dev:arm64 (12.2.0-14+deb12u1) ...
+#6 51.76 Setting up pkg-config:arm64 (1.8.1-1) ...
+#6 51.77 Setting up ucf (3.0043+nmu1+deb12u1) ...
+#6 51.81 Setting up libdpkg-perl (1.21.22) ...
+#6 51.81 Setting up libcpan-distnameinfo-perl (0.12-3) ...
+#6 51.81 Setting up libcpan-meta-check-perl (0.017-1) ...
+#6 51.82 Setting up libparse-pmfile-perl (0.43-2) ...
+#6 51.82 Setting up cpp (4:12.2.0-3) ...
+#6 51.83 Setting up libxslt1.1:arm64 (1.1.35-1+deb12u1) ...
+#6 51.83 Setting up libc6-dev:arm64 (2.36-9+deb12u10) ...
+#6 51.83 Setting up libx11-6:arm64 (2:1.8.4-2+deb12u2) ...
+#6 51.84 Setting up libharfbuzz0b:arm64 (6.0.0+dfsg-3) ...
+#6 51.84 Setting up libfontconfig1:arm64 (2.14.1-4) ...
+#6 51.84 Setting up libsm6:arm64 (2:1.2.3-1) ...
+#6 51.85 Setting up libicu-dev:arm64 (72.1-3) ...
+#6 51.85 Setting up libpaper1:arm64 (1.1.29) ...
+#6 51.91 
+#6 51.91 Creating config file /etc/papersize with new version
+#6 51.92 Setting up libmodule-cpanfile-perl (1.1004-2) ...
+#6 51.93 Setting up libxpm4:arm64 (1:3.5.12-1.1+deb12u1) ...
+#6 51.93 Setting up libxrender1:arm64 (1:0.9.10-1.1) ...
+#6 51.94 Setting up libstdc++-12-dev:arm64 (12.2.0-14+deb12u1) ...
+#6 51.94 Setting up libfile-pushd-perl (1.016-2) ...
+#6 51.94 Setting up libxext6:arm64 (2:1.3.4-1+b1) ...
+#6 51.95 Setting up binutils-aarch64-linux-gnu (2.40-2) ...
+#6 51.95 Setting up binutils (2.40-2) ...
+#6 51.96 Setting up libpaper-utils (1.1.29) ...
+#6 51.96 Setting up libstring-shellquote-perl (1.04-3) ...
+#6 51.96 Setting up libcairo2:arm64 (1.16.0-7) ...
+#6 51.96 Setting up dpkg-dev (1.21.22) ...
+#6 51.97 Setting up libmodule-build-perl (0.423200-1) ...
+#6 51.97 Setting up tex-common (6.18) ...
+#6 52.05 update-language: texlive-base not installed and configured, doing nothing!
+#6 52.07 Setting up libxml2-dev:arm64 (2.9.14+dfsg-1.3~deb12u1) ...
+#6 52.07 Setting up gcc-12 (12.2.0-14+deb12u1) ...
+#6 52.08 Setting up libxt6:arm64 (1:1.2.1-1.1) ...
+#6 52.08 Setting up zlib1g-dev:arm64 (1:1.2.13.dfsg-1) ...
+#6 52.08 Setting up g++-12 (12.2.0-14+deb12u1) ...
+#6 52.09 Setting up libxmu6:arm64 (2:1.1.3-3) ...
+#6 52.09 Setting up libxslt1-dev:arm64 (1.1.35-1+deb12u1) ...
+#6 52.10 Setting up libxi6:arm64 (2:1.8-1+b1) ...
+#6 52.10 Setting up libxaw7:arm64 (2:1.0.14-1) ...
+#6 52.10 Setting up liblocal-lib-perl (2.000029-1) ...
+#6 52.11 Setting up gcc (4:12.2.0-3) ...
+#6 52.11 Setting up g++ (4:12.2.0-3) ...
+#6 52.12 update-alternatives: using /usr/bin/g++ to provide /usr/bin/c++ (c++) in auto mode
+#6 52.12 Setting up texlive-binaries (2022.20220321.62855-5.1+deb12u2) ...
+#6 52.13 update-alternatives: using /usr/bin/xdvi-xaw to provide /usr/bin/xdvi.bin (xdvi.bin) in auto mode
+#6 52.13 update-alternatives: using /usr/bin/bibtex.original to provide /usr/bin/bibtex (bibtex) in auto mode
+#6 52.13 update-alternatives: warning: skip creation of /usr/share/man/man1/bibtex.1.gz because associated file /usr/share/man/man1/bibtex.original.1.gz (of link group bibtex) doesn't exist
+#6 52.13 Setting up build-essential (12.9) ...
+#6 52.14 Setting up texlive-base (2022.20230122-3) ...
+#6 52.42 tl-paper: setting paper size for dvips to a4: /var/lib/texmf/dvips/config/config-paper.ps
+#6 52.51 tl-paper: setting paper size for dvipdfmx to a4: /var/lib/texmf/dvipdfmx/dvipdfmx-paper.cfg
+#6 52.61 tl-paper: setting paper size for xdvi to a4: /var/lib/texmf/xdvi/XDvi-paper
+#6 52.70 tl-paper: setting paper size for pdftex to a4: /var/lib/texmf/tex/generic/tex-ini-files/pdftexconfig.tex
+#6 52.91 Setting up texlive-lang-greek (2022.20230122-1) ...
+#6 52.92 Setting up cpanminus (1.7046-1) ...
+#6 52.93 Setting up texlive-latex-base (2022.20230122-3) ...
+#6 52.93 Setting up texlive-latex-recommended (2022.20230122-3) ...
+#6 52.94 Setting up texlive-fonts-recommended (2022.20230122-3) ...
+#6 52.94 Setting up texlive-science (2022.20230122-4) ...
+#6 52.95 Processing triggers for libc-bin (2.36-9+deb12u10) ...
+#6 52.97 Processing triggers for tex-common (6.18) ...
+#6 53.02 Running updmap-sys. This may take some time... done.
+#6 53.17 Running mktexlsr /var/lib/texmf ... done.
+#6 53.21 Building format(s) --all.
+#6 53.21 	This may take some time... done.
+#6 DONE 66.0s
+
+#7 [app 3/8] RUN cpanm --notest LaTeXML
+#7 2.741 --> Working on LaTeXML
+#7 2.741 Fetching http://www.cpan.org/authors/id/B/BR/BRMILLER/LaTeXML-0.8.8.tar.gz ... OK
+#7 3.220 Configuring LaTeXML-v0.8.8 ... OK
+#7 3.634 ==> Found dependencies: JSON::XS, URI, Text::Unidecode, Pod::Parser, IO::String, XML::LibXSLT, Parse::RecDescent, Archive::Zip, LWP, XML::LibXML, Image::Size, File::Which
+#7 3.634 --> Working on JSON::XS
+#7 3.634 Fetching http://www.cpan.org/authors/id/M/ML/MLEHMANN/JSON-XS-4.03.tar.gz ... OK
+#7 3.757 ==> Found dependencies: Canary::Stability
+#7 3.757 --> Working on Canary::Stability
+#7 3.757 Fetching http://www.cpan.org/authors/id/M/ML/MLEHMANN/Canary-Stability-2013.tar.gz ... OK
+#7 3.772 Configuring Canary-Stability-2013 ... OK
+#7 3.875 Building Canary-Stability-2013 ... OK
+#7 4.050 Successfully installed Canary-Stability-2013
+#7 4.068 Configuring JSON-XS-4.03 ... OK
+#7 4.230 ==> Found dependencies: Types::Serialiser, common::sense
+#7 4.230 --> Working on Types::Serialiser
+#7 4.230 Fetching http://www.cpan.org/authors/id/M/ML/MLEHMANN/Types-Serialiser-1.01.tar.gz ... OK
+#7 4.242 Configuring Types-Serialiser-1.01 ... OK
+#7 4.403 ==> Found dependencies: common::sense
+#7 4.403 --> Working on common::sense
+#7 4.403 Fetching http://www.cpan.org/authors/id/M/ML/MLEHMANN/common-sense-3.75.tar.gz ... OK
+#7 4.416 Configuring common-sense-3.75 ... OK
+#7 4.489 Building common-sense-3.75 ... OK
+#7 4.649 Successfully installed common-sense-3.75
+#7 4.670 Building Types-Serialiser-1.01 ... OK
+#7 4.842 Successfully installed Types-Serialiser-1.01
+#7 4.859 Building JSON-XS-4.03 ... OK
+#7 6.132 Successfully installed JSON-XS-4.03
+#7 6.270 --> Working on URI
+#7 6.270 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/URI-5.32.tar.gz ... OK
+#7 6.303 Configuring URI-5.32 ... OK
+#7 6.513 ==> Found dependencies: MIME::Base32
+#7 6.513 --> Working on MIME::Base32
+#7 6.513 Fetching http://www.cpan.org/authors/id/R/RE/REHSACK/MIME-Base32-1.303.tar.gz ... OK
+#7 6.526 Configuring MIME-Base32-1.303 ... OK
+#7 6.604 Building MIME-Base32-1.303 ... OK
+#7 6.774 Successfully installed MIME-Base32-1.303
+#7 6.794 Building URI-5.32 ... OK
+#7 7.053 Successfully installed URI-5.32
+#7 7.193 --> Working on Text::Unidecode
+#7 7.193 Fetching http://www.cpan.org/authors/id/S/SB/SBURKE/Text-Unidecode-1.30.tar.gz ... OK
+#7 7.225 Configuring Text-Unidecode-1.30 ... OK
+#7 7.319 Building Text-Unidecode-1.30 ... OK
+#7 7.721 Successfully installed Text-Unidecode-1.30
+#7 7.858 --> Working on Pod::Parser
+#7 7.858 Fetching http://www.cpan.org/authors/id/M/MA/MAREKR/Pod-Parser-1.67.tar.gz ... OK
+#7 7.874 Configuring Pod-Parser-1.67 ... OK
+#7 7.956 Building Pod-Parser-1.67 ... OK
+#7 8.267 Successfully installed Pod-Parser-1.67
+#7 8.369 --> Working on IO::String
+#7 8.369 Fetching http://www.cpan.org/authors/id/G/GA/GAAS/IO-String-1.08.tar.gz ... OK
+#7 8.377 Configuring IO-String-1.08 ... OK
+#7 8.452 Building IO-String-1.08 ... OK
+#7 8.615 Successfully installed IO-String-1.08
+#7 8.749 --> Working on XML::LibXSLT
+#7 8.749 Fetching http://www.cpan.org/authors/id/S/SH/SHLOMIF/XML-LibXSLT-2.003000.tar.gz ... OK
+#7 8.767 Configuring XML-LibXSLT-2.003000 ... OK
+#7 9.729 ==> Found dependencies: XML::LibXML
+#7 9.729 --> Working on XML::LibXML
+#7 9.729 Fetching http://www.cpan.org/authors/id/S/SH/SHLOMIF/XML-LibXML-2.0210.tar.gz ... OK
+#7 9.854 ==> Found dependencies: Alien::Libxml2, Alien::Base::Wrapper
+#7 9.854 --> Working on Alien::Libxml2
+#7 9.854 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/Alien-Libxml2-0.20.tar.gz ... OK
+#7 10.06 ==> Found dependencies: Alien::Build, Alien::Build::Plugin::Download::GitLab, Alien::Build::MM, Alien::Build::Plugin::Prefer::BadVersion, Alien::Build::Plugin::Probe::Vcpkg, Alien::Build::Plugin::Build::SearchDep
+#7 10.06 --> Working on Alien::Build
+#7 10.06 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/Alien-Build-2.84.tar.gz ... OK
+#7 10.21 ==> Found dependencies: File::Which
+#7 10.21 --> Working on File::Which
+#7 10.21 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/File-Which-1.27.tar.gz ... OK
+#7 10.22 Configuring File-Which-1.27 ... OK
+#7 10.30 Building File-Which-1.27 ... OK
+#7 10.47 Successfully installed File-Which-1.27
+#7 10.49 Configuring Alien-Build-2.84 ... OK
+#7 10.89 ==> Found dependencies: File::chdir, Path::Tiny, FFI::CheckLib, Capture::Tiny
+#7 10.89 --> Working on File::chdir
+#7 10.89 Fetching http://www.cpan.org/authors/id/D/DA/DAGOLDEN/File-chdir-0.1011.tar.gz ... OK
+#7 10.91 Configuring File-chdir-0.1011 ... OK
+#7 10.99 Building File-chdir-0.1011 ... OK
+#7 11.16 Successfully installed File-chdir-0.1011
+#7 11.29 --> Working on Path::Tiny
+#7 11.29 Fetching http://www.cpan.org/authors/id/D/DA/DAGOLDEN/Path-Tiny-0.148.tar.gz ... OK
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.30 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.31 /usr/bin/tar: Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'
+#7 11.32 Configuring Path-Tiny-0.148 ... OK
+#7 11.41 Building Path-Tiny-0.148 ... OK
+#7 11.61 Successfully installed Path-Tiny-0.148
+#7 11.71 --> Working on FFI::CheckLib
+#7 11.71 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/FFI-CheckLib-0.31.tar.gz ... OK
+#7 11.74 Configuring FFI-CheckLib-0.31 ... OK
+#7 11.82 Building FFI-CheckLib-0.31 ... OK
+#7 12.00 Successfully installed FFI-CheckLib-0.31
+#7 12.11 --> Working on Capture::Tiny
+#7 12.11 Fetching http://www.cpan.org/authors/id/D/DA/DAGOLDEN/Capture-Tiny-0.50.tar.gz ... OK
+#7 12.13 Configuring Capture-Tiny-0.50 ... OK
+#7 12.22 Building Capture-Tiny-0.50 ... OK
+#7 12.40 Successfully installed Capture-Tiny-0.50
+#7 12.42 Building Alien-Build-2.84 ... OK
+#7 13.08 Successfully installed Alien-Build-2.84
+#7 13.19 --> Working on Alien::Build::Plugin::Download::GitLab
+#7 13.19 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/Alien-Build-Plugin-Download-GitLab-0.01.tar.gz ... OK
+#7 13.21 Configuring Alien-Build-Plugin-Download-GitLab-0.01 ... OK
+#7 13.30 Building Alien-Build-Plugin-Download-GitLab-0.01 ... OK
+#7 13.47 Successfully installed Alien-Build-Plugin-Download-GitLab-0.01
+#7 13.67 Configuring Alien-Libxml2-0.20 ... OK
+#7 13.83 Building Alien-Libxml2-0.20 ... OK
+#7 14.42 Successfully installed Alien-Libxml2-0.20
+#7 14.48 Configuring XML-LibXML-2.0210 ... OK
+#7 14.68 ==> Found dependencies: XML::SAX::Base, XML::SAX::Exception, XML::NamespaceSupport, XML::SAX::DocumentLocator, XML::SAX
+#7 14.68 --> Working on XML::SAX::Base
+#7 14.68 Fetching http://www.cpan.org/authors/id/G/GR/GRANTM/XML-SAX-Base-1.09.tar.gz ... OK
+#7 14.69 Configuring XML-SAX-Base-1.09 ... OK
+#7 14.77 Building XML-SAX-Base-1.09 ... OK
+#7 14.95 Successfully installed XML-SAX-Base-1.09
+#7 15.09 --> Working on XML::NamespaceSupport
+#7 15.09 Fetching http://www.cpan.org/authors/id/P/PE/PERIGRIN/XML-NamespaceSupport-1.12.tar.gz ... OK
+#7 15.10 Configuring XML-NamespaceSupport-1.12 ... OK
+#7 15.18 Building XML-NamespaceSupport-1.12 ... OK
+#7 15.35 Successfully installed XML-NamespaceSupport-1.12
+#7 15.48 --> Working on XML::SAX::DocumentLocator
+#7 15.48 Fetching http://www.cpan.org/authors/id/G/GR/GRANTM/XML-SAX-1.02.tar.gz ... OK
+#7 15.49 Configuring XML-SAX-1.02 ... OK
+#7 15.58 Building XML-SAX-1.02 ... OK
+#7 15.79 Successfully installed XML-SAX-1.02
+#7 15.86 Building XML-LibXML-2.0210 ... OK
+#7 22.12 Successfully installed XML-LibXML-2.0210
+#7 22.15 Building XML-LibXSLT-2.003000 ... OK
+#7 23.18 Successfully installed XML-LibXSLT-2.003000
+#7 23.33 --> Working on Parse::RecDescent
+#7 23.33 Fetching http://www.cpan.org/authors/id/J/JT/JTBRAUN/Parse-RecDescent-1.967015.tar.gz ... OK
+#7 23.35 Configuring Parse-RecDescent-1.967015 ... OK
+#7 23.42 Building Parse-RecDescent-1.967015 ... OK
+#7 23.60 Successfully installed Parse-RecDescent-1.967015
+#7 23.74 --> Working on Archive::Zip
+#7 23.74 Fetching http://www.cpan.org/authors/id/P/PH/PHRED/Archive-Zip-1.68.tar.gz ... OK
+#7 23.77 Configuring Archive-Zip-1.68 ... OK
+#7 23.87 Building Archive-Zip-1.68 ... OK
+#7 24.12 Successfully installed Archive-Zip-1.68
+#7 24.27 --> Working on LWP
+#7 24.27 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/libwww-perl-6.78.tar.gz ... OK
+#7 24.30 Configuring libwww-perl-6.78 ... OK
+#7 24.55 ==> Found dependencies: HTML::Entities, HTTP::Request, HTTP::Date, WWW::RobotRules, Encode::Locale, HTTP::Cookies, HTTP::Status, Try::Tiny, Net::HTTP, LWP::MediaTypes, HTTP::Request::Common, File::Listing, HTML::HeadParser, HTTP::Negotiate, HTTP::Response
+#7 24.55 --> Working on HTML::Entities
+#7 24.55 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/HTML-Parser-3.83.tar.gz ... OK
+#7 24.58 Configuring HTML-Parser-3.83 ... OK
+#7 24.77 ==> Found dependencies: HTTP::Headers, HTML::Tagset
+#7 24.77 --> Working on HTTP::Headers
+#7 24.77 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/HTTP-Message-7.00.tar.gz ... OK
+#7 24.79 Configuring HTTP-Message-7.00 ... OK
+#7 25.00 ==> Found dependencies: HTTP::Date, IO::HTML, Encode::Locale, Clone, LWP::MediaTypes
+#7 25.00 --> Working on HTTP::Date
+#7 25.00 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/HTTP-Date-6.06.tar.gz ... OK
+#7 25.02 Configuring HTTP-Date-6.06 ... OK
+#7 25.21 ==> Found dependencies: Time::Zone
+#7 25.21 --> Working on Time::Zone
+#7 25.21 Fetching http://www.cpan.org/authors/id/A/AT/ATOOMIC/TimeDate-2.33.tar.gz ... OK
+#7 25.23 Configuring TimeDate-2.33 ... OK
+#7 25.31 Building TimeDate-2.33 ... OK
+#7 25.49 Successfully installed TimeDate-2.33
+#7 25.51 Building HTTP-Date-6.06 ... OK
+#7 25.68 Successfully installed HTTP-Date-6.06
+#7 25.78 --> Working on IO::HTML
+#7 25.78 Fetching http://www.cpan.org/authors/id/C/CJ/CJM/IO-HTML-1.004.tar.gz ... OK
+#7 25.80 Configuring IO-HTML-1.004 ... OK
+#7 25.89 Building IO-HTML-1.004 ... OK
+#7 26.05 Successfully installed IO-HTML-1.004
+#7 26.15 --> Working on Encode::Locale
+#7 26.15 Fetching http://www.cpan.org/authors/id/G/GA/GAAS/Encode-Locale-1.05.tar.gz ... OK
+#7 26.16 Configuring Encode-Locale-1.05 ... OK
+#7 26.24 Building Encode-Locale-1.05 ... OK
+#7 26.41 Successfully installed Encode-Locale-1.05
+#7 26.54 --> Working on Clone
+#7 26.54 Fetching http://www.cpan.org/authors/id/A/AT/ATOOMIC/Clone-0.47.tar.gz ... OK
+#7 26.56 Configuring Clone-0.47 ... OK
+#7 26.64 Building Clone-0.47 ... OK
+#7 27.03 Successfully installed Clone-0.47
+#7 27.15 --> Working on LWP::MediaTypes
+#7 27.15 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/LWP-MediaTypes-6.04.tar.gz ... OK
+#7 27.18 Configuring LWP-MediaTypes-6.04 ... OK
+#7 27.28 Building LWP-MediaTypes-6.04 ... OK
+#7 27.44 Successfully installed LWP-MediaTypes-6.04
+#7 27.46 Building HTTP-Message-7.00 ... OK
+#7 27.68 Successfully installed HTTP-Message-7.00
+#7 27.78 --> Working on HTML::Tagset
+#7 27.78 Fetching http://www.cpan.org/authors/id/P/PE/PETDANCE/HTML-Tagset-3.24.tar.gz ... OK
+#7 27.79 Configuring HTML-Tagset-3.24 ... OK
+#7 27.86 Building HTML-Tagset-3.24 ... OK
+#7 28.02 Successfully installed HTML-Tagset-3.24
+#7 28.04 Building HTML-Parser-3.83 ... OK
+#7 29.04 Successfully installed HTML-Parser-3.83
+#7 29.19 --> Working on WWW::RobotRules
+#7 29.19 Fetching http://www.cpan.org/authors/id/G/GA/GAAS/WWW-RobotRules-6.02.tar.gz ... OK
+#7 29.21 Configuring WWW-RobotRules-6.02 ... OK
+#7 29.29 Building WWW-RobotRules-6.02 ... OK
+#7 29.45 Successfully installed WWW-RobotRules-6.02
+#7 29.56 --> Working on HTTP::Cookies
+#7 29.56 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/HTTP-Cookies-6.11.tar.gz ... OK
+#7 29.59 Configuring HTTP-Cookies-6.11 ... OK
+#7 29.70 Building HTTP-Cookies-6.11 ... OK
+#7 29.87 Successfully installed HTTP-Cookies-6.11
+#7 30.01 --> Working on Try::Tiny
+#7 30.01 Fetching http://www.cpan.org/authors/id/E/ET/ETHER/Try-Tiny-0.32.tar.gz ... OK
+#7 30.04 Configuring Try-Tiny-0.32 ... OK
+#7 30.15 Building Try-Tiny-0.32 ... OK
+#7 30.33 Successfully installed Try-Tiny-0.32
+#7 30.45 --> Working on Net::HTTP
+#7 30.45 Fetching http://www.cpan.org/authors/id/O/OA/OALDERS/Net-HTTP-6.23.tar.gz ... OK
+#7 30.47 Configuring Net-HTTP-6.23 ... OK
+#7 30.58 Building Net-HTTP-6.23 ... OK
+#7 30.75 Successfully installed Net-HTTP-6.23
+#7 30.92 --> Working on File::Listing
+#7 30.92 Fetching http://www.cpan.org/authors/id/P/PL/PLICEASE/File-Listing-6.16.tar.gz ... OK
+#7 30.95 Configuring File-Listing-6.16 ... OK
+#7 31.03 Building File-Listing-6.16 ... OK
+#7 31.20 Successfully installed File-Listing-6.16
+#7 31.36 --> Working on HTTP::Negotiate
+#7 31.36 Fetching http://www.cpan.org/authors/id/G/GA/GAAS/HTTP-Negotiate-6.01.tar.gz ... OK
+#7 31.37 Configuring HTTP-Negotiate-6.01 ... OK
+#7 31.45 Building HTTP-Negotiate-6.01 ... OK
+#7 31.67 Successfully installed HTTP-Negotiate-6.01
+#7 31.75 Building libwww-perl-6.78 ... OK
+#7 32.21 Successfully installed libwww-perl-6.78
+#7 32.37 --> Working on Image::Size
+#7 32.37 Fetching http://www.cpan.org/authors/id/R/RJ/RJRAY/Image-Size-3.300.tar.gz ... OK
+#7 32.40 Configuring Image-Size-3.300 ... OK
+#7 32.48 Building Image-Size-3.300 ... OK
+#7 32.74 Successfully installed Image-Size-3.300
+#7 32.77 Building LaTeXML-v0.8.8 ... OK
+#7 34.45 Successfully installed LaTeXML-v0.8.8
+#7 34.46 42 distributions installed
+#7 DONE 34.6s
+
+#8 [app 4/8] WORKDIR /app
+#8 DONE 0.0s
+
+#9 [app 5/8] RUN pip install uv
+#9 1.588 Collecting uv
+#9 1.719   Downloading uv-0.7.12-py3-none-manylinux_2_28_aarch64.whl (16.6 MB)
+#9 4.392      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.6/16.6 MB 6.2 MB/s eta 0:00:00
+#9 4.424 Installing collected packages: uv
+#9 4.585 Successfully installed uv-0.7.12
+#9 4.585 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+#9 4.696 
+#9 4.696 [notice] A new release of pip is available: 23.0.1 -> 25.1.1
+#9 4.696 [notice] To update, run: pip install --upgrade pip
+#9 DONE 4.8s
+
+#10 [app 6/8] COPY pyproject.toml .
+#10 DONE 0.0s
+
+#11 [app 7/8] RUN uv pip install . --system
+#11 0.256 Using Python 3.10.18 environment at: /usr/local
+#11 3.007 Resolved 94 packages in 2.74s
+#11 3.012    Building pylatexenc==2.10
+#11 3.013    Building rag-math-project @ file:///app
+#11 3.043 Downloading uvloop (3.7MiB)
+#11 3.051 Downloading networkx (1.6MiB)
+#11 3.067 Downloading sympy (6.0MiB)
+#11 3.068 Downloading scikit-learn (11.6MiB)
+#11 3.104 Downloading pillow (4.3MiB)
+#11 3.104 Downloading fonttools (4.5MiB)
+#11 3.104 Downloading aiohttp (1.6MiB)
+#11 3.104 Downloading transformers (10.0MiB)
+#11 3.105 Downloading matplotlib (8.1MiB)
+#11 3.105 Downloading faiss-cpu (3.6MiB)
+#11 3.106 Downloading kiwisolver (1.3MiB)
+#11 3.106 Downloading pandas (11.2MiB)
+#11 3.106 Downloading torch-geometric (1.1MiB)
+#11 3.106 Downloading numpy (13.6MiB)
+#11 3.107 Downloading tokenizers (2.8MiB)
+#11 3.107 Downloading pydantic-core (1.8MiB)
+#11 3.108 Downloading scipy (33.9MiB)
+#11 3.108 Downloading zstandard (4.7MiB)
+#11 3.108 Downloading cryptography (4.0MiB)
+#11 3.108 Downloading hf-xet (4.7MiB)
+#11 3.109 Downloading torch (94.5MiB)
+#11 3.109 Downloading lxml (4.7MiB)
+#11 3.389       Built pylatexenc==2.10
+#11 3.433       Built rag-math-project @ file:///app
+#11 5.839    Building antlr4-python3-runtime==4.7.2
+#11 6.288       Built antlr4-python3-runtime==4.7.2
+#11 8.345  Downloading torch-geometric
+#11 9.211  Downloading kiwisolver
+#11 10.13  Downloading aiohttp
+#11 10.13  Downloading networkx
+#11 10.86  Downloading pydantic-core
+#11 13.46  Downloading tokenizers
+#11 15.37  Downloading faiss-cpu
+#11 15.41  Downloading uvloop
+#11 16.27  Downloading cryptography
+#11 16.80  Downloading pillow
+#11 17.23  Downloading fonttools
+#11 17.52  Downloading hf-xet
+#11 17.57  Downloading zstandard
+#11 17.62  Downloading lxml
+#11 19.32  Downloading sympy
+#11 21.49  Downloading matplotlib
+#11 23.86  Downloading transformers
+#11 24.95  Downloading pandas
+#11 25.24  Downloading scikit-learn
+#11 26.37  Downloading numpy
+#11 35.63  Downloading scipy
+#11 47.41    Building pymupdf==1.26.1
+#11 53.79  Downloading torch
+#11 235.0       Built pymupdf==1.26.1
+#11 235.1 Prepared 94 packages in 3m 52s
+#11 236.1 Installed 94 packages in 1.00s
+#11 236.1  + aiohappyeyeballs==2.6.1
+#11 236.1  + aiohttp==3.12.12
+#11 236.1  + aiosignal==1.3.2
+#11 236.1  + annotated-types==0.7.0
+#11 236.1  + antlr4-python3-runtime==4.7.2
+#11 236.1  + anyio==4.9.0
+#11 236.1  + async-timeout==5.0.1
+#11 236.1  + asyncio==3.4.3
+#11 236.1  + attrs==25.3.0
+#11 236.1  + authlib==1.6.0
+#11 236.1  + certifi==2025.4.26
+#11 236.1  + cffi==1.17.1
+#11 236.1  + charset-normalizer==3.4.2
+#11 236.1  + click==8.2.1
+#11 236.1  + contourpy==1.3.2
+#11 236.1  + cryptography==45.0.4
+#11 236.1  + cycler==0.12.1
+#11 236.1  + exceptiongroup==1.3.0
+#11 236.1  + faiss-cpu==1.11.0
+#11 236.1  + fastapi==0.115.12
+#11 236.1  + filelock==3.18.0
+#11 236.1  + fonttools==4.58.2
+#11 236.1  + frozenlist==1.7.0
+#11 236.1  + fsspec==2025.5.1
+#11 236.1  + h11==0.16.0
+#11 236.1  + hf-xet==1.1.3
+#11 236.1  + httpcore==1.0.9
+#11 236.1  + httptools==0.6.4
+#11 236.1  + httpx==0.28.1
+#11 236.1  + huggingface-hub==0.33.0
+#11 236.1  + idna==3.10
+#11 236.1  + jinja2==3.1.6
+#11 236.1  + joblib==1.5.1
+#11 236.1  + jsonpatch==1.33
+#11 236.1  + jsonpointer==3.0.0
+#11 236.1  + kiwisolver==1.4.8
+#11 236.1  + langchain-core==0.3.65
+#11 236.1  + langchain-text-splitters==0.3.8
+#11 236.1  + langsmith==0.3.45
+#11 236.1  + latex2sympy2==1.9.1
+#11 236.1  + lxml==5.4.0
+#11 236.1  + markupsafe==3.0.2
+#11 236.1  + matplotlib==3.10.3
+#11 236.1  + mpmath==1.3.0
+#11 236.1  + multidict==6.4.4
+#11 236.1  + networkx==3.4.2
+#11 236.1  + numpy==2.2.6
+#11 236.1  + orjson==3.10.18
+#11 236.1  + packaging==24.2
+#11 236.1  + pandas==2.3.0
+#11 236.1  + pillow==11.2.1
+#11 236.1  + propcache==0.3.2
+#11 236.1  + psutil==7.0.0
+#11 236.1  + pycparser==2.22
+#11 236.1  + pydantic==2.11.5
+#11 236.1  + pydantic-core==2.33.2
+#11 236.1  + pylatexenc==2.10
+#11 236.1  + pymupdf==1.26.1
+#11 236.1  + pyparsing==3.2.3
+#11 236.1  + python-dateutil==2.9.0.post0
+#11 236.1  + python-dotenv==1.1.0
+#11 236.1  + pytz==2025.2
+#11 236.1  + pyyaml==6.0.2
+#11 236.1  + rag-math-project==0.1.0 (from file:///app)
+#11 236.1  + regex==2024.11.6
+#11 236.1  + requests==2.32.4
+#11 236.1  + requests-toolbelt==1.0.0
+#11 236.1  + safetensors==0.5.3
+#11 236.1  + scikit-learn==1.7.0
+#11 236.1  + scipy==1.15.3
+#11 236.1  + sentence-transformers==4.1.0
+#11 236.1  + six==1.17.0
+#11 236.1  + sniffio==1.3.1
+#11 236.1  + starlette==0.46.2
+#11 236.1  + sympy==1.14.0
+#11 236.1  + tenacity==9.1.2
+#11 236.1  + threadpoolctl==3.6.0
+#11 236.1  + tokenizers==0.21.1
+#11 236.1  + torch==2.7.1
+#11 236.1  + torch-geometric==2.6.1
+#11 236.1  + tqdm==4.67.1
+#11 236.1  + transformers==4.52.4
+#11 236.1  + typing-extensions==4.14.0
+#11 236.1  + typing-inspection==0.4.1
+#11 236.1  + tzdata==2025.2
+#11 236.1  + urllib3==2.4.0
+#11 236.1  + uvicorn==0.34.3
+#11 236.1  + uvloop==0.21.0
+#11 236.1  + validators==0.35.0
+#11 236.1  + watchfiles==1.0.5
+#11 236.1  + weaviate-client==3.26.2
+#11 236.1  + websockets==15.0.1
+#11 236.1  + yarl==1.20.1
+#11 236.1  + zstandard==0.23.0
+#11 DONE 236.5s
+
+#12 [app 8/8] COPY . .
+#12 DONE 20.2s
+
+#13 [app] exporting to image
+#13 exporting layers
+#13 exporting layers 21.5s done
+#13 writing image sha256:5e3c5f1c7a6ce073b0814efdf3007d5905c93621ac7fc5339462943a00b0609d done
+#13 naming to docker.io/library/rag_math_project-app done
+#13 DONE 21.5s
