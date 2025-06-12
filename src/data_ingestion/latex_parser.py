@@ -18,14 +18,52 @@ class LatexToGraphParser:
         self.embedding_model = SentenceTransformer(model_name)
         self.graph = nx.DiGraph()
 
-    def _get_node_type_from_title(self, title_text: str) -> str:
-        """Determines the environment type from its title text."""
-        title_lower = title_text.lower()
-        # Order matters: 'proposition' should be checked before 'proof' if titles can be "Proof of Proposition..."
-        for env_type in ['theorem', 'lemma', 'proposition', 'corollary', 'definition', 'example', 'remark', 'proof']:
-            if title_lower.startswith(env_type):
-                return env_type
-        return 'theorem' # Default if no specific type is found in the title
+    def _get_node_type_from_element(self, element) -> str:
+        """
+        Determines the actual environment type from the element.
+        LaTeXML converts all theorem-like environments to <theorem> tags,
+        but we can infer the actual type from the title or attributes.
+        """
+        # First check if there's a 'class' attribute that might indicate the type
+        elem_class = element.get('class', '')
+        if elem_class:
+            for env_type in ['definition', 'lemma', 'proposition', 'corollary', 'example', 'remark']:
+                if env_type in elem_class.lower():
+                    return env_type
+        
+        # Check the title element
+        title_elem = element.find('title')
+        if title_elem is not None:
+            title_text = self._get_clean_text(title_elem, exclude_title=False).lower()
+            
+            # Look for environment indicators in the title
+            for env_type in ['definition', 'lemma', 'proposition', 'corollary', 'example', 'remark', 'theorem']:
+                if title_text.startswith(env_type):
+                    return env_type
+            
+            # Check for common patterns like "Def.", "Prop.", etc.
+            if title_text.startswith(('def.', 'defn.')):
+                return 'definition'
+            elif title_text.startswith('prop.'):
+                return 'proposition'
+            elif title_text.startswith('cor.'):
+                return 'corollary'
+            elif title_text.startswith('lem.'):
+                return 'lemma'
+            elif title_text.startswith('ex.'):
+                return 'example'
+            elif title_text.startswith('rem.'):
+                return 'remark'
+            elif title_text.startswith('thm.'):
+                return 'theorem'
+        
+        # Check the content for clues
+        content = self._get_clean_text(element, exclude_title=True).lower()
+        if content.startswith('we define') or content.startswith('define') or 'is defined as' in content[:100]:
+            return 'definition'
+        
+        # Default to theorem if we can't determine
+        return 'theorem'
 
     def _extract_math_latex(self, math_element) -> str:
         """Extract LaTeX from a Math element."""
@@ -58,10 +96,6 @@ class LatexToGraphParser:
     def _get_clean_text(self, element, exclude_title=True) -> str:
         """
         Extracts text from an XML element, properly handling LaTeX math elements.
-        
-        Args:
-            element: XML element to extract text from
-            exclude_title: If True, skip the title element to avoid duplication
         """
         if element is None:
             return ""
@@ -97,7 +131,6 @@ class LatexToGraphParser:
                     continue
                 elif child.tag == 'ERROR':
                     # Handle LaTeX commands that couldn't be processed
-                    # Extract the command name if available
                     if child.text and child.text.strip():
                         text_parts.append(child.text.strip())
                 else:
@@ -139,33 +172,41 @@ class LatexToGraphParser:
                 print(f"FATAL: Could not parse XML for {doc_id}. Error: {e}")
                 return
 
-            # Find all theorem-like environments and proofs
+            # Find all theorem-like environments
+            # LaTeXML converts most theorem-like environments to <theorem>
             theorem_elements = root.findall(".//theorem")
             proof_elements = root.findall(".//proof")
-            definition_elements = root.findall(".//definition")
-            lemma_elements = root.findall(".//lemma")
-            corollary_elements = root.findall(".//corollary")
-            proposition_elements = root.findall(".//proposition")
             
-            # Combine all elements
-            all_elements = (theorem_elements + proof_elements + definition_elements + 
-                           lemma_elements + corollary_elements + proposition_elements)
+            # Also look for other possible tags LaTeXML might use
+            para_elements = root.findall(".//para[@class]")  # Sometimes definitions are in para with class
+            
+            all_elements = theorem_elements + proof_elements
+            
+            # Filter para elements to find theorem-like content
+            for para in para_elements:
+                para_class = para.get('class', '')
+                if any(env in para_class for env in ['definition', 'lemma', 'example', 'remark']):
+                    all_elements.append(para)
             
             print(f"Found {len(all_elements)} structured environments in {doc_id}")
-            print(f"  Theorems: {len(theorem_elements)}")
-            print(f"  Proofs: {len(proof_elements)}")
-            print(f"  Definitions: {len(definition_elements)}")
-            print(f"  Lemmas: {len(lemma_elements)}")
-            print(f"  Others: {len(corollary_elements) + len(proposition_elements)}")
-
+            
             # Store nodes for later edge creation
             nodes_by_type = {}
             nodes_by_doc = {}
+            
+            # Count environments by actual type
+            env_counts = {}
 
             for element in all_elements:
                 try:
-                    # Determine node type from tag name
-                    node_type = element.tag
+                    # Determine the actual node type
+                    if element.tag == 'proof':
+                        node_type = 'proof'
+                    else:
+                        node_type = self._get_node_type_from_element(element)
+                    
+                    # Count this environment type
+                    env_counts[node_type] = env_counts.get(node_type, 0) + 1
                     
                     # Extract title if present
                     title_element = element.find('title')
@@ -173,9 +214,14 @@ class LatexToGraphParser:
                     
                     if title_element is not None:
                         title_text = self._get_clean_text(title_element, exclude_title=False)
-                        # Clean up common patterns in titles
-                        title_text = re.sub(r'^(Proof|Theorem|Lemma|Definition|Corollary|Proposition)\s*\.?\s*', '', title_text, flags=re.IGNORECASE)
-                        title_text = title_text.strip()
+                        # Remove the environment type prefix from title
+                        for prefix in ['Definition', 'Theorem', 'Lemma', 'Proposition', 'Corollary', 'Example', 'Remark', 'Proof']:
+                            if title_text.startswith(prefix):
+                                # Keep the number and parenthetical content if present
+                                title_text = title_text[len(prefix):].strip()
+                                if title_text.startswith('.'):
+                                    title_text = title_text[1:].strip()
+                                break
                         
                         if not title_text:
                             title_text = node_type.capitalize()
@@ -186,7 +232,6 @@ class LatexToGraphParser:
                     main_text = self._get_clean_text(element, exclude_title=True)
 
                     if not main_text.strip():
-                        print(f"Skipping empty {node_type} in {doc_id}")
                         continue
 
                     # Generate a unique ID
@@ -227,6 +272,11 @@ class LatexToGraphParser:
                 except Exception as e:
                     print(f"Error processing element in {doc_id}: {e}")
                     continue
+
+            # Print environment type summary
+            print(f"\nEnvironment type breakdown for {doc_id}:")
+            for env_type, count in sorted(env_counts.items()):
+                print(f"  {env_type.capitalize()}s: {count}")
 
             # Add edges between nodes of the same type
             for node_type, nodes in nodes_by_type.items():
@@ -282,7 +332,10 @@ class LatexToGraphParser:
         for node, data in self.graph.nodes(data=True):
             # Use title if available, otherwise create from type
             concept_name = data.get('title', '')
-            if not concept_name:
+            if concept_name:
+                # Prepend the environment type to make it clearer
+                concept_name = f"{data.get('node_type', 'unknown').capitalize()} {concept_name}"
+            else:
                 concept_name = f"{data.get('node_type', 'unknown').title()} {node[-6:]}"
             
             blocks.append({
