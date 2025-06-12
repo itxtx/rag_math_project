@@ -79,7 +79,7 @@ def run_latexml_on_content(latex_content: str) -> str:
 
         # 6. Run LaTeXML on the single, well-formed temporary file.
         command = [
-            "/opt/homebrew/bin/latexml",
+            "latexml",
             "--log", latexml_log_path,
             "--includestyles",
             "--xml",
