@@ -27,9 +27,37 @@ class LatexToGraphParser:
                 return env_type
         return 'theorem' # Default if no specific type is found in the title
 
+    def _extract_math_latex(self, math_element) -> str:
+        """Extract LaTeX from a Math element."""
+        tex = math_element.get('tex')
+        if tex:
+            # Determine if it's inline or display math
+            mode = math_element.get('mode', 'inline')
+            if mode == 'inline':
+                return f"${tex}$"
+            else:
+                return f"$${tex}$$"
+        return ""
+
+    def _clean_extracted_text(self, text: str) -> str:
+        """Clean up extracted text by removing artifacts and fixing spacing."""
+        # Remove item numbers and tags like "1. 1 item 1"
+        text = re.sub(r'\b\d+\.\s*\d+\s*item\s*\d+\s*', '', text)
+        
+        # Remove standalone numbers that appear to be labels
+        text = re.sub(r'(?<![.$])\b\d+\b(?![.$])', '', text)
+        
+        # Clean up multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove leading/trailing spaces
+        text = text.strip()
+        
+        return text
+
     def _get_clean_text(self, element, exclude_title=True) -> str:
         """
-        Extracts text from an XML element, preserving LaTeX math mode content.
+        Extracts text from an XML element, properly handling LaTeX math elements.
         
         Args:
             element: XML element to extract text from
@@ -38,62 +66,56 @@ class LatexToGraphParser:
         if element is None:
             return ""
         
-        # Track seen text to avoid duplicates
-        seen_text = set()
-        text_chunks = []
+        text_parts = []
         
-        def extract_text_recursive(elem, skip_title=False):
-            """Recursively extract text while avoiding duplicates"""
+        def process_element(elem, skip_title=False):
+            """Process an element and its children to extract text."""
             # Skip title elements if requested
             if skip_title and elem.tag == 'title':
                 return
             
-            # Add the element's text if it exists and isn't just whitespace
+            # Skip tags that are just formatting hints
+            if elem.tag in ['tag', 'tags']:
+                return
+                
+            # Add text before the element
             if elem.text and elem.text.strip():
-                text = elem.text.strip()
-                if text not in seen_text:
-                    seen_text.add(text)
-                    text_chunks.append(text)
+                text_parts.append(elem.text.strip())
             
-            # Process all child elements
+            # Process child elements
             for child in elem:
-                # Skip title if we're excluding it
                 if exclude_title and child.tag == 'title':
                     continue
                     
-                # Handle math elements specially
                 if child.tag == 'Math':
-                    tex = child.get('tex')
-                    if tex and tex not in seen_text:
-                        seen_text.add(tex)
-                        # Wrap in $ to preserve math mode
-                        text_chunks.append(f"${tex}$")
+                    # Extract the full LaTeX expression
+                    math_text = self._extract_math_latex(child)
+                    if math_text:
+                        text_parts.append(math_text)
+                elif child.tag in ['tag', 'tags']:
+                    # Skip these formatting elements
+                    continue
+                elif child.tag == 'ERROR':
+                    # Handle LaTeX commands that couldn't be processed
+                    # Extract the command name if available
+                    if child.text and child.text.strip():
+                        text_parts.append(child.text.strip())
                 else:
                     # Recursively process other elements
-                    extract_text_recursive(child, skip_title=False)
+                    process_element(child, skip_title=False)
                 
-                # Add the tail text (text after the element)
+                # Add text after the element (tail)
                 if child.tail and child.tail.strip():
-                    tail_text = child.tail.strip()
-                    if tail_text not in seen_text:
-                        seen_text.add(tail_text)
-                        text_chunks.append(tail_text)
+                    text_parts.append(child.tail.strip())
         
-        # Start extraction
-        extract_text_recursive(element, skip_title=exclude_title)
+        # Process the root element
+        process_element(element, skip_title=exclude_title)
         
-        # Join all text chunks with spaces
-        full_text = " ".join(text_chunks)
+        # Join all parts with spaces
+        full_text = ' '.join(text_parts)
         
-        # Clean up any repeated patterns that might have slipped through
-        # Remove patterns like "Proof 12 12 Proof 12 Proof"
-        full_text = re.sub(r'(\b\w+\b)(\s+\d+)*(\s+\1)+', r'\1', full_text)
-        
-        # Remove standalone numbers that might be labels
-        full_text = re.sub(r'\b\d+\b\s*', '', full_text)
-        
-        # Clean up multiple spaces
-        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        # Clean up the extracted text
+        full_text = self._clean_extracted_text(full_text)
         
         return full_text
 
@@ -101,126 +123,141 @@ class LatexToGraphParser:
         """
         Extracts environments like theorem, definition, etc., by intelligently parsing the XML tree.
         """
-        xml_output = latex_processor.run_latexml_on_content(latex_content)
-
-        if not xml_output:
-            print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}. Skipping.")
-            return
-
-        # Remove namespace to make parsing easier
-        xml_output = re.sub(r' xmlns="[^"]+"', '', xml_output, count=1)
-
         try:
-            root = ET.fromstring(xml_output)
-        except ET.ParseError as e:
-            print(f"FATAL: Could not parse XML for {doc_id}. Error: {e}")
-            return
+            xml_output = latex_processor.run_latexml_on_content(latex_content)
 
-        # Find all theorem-like environments. LaTeXML groups them under the <theorem> tag.
-        theorem_elements = root.findall(".//theorem")
-        print(f"Found {len(theorem_elements)} theorem-like environments in {doc_id}")
+            if not xml_output:
+                print(f"WARNING: LaTeXML returned no content for doc_id: {doc_id}. Skipping.")
+                return
 
-        # Store nodes for later edge creation
-        nodes_by_type = {}
-        nodes_by_doc = {}
-        
-        # Also look for proof environments which might be tagged differently
-        proof_elements = root.findall(".//proof")
-        all_elements = theorem_elements + proof_elements
-        
-        print(f"Total environments found (including proofs): {len(all_elements)}")
+            # Remove namespace to make parsing easier
+            xml_output = re.sub(r' xmlns="[^"]+"', '', xml_output, count=1)
 
-        for element in all_elements:
-            # Extract title if present
-            title_element = element.find('title')
-            title_text = ""
+            try:
+                root = ET.fromstring(xml_output)
+            except ET.ParseError as e:
+                print(f"FATAL: Could not parse XML for {doc_id}. Error: {e}")
+                return
+
+            # Find all theorem-like environments and proofs
+            theorem_elements = root.findall(".//theorem")
+            proof_elements = root.findall(".//proof")
+            definition_elements = root.findall(".//definition")
+            lemma_elements = root.findall(".//lemma")
+            corollary_elements = root.findall(".//corollary")
+            proposition_elements = root.findall(".//proposition")
             
-            if title_element is not None:
-                # Get just the title text, avoiding duplicates
-                title_parts = []
-                if title_element.text:
-                    title_parts.append(title_element.text.strip())
-                for child in title_element:
-                    if child.text:
-                        title_parts.append(child.text.strip())
-                    if child.tail:
-                        title_parts.append(child.tail.strip())
-                
-                # Join and clean title
-                title_text = " ".join(title_parts)
-                title_text = re.sub(r'\s+', ' ', title_text).strip()
+            # Combine all elements
+            all_elements = (theorem_elements + proof_elements + definition_elements + 
+                           lemma_elements + corollary_elements + proposition_elements)
             
-            # Determine the node type
-            if element.tag == 'proof':
-                node_type = 'proof'
-                if not title_text:
-                    title_text = "Proof"
-            else:
-                node_type = self._get_node_type_from_title(title_text)
+            print(f"Found {len(all_elements)} structured environments in {doc_id}")
+            print(f"  Theorems: {len(theorem_elements)}")
+            print(f"  Proofs: {len(proof_elements)}")
+            print(f"  Definitions: {len(definition_elements)}")
+            print(f"  Lemmas: {len(lemma_elements)}")
+            print(f"  Others: {len(corollary_elements) + len(proposition_elements)}")
+
+            # Store nodes for later edge creation
+            nodes_by_type = {}
+            nodes_by_doc = {}
+
+            for element in all_elements:
+                try:
+                    # Determine node type from tag name
+                    node_type = element.tag
+                    
+                    # Extract title if present
+                    title_element = element.find('title')
+                    title_text = ""
+                    
+                    if title_element is not None:
+                        title_text = self._get_clean_text(title_element, exclude_title=False)
+                        # Clean up common patterns in titles
+                        title_text = re.sub(r'^(Proof|Theorem|Lemma|Definition|Corollary|Proposition)\s*\.?\s*', '', title_text, flags=re.IGNORECASE)
+                        title_text = title_text.strip()
+                        
+                        if not title_text:
+                            title_text = node_type.capitalize()
+                    else:
+                        title_text = node_type.capitalize()
+                    
+                    # Extract main content text, excluding the title to avoid duplication
+                    main_text = self._get_clean_text(element, exclude_title=True)
+
+                    if not main_text.strip():
+                        print(f"Skipping empty {node_type} in {doc_id}")
+                        continue
+
+                    # Generate a unique ID
+                    label = element.get('id', f"{node_type}-{uuid.uuid4().hex[:8]}")
+                    
+                    # Extract references
+                    refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
+                    
+                    # Generate embedding
+                    embedding = self.embedding_model.encode(main_text, convert_to_tensor=False)
+
+                    # Add node to graph
+                    self.graph.add_node(
+                        label,
+                        node_type=node_type,
+                        doc_id=doc_id,
+                        source=source,
+                        text=main_text,
+                        title=title_text,
+                        embedding=embedding
+                    )
+
+                    print(f"Added {node_type}: {title_text[:50]}... (text length: {len(main_text)})")
+
+                    # Store node in type and doc collections
+                    if node_type not in nodes_by_type:
+                        nodes_by_type[node_type] = []
+                    nodes_by_type[node_type].append(label)
+
+                    if doc_id not in nodes_by_doc:
+                        nodes_by_doc[doc_id] = []
+                    nodes_by_doc[doc_id].append(label)
+
+                    # Add reference edges
+                    for ref_label in refs:
+                        self.graph.add_edge(label, ref_label, edge_type='references')
+                        
+                except Exception as e:
+                    print(f"Error processing element in {doc_id}: {e}")
+                    continue
+
+            # Add edges between nodes of the same type
+            for node_type, nodes in nodes_by_type.items():
+                for i in range(len(nodes)):
+                    for j in range(i + 1, len(nodes)):
+                        self.graph.add_edge(nodes[i], nodes[j], edge_type='same_type')
+
+            # Add edges between nodes in the same document
+            for doc_nodes in nodes_by_doc.values():
+                for i in range(len(doc_nodes)):
+                    for j in range(i + 1, len(doc_nodes)):
+                        self.graph.add_edge(doc_nodes[i], doc_nodes[j], edge_type='same_doc')
+
+            if not self.graph.nodes:
+                print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
+
+            print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
+            print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
             
-            # Extract main content text, excluding the title to avoid duplication
-            main_text = self._get_clean_text(element, exclude_title=True)
-
-            if not main_text.strip():
-                print(f"Skipping empty {node_type} in {doc_id}")
-                continue
-
-            # Generate a unique ID
-            label = element.get('id', f"{node_type}-{uuid.uuid4().hex[:8]}")
-            
-            # Extract references
-            refs = [ref.get('refid') for ref in element.findall('.//ref') if ref.get('refid')]
-            
-            # Generate embedding
-            embedding = self.embedding_model.encode(main_text, convert_to_tensor=False)
-
-            # Add node to graph
-            self.graph.add_node(
-                label,
-                node_type=node_type,
-                doc_id=doc_id,
-                source=source,
-                text=main_text,
-                title=title_text,
-                embedding=embedding
-            )
-
-            print(f"Added {node_type}: {title_text[:50]}... (text length: {len(main_text)})")
-
-            # Store node in type and doc collections
-            if node_type not in nodes_by_type:
-                nodes_by_type[node_type] = []
-            nodes_by_type[node_type].append(label)
-
-            if doc_id not in nodes_by_doc:
-                nodes_by_doc[doc_id] = []
-            nodes_by_doc[doc_id].append(label)
-
-            # Add reference edges
-            for ref_label in refs:
-                self.graph.add_edge(label, ref_label, edge_type='references')
-
-        # Add edges between nodes of the same type
-        for node_type, nodes in nodes_by_type.items():
-            for i in range(len(nodes)):
-                for j in range(i + 1, len(nodes)):
-                    self.graph.add_edge(nodes[i], nodes[j], edge_type='same_type')
-
-        # Add edges between nodes in the same document
-        for doc_nodes in nodes_by_doc.values():
-            for i in range(len(doc_nodes)):
-                for j in range(i + 1, len(doc_nodes)):
-                    self.graph.add_edge(doc_nodes[i], doc_nodes[j], edge_type='same_doc')
-
-        if not self.graph.nodes:
-            print(f"Skipping LaTeX file due to no structured content found: {source or doc_id}")
-
-        print(f"Total nodes in graph after processing {doc_id}: {len(self.graph.nodes)}")
-        print(f"Total edges in graph after processing {doc_id}: {len(self.graph.edges)}")
+        except Exception as e:
+            print(f"Error in extract_structured_nodes for {doc_id}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def save_graph_and_embeddings(self, graph_path, embeddings_path):
         """Saves the final graph and initial embeddings."""
         print(f"Saving knowledge graph to {graph_path}")
+        
+        # Create directories if they don't exist
+        os.makedirs(os.path.dirname(graph_path), exist_ok=True)
+        os.makedirs(os.path.dirname(embeddings_path), exist_ok=True)
         
         # Create a copy of the graph for saving
         graph_for_saving = self.graph.copy()

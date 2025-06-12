@@ -16,6 +16,7 @@ def _extract_preamble_commands(full_preamble_content: str) -> str:
     """
     Extracts only the preamble commands (between \documentclass and \begin{document}).
     """
+    # Use raw string to avoid escape issues
     match = re.search(r'\\documentclass\{.*?\}(.*?)\\begin\{document\}', full_preamble_content, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -26,7 +27,8 @@ def _extract_document_body(full_latex_content: str) -> str:
     """
     Extracts only the content between \\begin{document} and \\end{document}.
     """
-    match = re.search(r'\\begin{document}(.*?)\\end{document}', full_latex_content, re.DOTALL)
+    # Use raw string to avoid escape issues
+    match = re.search(r'\\begin\{document\}(.*?)\\end\{document\}', full_latex_content, re.DOTALL)
     if match:
         return match.group(1).strip()
     return full_latex_content # Fallback for fragments
@@ -51,6 +53,7 @@ def run_latexml_on_content(latex_content: str) -> str:
         # 2. Extract ONLY the commands from the master preamble.
         preamble_commands = _extract_preamble_commands(master_preamble_full)
         # Replace \newcommand with \renewcommand to avoid "already defined" errors.
+        # Use raw string for the replacement pattern
         preamble_commands = re.sub(r'\\newcommand', r'\\renewcommand', preamble_commands)
 
         # 3. Extract ONLY the body content from the source document.
@@ -89,19 +92,30 @@ def run_latexml_on_content(latex_content: str) -> str:
         result = subprocess.run(
             command, capture_output=True, text=True, encoding='utf-8', check=True
         )
-        print(f"LaTeXML stdout: {result.stdout[:200]}...")  # Print first 200 chars of output
-        print(f"LaTeXML stderr: {result.stderr[:200]}...")  # Print first 200 chars of error
+        
+        # Debug output
+        if result.stdout:
+            print(f"LaTeXML stdout length: {len(result.stdout)} characters")
+            if len(result.stdout) < 500:
+                print(f"LaTeXML stdout: {result.stdout}")
+        if result.stderr:
+            print(f"LaTeXML stderr: {result.stderr[:500]}")
+        
         return result.stdout
 
     except subprocess.CalledProcessError as e:
         print(f"ERROR: LaTeXML failed with exit code {e.returncode}")
-        print(f"LaTeXML stdout: {e.stdout[:200]}...")
-        print(f"LaTeXML stderr: {e.stderr[:200]}...")
+        if e.stdout:
+            print(f"LaTeXML stdout: {e.stdout[:500]}...")
+        if e.stderr:
+            print(f"LaTeXML stderr: {e.stderr[:500]}...")
         print(f"A detailed log has been saved to: {latexml_log_path}")
         print("Please check this log file for the specific error from LaTeXML.")
         return ""
     except Exception as e:
         print(f"An unexpected error occurred during LaTeXML processing: {e}")
+        import traceback
+        traceback.print_exc()
         return ""
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
