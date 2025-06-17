@@ -5,16 +5,47 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional
 import numpy as np
+from sentence_transformers import SentenceTransformer
+import weaviate
 
-# Import from your existing vector store manager
-from src.data_ingestion.vector_store_manager import (
-    get_weaviate_client,
-    create_weaviate_schema, 
-    get_embedding_model,
-    WEAVIATE_CLASS_NAME,
-    DEFAULT_RETURN_PROPERTIES,
-    DEFAULT_ADDITIONAL_PROPERTIES
-)
+# Constants
+WEAVIATE_CLASS_NAME = "MathConcept"
+DEFAULT_RETURN_PROPERTIES = ["chunk_text", "source_path", "concept_type", "concept_name", "filename"]
+DEFAULT_ADDITIONAL_PROPERTIES = ["distance"]
+
+def get_weaviate_client():
+    """Get a configured Weaviate client."""
+    client = weaviate.Client(
+        url=os.getenv("WEAVIATE_URL", "http://localhost:8080"),
+        auth_client_secret=weaviate.AuthApiKey(api_key=os.getenv("WEAVIATE_API_KEY", "your-api-key")),
+    )
+    return client
+
+def get_embedding_model(model_name='all-MiniLM-L6-v2'):
+    """Get the sentence transformer model for embeddings."""
+    return SentenceTransformer(model_name)
+
+def create_weaviate_schema(client):
+    """Create the Weaviate schema if it doesn't exist."""
+    if not client.schema.exists(WEAVIATE_CLASS_NAME):
+        class_obj = {
+            "class": WEAVIATE_CLASS_NAME,
+            "vectorizer": "none",  # We'll provide our own vectors
+            "properties": [
+                {"name": "chunk_id", "dataType": ["string"]},
+                {"name": "doc_id", "dataType": ["string"]},
+                {"name": "source_path", "dataType": ["string"]},
+                {"name": "original_doc_type", "dataType": ["string"]},
+                {"name": "concept_type", "dataType": ["string"]},
+                {"name": "concept_name", "dataType": ["string"]},
+                {"name": "chunk_text", "dataType": ["text"]},
+                {"name": "parent_block_id", "dataType": ["string"]},
+                {"name": "parent_block_content", "dataType": ["text"]},
+                {"name": "sequence_in_block", "dataType": ["int"]},
+                {"name": "filename", "dataType": ["string"]}
+            ]
+        }
+        client.schema.create_class(class_obj)
 
 class VectorStoreManager:
     """

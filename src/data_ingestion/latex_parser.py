@@ -348,3 +348,27 @@ class LatexToGraphParser:
                 'concept_name': concept_name
             })
         return blocks
+
+def parse_latex_file(file_path: str, doc_id: str = None) -> nx.DiGraph:
+    """
+    Parse a LaTeX file and return a knowledge graph.
+    
+    Args:
+        file_path: Path to the LaTeX file
+        doc_id: Optional document ID. If not provided, will use the filename
+        
+    Returns:
+        A NetworkX DiGraph containing the parsed knowledge graph
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"LaTeX file not found: {file_path}")
+        
+    if doc_id is None:
+        doc_id = os.path.splitext(os.path.basename(file_path))[0]
+        
+    with open(file_path, 'r', encoding='utf-8') as f:
+        latex_content = f.read()
+        
+    parser = LatexToGraphParser()
+    parser.extract_structured_nodes(latex_content, doc_id, file_path)
+    return parser.graph
