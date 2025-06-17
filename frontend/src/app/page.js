@@ -58,7 +58,7 @@ function App() {
   const [topicsLoading, setTopicsLoading] = useState(true);
   const [topicsError, setTopicsError] = useState(null);
 
-  const API_BASE_URL = 'http://localhost:8000/api/v1';
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   useEffect(() => {
     if (theme === 'dark') {
