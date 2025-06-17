@@ -102,14 +102,14 @@ rag_math_project/
 
 ## 6. Setup and Installation
 
-*(This section is good. Ensure `requirements.txt` is present in your repo.)*
 * **Prerequisites:** Python 3.10+, Docker & Docker Compose, Weaviate access, LLM API Key. (Optional: Mathpix API credentials).
 * **Installation:**
     1.  Clone: `git clone <your-repository-url> && cd rag_math_project`
     2.  Environment: `python -m venv .venv && source .venv/bin/activate` (or ` .venv\Scripts\activate` on Windows)
-    3.  Dependencies: `pip install -r requirements.txt`
-    4.  Weaviate: Ensure instance is running (e.g., `docker-compose up -d` if using local compose file).
-    5.  Environment Variables: Create `.env` in root with `GEMINI_API_KEY`, etc. (see `src/config.py` for all options).
+    3.  Install uv: `pip install uv`
+    4.  Dependencies: `uv pip install .` (for development) or `uv pip install -e .` (for editable install)
+    5.  Weaviate: Ensure instance is running (e.g., `docker-compose up -d` if using local compose file).
+    6.  Environment Variables: Create `.env` in root with `GEMINI_API_KEY`, etc. (see `src/config.py` for all options).
 
 ## 7. Running the Application
 

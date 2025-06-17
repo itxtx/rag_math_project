@@ -25,3 +25,10 @@ dependencies = [
     "uvicorn[standard]>=0.34.2",
     "weaviate-client==3.26.2",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
