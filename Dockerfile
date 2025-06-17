@@ -1,7 +1,7 @@
 # /Dockerfile
 
 # Start from a base image with Python
-FROM python:3.10-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 # Set an environment variable to prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive

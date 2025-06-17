@@ -125,8 +125,10 @@ serve-dev:
 
 # Testing & Performance
 test:
-	@echo "$(BLUE)🏃 Running performance tests...$(NC)"
-	@python -m src.fast_pipeline test
+	@echo "$(BLUE)🏃 Running all tests inside Docker (with LaTeXML)...$(NC)"
+	docker-compose run --rm app pytest
+
+pytest: test
 
 compare:
 	@echo "$(BLUE)📊 Comparing original vs optimized performance...$(NC)"

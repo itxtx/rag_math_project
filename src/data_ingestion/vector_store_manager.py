@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import weaviate
+from src import config
 
 # Constants
 WEAVIATE_CLASS_NAME = "MathConcept"
@@ -14,16 +15,42 @@ DEFAULT_RETURN_PROPERTIES = ["chunk_text", "source_path", "concept_type", "conce
 DEFAULT_ADDITIONAL_PROPERTIES = ["distance"]
 
 def get_weaviate_client():
-    """Get a configured Weaviate client."""
-    client = weaviate.Client(
-        url=os.getenv("WEAVIATE_URL", "http://localhost:8080"),
-        auth_client_secret=weaviate.AuthApiKey(api_key=os.getenv("WEAVIATE_API_KEY", "your-api-key")),
-    )
-    return client
+    """Establishes a connection to the Weaviate instance and returns a client object."""
+    weaviate_url = config.WEAVIATE_URL
+    try:
+        # Use the recommended way to connect from the weaviate-client library
+        # For local, use connect_to_local; for remote, use connect_to_wcs or connect_to_custom
+        if weaviate_url.startswith("http://") or weaviate_url.startswith("https://"):
+            host = weaviate_url.replace("http://", "").replace("https://", "").split(":")[0]
+            port = int(weaviate_url.split(":")[-1])
+            client = weaviate.connect_to_local(host=host, port=port)
+        else:
+            client = weaviate.connect_to_local()
+        if not client.is_ready():
+            raise ConnectionError("Weaviate is not ready.")
+        print("Successfully connected to Weaviate.")
+        return client
+    except Exception as e:
+        print(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
+        raise
 
-def get_embedding_model(model_name='all-MiniLM-L6-v2'):
-    """Get the sentence transformer model for embeddings."""
+def get_embedding_model(model_name=None):
+    """Initializes and returns the sentence transformer model."""
+    if model_name is None:
+        model_name = config.EMBEDDING_MODEL_NAME
     return SentenceTransformer(model_name)
+
+def generate_standard_embedding(text: str) -> np.ndarray:
+    """Generates a standard embedding for a given text."""
+    model = get_embedding_model()
+    return model.encode(text, convert_to_tensor=False, normalize_embeddings=True)
+
+def embed_chunk_data(chunk_data: dict) -> Optional[np.ndarray]:
+    """Embeds the text content of a single chunk."""
+    text_to_embed = chunk_data.get("chunk_text", "").strip()
+    if not text_to_embed:
+        return None
+    return generate_standard_embedding(text_to_embed)
 
 def create_weaviate_schema(client):
     """Create the Weaviate schema if it doesn't exist."""

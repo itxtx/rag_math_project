@@ -9,7 +9,7 @@ from src.learner_model.profile_manager import LearnerProfileManager
 def mock_profile_manager():
     """Create a mock profile manager."""
     manager = MagicMock(spec=LearnerProfileManager)
-    manager.update_concept_knowledge.return_value = True
+    manager.update_concept_srs_and_difficulty.return_value = True
     return manager
 
 @pytest.fixture
@@ -50,7 +50,7 @@ async def test_update_knowledge_level_successful(knowledge_tracker, mock_profile
     )
 
     assert success is True
-    mock_profile_manager.update_concept_knowledge.assert_called_once_with(
+    mock_profile_manager.update_concept_srs_and_difficulty.assert_called_once_with(
         learner_id=test_ids["learner_id"],
         concept_id=test_ids["concept_id"],
         score=expected_graded_score,
@@ -74,7 +74,7 @@ async def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_p
     )
 
     assert success is True
-    mock_profile_manager.update_concept_knowledge.assert_called_once_with(
+    mock_profile_manager.update_concept_srs_and_difficulty.assert_called_once_with(
         learner_id=test_ids["learner_id"],
         concept_id=test_ids["concept_id"],
         score=expected_graded_score,
@@ -85,7 +85,7 @@ async def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_p
 @pytest.mark.asyncio
 async def test_update_knowledge_level_profile_manager_fails(knowledge_tracker, mock_profile_manager, test_ids):
     """Test knowledge level update when profile manager fails."""
-    mock_profile_manager.update_concept_knowledge.return_value = False
+    mock_profile_manager.update_concept_srs_and_difficulty.return_value = False
     
     accuracy = 0.9
     raw_eval_data = {"feedback": "Excellent."}
@@ -98,7 +98,7 @@ async def test_update_knowledge_level_profile_manager_fails(knowledge_tracker, m
     )
 
     assert success is False, "Update should fail if profile manager reports failure"
-    mock_profile_manager.update_concept_knowledge.assert_called_once()
+    mock_profile_manager.update_concept_srs_and_difficulty.assert_called_once()
 
 def test_init_with_invalid_profile_manager():
     """Test initialization with invalid profile manager."""

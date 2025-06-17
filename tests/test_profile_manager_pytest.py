@@ -61,7 +61,7 @@ def test_update_overall_progress(profile_manager, test_ids):
 def test_update_and_get_concept_knowledge(profile_manager, test_ids):
     profile_manager.create_profile(test_ids["learner_id_1"])
     raw_eval_1 = {"feedback": "Good start!"}
-    updated1 = profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 7.0, True, raw_eval_1)
+    updated1 = profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 7.0, True, raw_eval_1)
     assert updated1 is True
     knowledge1 = profile_manager.get_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"])
     assert knowledge1 is not None
@@ -74,7 +74,7 @@ def test_update_and_get_concept_knowledge(profile_manager, test_ids):
     assert knowledge1["last_attempted_at"] is not None
     time.sleep(0.01)
     raw_eval_2 = {"feedback": "Improved slightly."}
-    updated2 = profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 6.0, False, raw_eval_2)
+    updated2 = profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 6.0, False, raw_eval_2)
     assert updated2 is True
     knowledge2 = profile_manager.get_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"])
     assert knowledge2["current_score"] == 6.0
@@ -89,9 +89,9 @@ def test_get_score_history(profile_manager, test_ids):
     profile_manager.create_profile(test_ids["learner_id_1"])
     raw_eval_1 = {"llm_feedback": "Attempt 1 feedback"}
     raw_eval_2 = {"llm_feedback": "Attempt 2 feedback", "details": "more details"}
-    profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 8.0, True, raw_eval_1)
+    profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 8.0, True, raw_eval_1)
     time.sleep(0.01)
-    profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 4.5, False, raw_eval_2)
+    profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 4.5, False, raw_eval_2)
     history = profile_manager.get_score_history(test_ids["learner_id_1"], test_ids["concept_id_1"])
     assert len(history) == 2
     assert history[0]["score"] == 8.0
@@ -108,8 +108,8 @@ def test_get_score_history(profile_manager, test_ids):
 
 def test_delete_cascade(profile_manager, test_ids):
     profile_manager.create_profile(test_ids["learner_id_1"])
-    profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 9.0, True)
-    profile_manager.update_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"], 3.0, False)
+    profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 9.0, True)
+    profile_manager.update_concept_srs_and_difficulty(test_ids["learner_id_1"], test_ids["concept_id_1"], 3.0, False)
     knowledge = profile_manager.get_concept_knowledge(test_ids["learner_id_1"], test_ids["concept_id_1"])
     assert knowledge is not None
     history = profile_manager.get_score_history(test_ids["learner_id_1"], test_ids["concept_id_1"])
