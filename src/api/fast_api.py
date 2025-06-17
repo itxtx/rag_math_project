@@ -2,7 +2,8 @@
 import os
 import asyncio
 import time
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, Security, Header
+from fastapi.security.api_key import APIKeyHeader
 from typing import Dict, Any, Optional, List as PyList
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -229,6 +230,19 @@ class FastRAGComponents:
             print(f"Error getting context for concept {concept_id}: {e}")
             return "Error retrieving context for this concept."
 
+# API Key security
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    """Validate API key from header"""
+    if api_key_header != os.getenv("API_KEY"):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid API Key"
+        )
+    return api_key_header
+
 # Global state
 app_state: Dict[str, Any] = {}
 
@@ -300,7 +314,7 @@ async def track_performance(request, call_next):
 
 # Optimized endpoints
 @app.get("/api/v1/topics", response_model=PyList[TopicResponse])
-async def list_topics_fast():
+async def list_topics_fast(api_key: str = Security(get_api_key)):
     """Get list of available topics"""
     try:
         print("Starting topics endpoint...")
@@ -363,7 +377,8 @@ async def list_topics_fast():
 async def start_interaction(
     request: Request,
     learner_id: int = 1,
-    topic_id: Optional[str] = None
+    topic_id: Optional[str] = None,
+    api_key: str = Security(get_api_key)
 ):
     """Start a new interaction with a question"""
     try:
@@ -435,7 +450,8 @@ async def start_interaction(
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
     request: AnswerSubmissionRequest,
-    components: FastRAGComponents = Depends(get_fast_components)
+    components: FastRAGComponents = Depends(get_fast_components),
+    api_key: str = Security(get_api_key)
 ):
     """Fast answer submission with async evaluation"""
     print(f"📝 Fast answer submission for learner: {request.learner_id}")
@@ -469,7 +485,7 @@ async def submit_answer_fast(
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 @app.get("/api/v1/health")
-async def health_check_fast():
+async def health_check_fast(api_key: str = Security(get_api_key)):
     """Health check with performance metrics"""
     components = app_state.get("components")
     
@@ -484,7 +500,7 @@ async def health_check_fast():
     return health_data
 
 @app.get("/api/v1/performance")
-async def get_performance_stats():
+async def get_performance_stats(api_key: str = Security(get_api_key)):
     """Get detailed performance statistics"""
     components = app_state.get("components")
     if not components:
@@ -493,7 +509,7 @@ async def get_performance_stats():
     return components.get_performance_stats()
 
 @app.post("/api/v1/clear_cache")
-async def clear_cache():
+async def clear_cache(api_key: str = Security(get_api_key)):
     """Clear all caches (useful for testing)"""
     components = app_state.get("components")
     if components and components._retriever:

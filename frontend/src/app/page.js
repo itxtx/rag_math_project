@@ -59,6 +59,7 @@ function App() {
   const [topicsError, setTopicsError] = useState(null);
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -89,7 +90,11 @@ function App() {
       setTopicsError(null);
       try {
         console.log('Fetching topics from:', `${API_BASE_URL}/topics`);
-        const response = await fetch(`${API_BASE_URL}/topics`);
+        const response = await fetch(`${API_BASE_URL}/topics`, {
+          headers: {
+            'X-API-Key': API_KEY
+          }
+        });
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error from topics endpoint.' }));
           throw new Error(errorData.detail || 'Failed to fetch topics.');
@@ -124,7 +129,7 @@ function App() {
       }
     };
     fetchTopics();
-  }, [API_BASE_URL]);
+  }, [API_BASE_URL, API_KEY]);
 
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
@@ -147,7 +152,10 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/interaction/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY
+        },
         body: JSON.stringify({
           learner_id: learnerId,
           topic_id: selectedTopicId,
@@ -178,7 +186,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [learnerId, selectedTopicId, API_BASE_URL]);
+  }, [learnerId, selectedTopicId, API_BASE_URL, API_KEY]);
 
   const handleProceedToQuestion = useCallback(() => {
     if (rawQuestionResponse) {
@@ -209,7 +217,10 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/interaction/submit_answer`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY
+        },
         body: JSON.stringify({
           learner_id: learnerId,
           question_id: question.question_id,
@@ -235,7 +246,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [learnerId, question, answer, API_BASE_URL, selectedTopicId]); // Added selectedTopicId to dependencies
+  }, [learnerId, question, answer, API_BASE_URL, API_KEY, selectedTopicId]);
 
   const cleanedQuestionText = useMemo(() => {
     if (question && question.question_text) { 
