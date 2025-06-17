@@ -168,3 +168,137 @@ The vision for this project includes several exciting enhancements:
 * **Dedicated Web Frontend:** Build a responsive web application for a seamless and engaging learner experience.
 * **Performance Optimization:** Profile and optimize for large-scale knowledge bases and concurrent users.
 * **Learner Analytics & Reporting:** Provide dashboards for learners and educators to track progress, identify challenging concepts, and assess system effectiveness
+
+# RAG Math Project
+
+A Retrieval-Augmented Generation (RAG) system for mathematics education, designed to provide personalized learning experiences through adaptive question generation and concept tracking.
+
+## Features
+
+- **Adaptive Learning**: Personalized question generation based on learner's knowledge level
+- **Concept Tracking**: Monitors learner progress across mathematical concepts
+- **Curriculum Mapping**: Structured learning paths with concept dependencies
+- **Latex Support**: Full support for mathematical notation and equations
+- **Vector Search**: Efficient semantic search for relevant mathematical content
+- **Knowledge Graph**: Tracks relationships between mathematical concepts
+
+## Project Structure
+
+```
+rag_math_project/
+├── src/
+│   ├── data_ingestion/      # Data processing and ingestion
+│   ├── knowledge_graph/     # Knowledge graph management
+│   ├── learning/           # Learning session management
+│   ├── question_gen/       # Question generation
+│   ├── retrieval/          # Vector search and retrieval
+│   └── utils/              # Utility functions
+├── tests/                  # Test suite
+├── data/                   # Data storage
+└── config/                 # Configuration files
+```
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/rag-math-project.git
+cd rag-math-project
+```
+
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -e ".[test]"
+```
+
+## Configuration
+
+1. Create a `.env` file in the project root:
+```bash
+cp .env.example .env
+```
+
+2. Update the environment variables in `.env` with your configuration:
+```env
+WEAVIATE_URL=your_weaviate_url
+WEAVIATE_API_KEY=your_api_key
+OPENAI_API_KEY=your_openai_api_key
+```
+
+## Usage
+
+1. Start the FastAPI server:
+```bash
+uvicorn src.main:app --reload
+```
+
+2. Access the API documentation at `http://localhost:8000/docs`
+
+## Testing
+
+The project uses pytest for testing. To run the tests:
+
+```bash
+# Run all tests
+pytest
+
+# Run tests with coverage report
+pytest --cov=src
+
+# Run specific test file
+pytest tests/test_question_selector_pytest.py
+
+# Run tests in parallel
+pytest -n auto
+```
+
+## Development
+
+### Code Style
+
+The project follows PEP 8 guidelines. To check code style:
+
+```bash
+flake8 src tests
+```
+
+### Type Checking
+
+Type hints are used throughout the project. To check types:
+
+```bash
+mypy src
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Weaviate](https://weaviate.io/) for vector search capabilities
+- [Sentence Transformers](https://www.sbert.net/) for text embeddings
+- [FastAPI](https://fastapi.tiangolo.com/) for the web framework
+- [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/) for graph operations
+
+## Contact
+
+For questions and support, please open an issue in the GitHub repository.
+
+---
+
+Last updated: June 2025
