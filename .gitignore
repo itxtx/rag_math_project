@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.vscode/
 # Distribution / packaging
 dist/
 build/
@@ -62,9 +62,10 @@ data/
 
 *.env
 
+*.pt
 *.tex
 *.pdf
-
+models/*
 */data
 
 *.venv

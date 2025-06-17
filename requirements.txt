@@ -11,7 +11,12 @@ aiohttp
 langchain-text-splitters
 fastapi 
 uvicorn[standard]
-
+faiss-cpu
+networkx[default]
+torch
+torch-geometric
+numpy
+lxml
 # For advanced math embedding pipeline (install separately as needed):
 # extract-math (often a Perl script or specific tool)
 # latex2sympy2 (or latex2sympy2_extended)

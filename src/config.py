@@ -9,6 +9,9 @@ dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env') # Assuming .
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
 
+# Set tokenizer parallelism to avoid warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
+
 # Weaviate Configuration
 WEAVIATE_URL = os.getenv("WEAVIATE_URL", "http://localhost:8080")
 # WEAVIATE_API_KEY = os.getenv("WEAVIATE_API_KEY") # If using Weaviate Cloud Service with API key
