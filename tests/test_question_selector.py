@@ -7,7 +7,7 @@ import numpy as np
 
 from src.adaptive_engine.question_selector import QuestionSelector, LOW_SCORE_THRESHOLD, PERFECT_SCORE_THRESHOLD
 from src.learner_model.profile_manager import LearnerProfileManager
-from src.retrieval.retriever import Retriever
+from src.retrieval.retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
 from src import config 
 from sentence_transformers import SentenceTransformer 
@@ -26,7 +26,7 @@ class TestQuestionSelector(unittest.TestCase):
 
     def setUp(self):
         self.mock_profile_manager = MagicMock(spec=LearnerProfileManager)
-        self.mock_retriever = MagicMock(spec=Retriever)
+        self.mock_retriever = MagicMock(spec=HybridRetriever)
         self.mock_question_generator = MagicMock(spec=RAGQuestionGenerator)
 
         self.sample_chunk_meta_for_curriculum = [

@@ -8,7 +8,7 @@ import time
 import numpy as np
 import os 
 
-from src.retrieval.retriever import Retriever
+from src.retrieval.retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
 from src.data_ingestion import vector_store_manager
 from src import config 
@@ -144,7 +144,7 @@ class TestRetrievalAndGenerationIntegration(unittest.TestCase):
         print("\nRunning test_retrieve_and_generate_questions_flow...")
         self.assertIsNotNone(self.weaviate_client, "Weaviate client not initialized.")
 
-        retriever_instance = Retriever(weaviate_client=self.weaviate_client)
+        retriever_instance = HybridRetriever(weaviate_client=self.weaviate_client)
         self.assertIsNotNone(retriever_instance.client)
 
         query = "energy conservation law" 

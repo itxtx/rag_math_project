@@ -3,7 +3,7 @@ import asyncio
 import time
 import sys
 import os
-from src.retrieval.optimized_retriever import OptimizedRetriever
+from src.retrieval.retriever import HybridRetriever
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
@@ -53,7 +53,7 @@ async def test_original_vs_optimized():
         print("\n⚡ Testing Optimized Retriever...")
         
         
-        optimized_retriever = OptimizedRetriever(weaviate_client=client)
+        optimized_retriever = HybridRetriever(weaviate_client=client)
         
         # Cold run
         print("  🧊 Cold run (no cache):")

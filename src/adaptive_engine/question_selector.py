@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Any
 import re
 
 from src.learner_model.profile_manager import LearnerProfileManager
-from src.retrieval.retriever import Retriever
+from src.retrieval.retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
 from src import config 
 import os
@@ -19,12 +19,12 @@ NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX = 3
 class QuestionSelector:
     def __init__(self,
                  profile_manager: LearnerProfileManager,
-                 retriever: Retriever,
+                 retriever: HybridRetriever,
                  question_generator: RAGQuestionGenerator):
         if not isinstance(profile_manager, LearnerProfileManager):
             raise TypeError("profile_manager must be an instance of LearnerProfileManager.")
-        if not isinstance(retriever, Retriever):
-            raise TypeError("retriever must be an instance of Retriever.")
+        if not isinstance(retriever, HybridRetriever):
+            raise TypeError("retriever must be an instance of HybridRetriever.")
         if not isinstance(question_generator, RAGQuestionGenerator):
             raise TypeError("question_generator must be an instance of RAGQuestionGenerator.")
 
