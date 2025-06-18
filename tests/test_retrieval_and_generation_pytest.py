@@ -304,19 +304,28 @@ async def test_get_all_documents_filters_by_doc_id(hybrid_retriever, dummy_docs)
 # If you want, add a basic test to ensure the class can be instantiated (full integration would require test data files)
 
 def test_hybrid_retriever_instantiation():
-    import os
-    os.makedirs('data/embeddings', exist_ok=True)
-    with open('data/embeddings/gnn_embeddings.pkl', 'wb') as f:
-        f.write(b'dummy')
-    with patch("src.retrieval.hybrid_retriever.SentenceTransformer"), \
+    """
+    Test successful instantiation of HybridRetriever by mocking file dependencies.
+    """
+    # Mock the open call to prevent FileNotFoundError
+    with patch("builtins.open", new_callable=MagicMock) as mock_open, \
+         patch("pickle.load", return_value={"node1": np.random.rand(768)}) as mock_pickle_load, \
+         patch("src.retrieval.hybrid_retriever.SentenceTransformer"), \
          patch("src.retrieval.hybrid_retriever.nx.read_graphml"), \
-         patch("src.retrieval.hybrid_retriever.pickle.load", return_value={"n1": np.ones(384)}), \
-         patch("src.retrieval.hybrid_retriever.faiss.IndexFlatIP") as mock_faiss, \
-         patch("src.retrieval.hybrid_retriever.LinkPredictorGNN") as mock_gnn, \
+         patch("src.retrieval.hybrid_retriever.faiss.IndexFlatIP"), \
+         patch("src.retrieval.hybrid_retriever.LinkPredictorGNN"), \
          patch("src.retrieval.hybrid_retriever.torch.load"):
-        mock_faiss.return_value.search.return_value = (None, [[0]])
-        instance = __import__("src.retrieval.hybrid_retriever", fromlist=["HybridRetriever"]).HybridRetriever()
-        assert instance is not None 
+        
+        from src.retrieval.hybrid_retriever import HybridRetriever
+        
+        # Instantiate the class, which should now work with the mocked file operations
+        instance = HybridRetriever()
+        
+        # Assert that the instance was created
+        assert instance is not None
+        
+        # Verify that 'open' was called for the expected files
+        mock_open.assert_any_call('data/embeddings/initial_text_embeddings.pkl', 'rb')
 
 def test_retrieve_and_generate_questions_flow():
     # ... existing setup ...

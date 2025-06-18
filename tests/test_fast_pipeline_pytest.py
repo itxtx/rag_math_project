@@ -83,15 +83,19 @@ def mock_conceptual_blocks():
     return [
         {
             "block_id": "block_1",
-            "content": "Test content 1",
+            "block_content": "Test content 1",
             "concept_name": "Test Concept 1",
-            "doc_id": "test_doc_1"
+            "concept_type": "theorem",
+            "doc_id": "test_doc_1",
+            "source": "test_source_1"
         },
         {
             "block_id": "block_2",
-            "content": "Test content 2",
+            "block_content": "Test content 2",
             "concept_name": "Test Concept 2",
-            "doc_id": "test_doc_2"
+            "concept_type": "definition",
+            "doc_id": "test_doc_2",
+            "source": "test_source_2"
         }
     ]
 
@@ -101,15 +105,23 @@ def mock_final_chunks():
     return [
         {
             "chunk_id": "chunk_1",
-            "content": "Test chunk 1",
+            "chunk_text": "Test chunk 1",
             "concept_name": "Test Concept 1",
-            "doc_id": "test_doc_1"
+            "concept_type": "theorem",
+            "doc_id": "test_doc_1",
+            "source_path": "test_source_1",
+            "parent_block_id": "block_1",
+            "parent_block_content": "Test content 1"
         },
         {
             "chunk_id": "chunk_2",
-            "content": "Test chunk 2",
+            "chunk_text": "Test chunk 2",
             "concept_name": "Test Concept 2",
-            "doc_id": "test_doc_2"
+            "concept_type": "definition",
+            "doc_id": "test_doc_2",
+            "source_path": "test_source_2",
+            "parent_block_id": "block_2",
+            "parent_block_content": "Test content 2"
         }
     ]
 

@@ -36,6 +36,7 @@ help:
 	@echo "$(GREEN)Phase 2 - Online Server:$(NC)"
 	@echo "  make serve                - Start optimized API server"
 	@echo "  make serve-dev            - Start server in development mode"
+	@echo "  make app                  - Start interactive RAG application"
 	@echo ""
 	@echo "$(GREEN)Testing & Monitoring:$(NC)"
 	@echo "  make test                 - Run all pytest tests"
@@ -113,14 +114,18 @@ serve-dev:
 	@echo "$(YELLOW)Development mode includes auto-reload and debug info$(NC)"
 	@uvicorn src.api.fast_api:app --host 0.0.0.0 --port 8000 --reload
 
+app:
+	@echo "$(BLUE)🎯 Starting interactive RAG application...$(NC)"
+	@echo "$(YELLOW)This starts the interactive learning session$(NC)"
+	@echo "$(YELLOW)Press Ctrl+C to exit$(NC)"
+	@python -m src.app
+
 # Testing & Performance
 test:
 	@echo "🏃 Running tests with timeout protection..."
 	@docker-compose run --rm app timeout 300 pytest -v --tb=short
 
 pytest: test
-
-
 
 # System status and health
 status:

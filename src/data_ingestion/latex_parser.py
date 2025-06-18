@@ -339,13 +339,13 @@ class LatexToGraphParser:
                 concept_name = f"{data.get('node_type', 'unknown').title()} {node[-6:]}"
             
             blocks.append({
-                'id': node,
-                'type': data.get('node_type', 'unknown'),
-                'text': data.get('text', ''),
+                'block_id': node,
+                'concept_type': data.get('node_type', 'unknown'),
+                'block_content': data.get('text', ''),
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
-                'embedding': data.get('embedding', None),
-                'concept_name': concept_name
+                'concept_name': concept_name,
+                'embedding': data.get('embedding', None)
             })
         return blocks
 

@@ -261,9 +261,84 @@ async def run_performance_test():
         traceback.print_exc()
         sys.exit(1)
 
-async def run_full_pipeline(*args, **kwargs):
-    """Backward compatibility: call run_fast_ingestion_pipeline."""
-    await run_fast_ingestion_pipeline(*args, **kwargs)
+async def run_interactive_pipeline(
+    learner_id: str,
+    target_topic_id: Optional[str] = None
+):
+    """
+    Run the interactive learning pipeline that asks questions and gets user input
+    """
+    logger.info("🎯 Starting Interactive Learning Pipeline...")
+    
+    try:
+        # Initialize components
+        from src.api.fast_api import FastRAGComponents
+        components = FastRAGComponents()
+        components._init_core_components()
+        
+        logger.info(f"📚 Starting interactive session for learner: {learner_id}")
+        
+        # Get available topics if no specific topic is selected
+        if not target_topic_id:
+            logger.info("🔍 Fetching available topics...")
+            # This would need to be implemented based on your curriculum structure
+            logger.info("Using adaptive topic selection across all content")
+        
+        # Start interactive question-answer loop
+        interaction_count = 0
+        max_interactions = 5  # Limit for demo purposes
+        
+        while interaction_count < max_interactions:
+            interaction_count += 1
+            logger.info(f"\n--- Interaction {interaction_count} ---")
+            
+            # Get next question (this would need to be implemented)
+            question_text = "What is a vector space in linear algebra?"
+            concept_name = "Vector Spaces"
+            
+            print(f"\n📝 Question {interaction_count}:")
+            print(f"Topic: {concept_name}")
+            print(f"Q: {question_text}")
+            
+            # Get user answer
+            user_answer = input("\nYour Answer: ").strip()
+            
+            if not user_answer:
+                print("No answer provided. Skipping this question.")
+                continue
+            
+            # Evaluate answer (this would need to be implemented)
+            print(f"\n✅ Answer submitted: {user_answer[:100]}...")
+            print("📊 Evaluation: This would evaluate your answer and provide feedback")
+            print("🎯 Knowledge tracking: This would update your learning progress")
+            
+            # Ask if user wants to continue
+            continue_choice = input("\nContinue with another question? (y/n): ").strip().lower()
+            if continue_choice != 'y':
+                break
+        
+        logger.info("🎉 Interactive session completed!")
+        components.cleanup()
+        
+    except Exception as e:
+        logger.error(f"❌ Interactive pipeline failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+async def run_full_pipeline(
+    interactive_mode: bool = False,
+    initial_learner_id: Optional[str] = None,
+    target_topic_id: Optional[str] = None
+):
+    """
+    Run the full pipeline with optional interactive mode
+    """
+    if interactive_mode:
+        learner_id = initial_learner_id or "default_learner"
+        await run_interactive_pipeline(learner_id, target_topic_id)
+    else:
+        # Run the regular ingestion pipeline
+        await run_fast_ingestion_pipeline()
 
 def main():
     """Main function with fast pipeline commands"""

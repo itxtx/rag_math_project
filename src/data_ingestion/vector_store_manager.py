@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import weaviate
+from weaviate.connect import ConnectionParams
 from src import config
 
 # Constants
@@ -17,7 +18,12 @@ DEFAULT_ADDITIONAL_PROPERTIES = ["distance"]
 def get_weaviate_client():
     """Establishes a connection to the Weaviate instance and returns a client object."""
     try:
-        client = weaviate.connect_to_local()
+        connection_params = ConnectionParams.from_url(
+            url=config.WEAVIATE_URL,
+            grpc_port=50051
+        )
+        client = weaviate.WeaviateClient(connection_params)
+        client.connect()
         if not client.is_ready():
             raise ConnectionError("Weaviate is not ready.")
         print("Successfully connected to Weaviate.")
@@ -46,25 +52,36 @@ def embed_chunk_data(chunk_data: dict) -> Optional[np.ndarray]:
 
 def create_weaviate_schema(client):
     """Create the Weaviate schema if it doesn't exist."""
-    if not client.collections.exists(WEAVIATE_CLASS_NAME):
-        class_obj = {
-            "class": WEAVIATE_CLASS_NAME,
-            "vectorizer": "none",  # We'll provide our own vectors
-            "properties": [
-                {"name": "chunk_id", "dataType": ["string"]},
-                {"name": "doc_id", "dataType": ["string"]},
-                {"name": "source_path", "dataType": ["string"]},
-                {"name": "original_doc_type", "dataType": ["string"]},
-                {"name": "concept_type", "dataType": ["string"]},
-                {"name": "concept_name", "dataType": ["string"]},
-                {"name": "chunk_text", "dataType": ["text"]},
-                {"name": "parent_block_id", "dataType": ["string"]},
-                {"name": "parent_block_content", "dataType": ["text"]},
-                {"name": "sequence_in_block", "dataType": ["int"]},
-                {"name": "filename", "dataType": ["string"]}
-            ]
-        }
-        client.collections.create_from_dict(class_obj)
+    try:
+        # Check if collection exists using v4 API
+        collections = client.collections.list_all()
+        if WEAVIATE_CLASS_NAME not in collections:
+            # Create collection using v4 API
+            from weaviate.classes.config import Configure, DataType, Property
+            
+            client.collections.create(
+                name=WEAVIATE_CLASS_NAME,
+                properties=[
+                    Property(name="chunk_id", data_type=DataType.TEXT),
+                    Property(name="doc_id", data_type=DataType.TEXT),
+                    Property(name="source_path", data_type=DataType.TEXT),
+                    Property(name="original_doc_type", data_type=DataType.TEXT),
+                    Property(name="concept_type", data_type=DataType.TEXT),
+                    Property(name="concept_name", data_type=DataType.TEXT),
+                    Property(name="chunk_text", data_type=DataType.TEXT),
+                    Property(name="parent_block_id", data_type=DataType.TEXT),
+                    Property(name="parent_block_content", data_type=DataType.TEXT),
+                    Property(name="sequence_in_block", data_type=DataType.INT),
+                    Property(name="filename", data_type=DataType.TEXT)
+                ],
+                vectorizer_config=Configure.Vectorizer.none()
+            )
+            print(f"✓ Created collection: {WEAVIATE_CLASS_NAME}")
+        else:
+            print(f"✓ Collection already exists: {WEAVIATE_CLASS_NAME}")
+    except Exception as e:
+        print(f"Error creating schema: {e}")
+        raise
 
 class VectorStoreManager:
     """
@@ -284,14 +301,6 @@ class VectorStoreManager:
         
         print(f"Storing {len(embedded_chunks)} chunks in Weaviate...")
         
-        # Configure Weaviate batch
-        client.batch.configure(
-            batch_size=batch_size, 
-            dynamic=True, 
-            timeout_retries=3,
-            connection_error_retries=3
-        )
-        
         processed_count = 0
         error_count = 0
         
@@ -305,12 +314,13 @@ class VectorStoreManager:
             print(f"  Storing batch {batch_num}/{len(storage_batches)} ({len(storage_batch)} chunks)...")
             
             try:
+                # Use v4 batch API
                 with client.batch as batch_context:
                     for chunk in storage_batch:
                         try:
-                            batch_context.add_data_object(
-                                data_object=chunk['data_object'],
-                                class_name=WEAVIATE_CLASS_NAME,
+                            batch_context.add_object(
+                                collection=WEAVIATE_CLASS_NAME,
+                                properties=chunk['data_object'],
                                 vector=chunk['embedding'],
                                 uuid=chunk['uuid']
                             )
@@ -325,16 +335,6 @@ class VectorStoreManager:
             except Exception as e:
                 print(f"  Error storing batch {batch_num}: {e}")
                 error_count += len(storage_batch)
-        
-        # Check for batch errors
-        if hasattr(client.batch, 'failed_objects') and client.batch.failed_objects:
-            batch_errors = len(client.batch.failed_objects)
-            print(f"⚠️  Weaviate batch errors: {batch_errors}")
-            error_count += batch_errors
-            
-            # Show first few errors for debugging
-            for i, failed_obj in enumerate(client.batch.failed_objects[:3]):
-                print(f"    Error {i+1}: {failed_obj.message}")
         
         successful_count = processed_count - error_count
         print(f"✅ Storage complete:")
