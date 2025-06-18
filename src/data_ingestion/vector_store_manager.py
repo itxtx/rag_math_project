@@ -288,7 +288,7 @@ class VectorStoreManager:
     @staticmethod
     async def _store_chunks_in_weaviate(client, embedded_chunks: List[Dict], batch_size: int):
         """
-        Store embedded chunks in Weaviate using batch operations
+        Store embedded chunks in Weaviate using the correct v4 API with DataObject
         
         Args:
             client: Weaviate client
@@ -304,6 +304,9 @@ class VectorStoreManager:
         processed_count = 0
         error_count = 0
         
+        # Get the collection
+        collection = client.collections.get(WEAVIATE_CLASS_NAME)
+        
         # Process in batches to avoid memory issues
         storage_batches = [
             embedded_chunks[i:i+batch_size] 
@@ -314,24 +317,31 @@ class VectorStoreManager:
             print(f"  Storing batch {batch_num}/{len(storage_batches)} ({len(storage_batch)} chunks)...")
             
             try:
-                # Use v4 batch API
-                with client.batch as batch_context:
-                    for chunk in storage_batch:
-                        try:
-                            batch_context.add_object(
-                                collection=WEAVIATE_CLASS_NAME,
-                                properties=chunk['data_object'],
-                                vector=chunk['embedding'],
-                                uuid=chunk['uuid']
-                            )
-                            processed_count += 1
-                            
-                        except Exception as e:
-                            print(f"    Warning: Failed to add chunk {chunk.get('uuid', 'unknown')}: {e}")
-                            error_count += 1
+                # Prepare batch data for insert_many using DataObject
+                batch_data = []
+                for chunk in storage_batch:
+                    try:
+                        # Use DataObject for objects with custom vectors
+                        from weaviate.classes.data import DataObject
+                        
+                        data_object = DataObject(
+                            properties=chunk['data_object'],
+                            vector=chunk['embedding'],
+                            uuid=chunk['uuid']
+                        )
+                        batch_data.append(data_object)
+                    except Exception as e:
+                        print(f"    Warning: Failed to prepare chunk {chunk.get('uuid', 'unknown')}: {e}")
+                        error_count += 1
                 
-                print(f"  ✓ Batch {batch_num} stored successfully")
-                
+                if batch_data:
+                    # Use insert_many for batch insertion
+                    result = collection.data.insert_many(batch_data)
+                    processed_count += len(batch_data)
+                    print(f"  ✓ Batch {batch_num} stored successfully")
+                else:
+                    print(f"  Warning: No valid data in batch {batch_num}")
+                    
             except Exception as e:
                 print(f"  Error storing batch {batch_num}: {e}")
                 error_count += len(storage_batch)
