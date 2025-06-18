@@ -4,9 +4,68 @@ import os
 import sys
 from unittest.mock import MagicMock, patch, AsyncMock
 from contextlib import asynccontextmanager
+from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
-# Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# --- Setup Project Path ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# --- Session-Scoped Mocks ---
+@pytest.fixture(scope='session', autouse=True)
+def mock_external_dependencies():
+    mock_weaviate = MagicMock()
+    mock_weaviate.is_ready.return_value = True
+    query_chain_mock = MagicMock()
+    query_chain_mock.get.return_value = query_chain_mock
+    query_chain_mock.with_additional.return_value = query_chain_mock
+    query_chain_mock.with_limit.return_value = query_chain_mock
+    query_chain_mock.with_near_vector.return_value = query_chain_mock
+    query_chain_mock.with_where.return_value = query_chain_mock
+    query_chain_mock.with_sort.return_value = query_chain_mock
+    query_chain_mock.do.return_value = {"data": {"Get": {"MathDocumentChunk": []}}}
+    mock_weaviate.query = query_chain_mock
+    mock_st_model = MagicMock()
+    mock_st_model.encode.return_value = [0.1] * 384
+    with patch('src.data_ingestion.vector_store_manager.get_weaviate_client', return_value=mock_weaviate), \
+         patch('src.data_ingestion.vector_store_manager.SentenceTransformer', return_value=mock_st_model), \
+         patch('sentence_transformers.SentenceTransformer', return_value=mock_st_model), \
+         patch('src.learner_model.profile_manager.LearnerProfileManager') as mock_pm, \
+         patch('src.generation.question_generator_rag.RAGQuestionGenerator') as mock_qg, \
+         patch('src.evaluation.answer_evaluator.AnswerEvaluator') as mock_ae, \
+         patch('src.pipeline.run_gnn_training', return_value=None):
+        mock_pm.return_value = MagicMock()
+        mock_qg.return_value = MagicMock()
+        mock_ae.return_value = MagicMock()
+        yield
+
+@asynccontextmanager
+async def mock_lifespan(app):
+    app.state.components = MagicMock()
+    app.state.profile_manager = MagicMock()
+    app.state.question_selector = MagicMock()
+    app.state.question_generator = MagicMock()
+    app.state.answer_evaluator = MagicMock()
+    app.state.active_interactions = {}
+    yield
+
+@pytest.fixture(scope="session")
+def test_app():
+    from src.api.fast_api import app
+    app.router.lifespan_context = mock_lifespan
+    return app
+
+@pytest.fixture
+def client(test_app):
+    with TestClient(test_app) as test_client:
+        yield test_client
+
+@pytest.fixture
+def mock_config(monkeypatch):
+    import src.config as config
+    monkeypatch.setattr(config, "DATA_DIR_RAW_LATEX", "/tmp/latex")
+    monkeypatch.setattr(config, "PROCESSED_DOCS_LOG_FILE", "/tmp/processed.log")
 
 # CRITICAL FIX 1: Set test environment variables BEFORE any imports
 os.environ["WEAVIATE_URL"] = "http://localhost:8080"

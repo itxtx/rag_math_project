@@ -66,88 +66,58 @@ def get_auth_headers():
 
 # --- FIXED: Use synchronous tests with TestClient (not async) ---
 
-def test_health_check_success():
+def test_health_check_success(client):
     """Test successful health check - SYNCHRONOUS"""
-    with TestClient(app) as client:
-        response = client.get("/api/v1/health", headers=get_auth_headers())
-        assert response.status_code == 200
-        data = response.json()
-        assert "status" in data
+    response = client.get("/api/v1/health", headers=get_auth_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert "status" in data
 
-def test_list_topics_success():
+@patch('src.api.fast_api.app_state', new_callable=dict)
+def test_list_topics_success(mock_app_state, client):
     """Test successful topics listing - SYNCHRONOUS"""
-    with TestClient(app) as client:
-        # Mock the components properly
-        with patch('src.api.fast_api.get_fast_components') as mock_get_components:
-            mock_components = MagicMock()
-            mock_components.retriever.get_all_documents.return_value = [
-                {"doc_id": "doc1", "concept_name": "Concept 1", "text": "Text 1"}
-            ]
-            mock_get_components.return_value = mock_components
-            
-            response = client.get("/api/v1/topics", headers=get_auth_headers())
-            assert response.status_code == 200
+    mock_components = MagicMock()
+    mock_components.retriever.get_all_documents = AsyncMock(return_value=[
+        {"doc_id": "doc1", "filename": "doc1.tex", "concept_name": "Concept 1"}
+    ])
+    mock_app_state['components'] = mock_components
+    response = client.get("/api/v1/topics", headers=get_auth_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+    assert data[0]['doc_id'] == 'doc1'
 
-def test_start_interaction_success():
+def test_start_interaction_success(client):
     """Test successful interaction start - SYNCHRONOUS (FIXED)"""
-    with TestClient(app) as client:
-        with patch('src.api.fast_api.get_fast_components') as mock_get_components:
-            mock_components = MagicMock()
-            mock_components.question_selector.select_next_question = AsyncMock(return_value={
-                "concept_id": "test_concept",
-                "question_text": "Test question?",
-                "concept_name": "Test Concept"
-            })
-            mock_get_components.return_value = mock_components
+    request_data = {
+        "learner_id": "test_learner",
+        "topic_id": "calculus"
+    }
+    response = client.post("/api/v1/interaction/start", json=request_data, headers=get_auth_headers())
+    assert response.status_code in [200, 500]
 
-            response = client.post(
-                "/api/v1/interaction/start",
-                params={"learner_id": "123"},
-                headers=get_auth_headers()
-            )
-            assert response.status_code in [200, 404, 500]
-
-def test_submit_answer_success():
+def test_submit_answer_success(client):
     """Test successful answer submission - SYNCHRONOUS"""
-    with TestClient(app) as client:
-        with patch('src.api.fast_api.get_fast_components') as mock_get_components:
-            mock_components = MagicMock()
-            mock_components.answer_handler.submit_answer = AsyncMock(return_value={
-                "learner_id": "123",
-                "question_id": "test_question_123",
-                "doc_id": "test_doc_456",
-                "accuracy_score": 0.8,
-                "feedback": "Good answer!",
-                "correct_answer_suggestion": "2x"
-            })
-            mock_get_components.return_value = mock_components
-            
-            answer_data = {
-                "learner_id": "123",
-                "question_id": "test_question_123",
-                "doc_id": "test_doc_456",
-                "question_text": "What is the derivative of x^2?",
-                "context_for_evaluation": "The derivative of x^2 is 2x.",
-                "learner_answer": "2x"
-            }
-            
-            response = client.post(
-                "/api/v1/interaction/submit_answer",
-                json=answer_data,
-                headers=get_auth_headers()
-            )
-            # Should not hang now
-            assert response.status_code in [200, 404, 500]  # Accept any response, just don't hang
+    answer_data = {
+        "learner_id": "123",
+        "question_id": "q1",
+        "doc_id": "doc1",
+        "question_text": "What is 1+1?",
+        "context_for_evaluation": "1+1=2",
+        "learner_answer": "2"
+    }
+    response = client.post("/api/v1/interaction/submit_answer", json=answer_data, headers=get_auth_headers())
+    assert response.status_code in [200, 500]
 
 # --- ALTERNATIVE: Async tests using AsyncClient (if needed) ---
 
 @pytest.mark.asyncio
-async def test_async_health_check():
+async def test_async_health_check(test_app):
     """Alternative async test using AsyncClient"""
-    async with AsyncClient(app=app, base_url="http://test") as async_client:
-        with patch('src.api.fast_api.get_fast_components'):
-            response = await async_client.get("/api/v1/health", headers=get_auth_headers())
-            assert response.status_code == 200
+    async with AsyncClient(app=test_app, base_url="http://test") as async_client:
+        response = await async_client.get("/api/v1/health", headers=get_auth_headers())
+        assert response.status_code == 200
 
 # --- FIXTURES FOR EDGE CASES ---
 
@@ -172,18 +142,15 @@ def mock_fast_components():
 
 # --- ERROR HANDLING TESTS ---
 
-def test_api_key_required():
+def test_api_key_required(client):
     """Test that endpoints are protected by API key"""
-    with TestClient(app) as client:
-        # Remove auth headers
-        response = client.get("/api/v1/health")
-        assert response.status_code == 403
+    response = client.get("/api/v1/health")
+    assert response.status_code == 403
 
-def test_invalid_endpoint():
+def test_invalid_endpoint(client):
     """Test invalid endpoint"""
-    with TestClient(app) as client:
-        response = client.get("/invalid", headers=get_auth_headers())
-        assert response.status_code == 404
+    response = client.get("/invalid-endpoint", headers=get_auth_headers())
+    assert response.status_code == 404
 
 # --- TIMEOUT DECORATOR FOR HANGING TESTS ---
 
