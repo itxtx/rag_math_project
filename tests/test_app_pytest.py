@@ -155,24 +155,18 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
     """Test interactive application with invalid topic choice."""
     input_sequence = ["test_learner", "99", "1"]
     with patch('sys.stdin', mock_input_invalid_topic), \
-         patch('builtins.input', side_effect=input_sequence), \
-         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', return_value=MagicMock()), \
-         patch('src.app.pipeline.vector_store_manager.create_weaviate_schema', return_value=None), \
-         patch('src.app.pipeline.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
-         patch('src.app.pipeline.retriever.HybridRetriever', return_value=MagicMock()), \
-         patch('src.app.pipeline.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
-         patch('builtins.print') as mock_print:
-        mock_qs_instance = MagicMock()
-        mock_qs_instance.curriculum_map = [
-            {"doc_id": "topic1", "concept_name": "Topic 1"}
-        ]
-        mock_qs_class.return_value = mock_qs_instance
+        patch('builtins.input', side_effect=input_sequence), \
+        patch('src.app.get_available_topics', return_value={"1": "topic1", "2": "topic2"}), \
+        patch('src.pipeline.retriever.HybridRetriever'), \
+        patch('src.app.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+        patch('src.learner_model.profile_manager.LearnerProfileManager'):
+
         await main_interactive_app()
+
         mock_run_full_pipeline.assert_awaited_once_with(
-            interactive_mode=True,
-            initial_learner_id="test_learner",
-            target_topic_id="topic1"
+            interactive_mode=True, 
+            initial_learner_id='test_learner', 
+            target_topic_id='topic1'
         )
 
 @pytest.mark.asyncio
@@ -268,20 +262,16 @@ async def test_main_interactive_app_profile_manager_cleanup():
         mock_profile_manager.close_db.assert_called_once()
 
 @pytest.mark.asyncio
-async def test_main_interactive_app_profile_manager_cleanup_on_error():
+async def test_main_interactive_app_profile_manager_cleanup_on_error(mock_input_success):
     """Test that LearnerProfileManager.close_db is called on error."""
     input_sequence = ["test_learner", "1"]
     with patch('builtins.input', side_effect=input_sequence), \
-         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', side_effect=Exception("Connection failed")), \
-         patch('src.app.pipeline.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
-         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
-         patch('builtins.print') as mock_print:
-        try:
-            asyncio.run(main_interactive_app())
-        except Exception:
-            pass
-        # Ensure close_db is called even on error
-        mock_pm.return_value.close_db.assert_called_once()
+         patch('src.app.run_full_pipeline', new_callable=AsyncMock, side_effect=Exception("Pipeline Failure")), \
+         patch('src.learner_model.profile_manager.LearnerProfileManager') as mock_pm_class:
+
+        mock_pm_instance = mock_pm_class.return_value
+        await main_interactive_app()
+        mock_pm_instance.close_db.assert_called_once()
 
 # --- Input Validation Tests ---
 
