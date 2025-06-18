@@ -431,13 +431,15 @@ def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
     
-    with patch('src.pipeline.os.path.exists', side_effect=lambda x: x == embeddings_file), \
+    with patch('src.pipeline.run_gnn_training') as mock_run_training, \
+         patch('src.pipeline.os.path.exists', side_effect=lambda x: x == embeddings_file), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
         
         run_fast_gnn_training()
         
         mock_sys.exit.assert_called_once_with(1)
+        mock_logger().error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
     """Test GNN training when embeddings file is missing."""
@@ -446,13 +448,15 @@ def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
     with open(graph_file, 'w') as f:
         f.write("test graph content")
     
-    with patch('src.pipeline.os.path.exists', side_effect=lambda x: x == graph_file), \
+    with patch('src.pipeline.run_gnn_training') as mock_run_training, \
+         patch('src.pipeline.os.path.exists', side_effect=lambda x: x == graph_file), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
         
         run_fast_gnn_training()
         
         mock_sys.exit.assert_called_once_with(1)
+        mock_logger().error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings_dir):
     """Test GNN training when training raises an exception."""
@@ -473,6 +477,7 @@ def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings
         run_fast_gnn_training()
         
         mock_sys.exit.assert_called_once_with(1)
+        mock_logger().error.assert_any_call("❌ GNN training failed: Training error")
 
 def test_run_fast_gnn_training_module_not_available():
     """Test GNN training when the module is not available."""

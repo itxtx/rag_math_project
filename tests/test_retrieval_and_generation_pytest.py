@@ -88,7 +88,7 @@ def weaviate_client():
     vector_store_manager.create_weaviate_schema(client)
 
     # Ingest test data
-    vector_store_manager.embed_and_store_chunks(
+    vector_store_manager.fast_embed_and_store_chunks(
         client,
         DUMMY_CHUNKS_FOR_INTEGRATION_TEST,
         batch_size=2

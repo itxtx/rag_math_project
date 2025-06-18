@@ -58,7 +58,7 @@ async def test_lifespan(app):
 app.router.lifespan_context = test_lifespan
 
 # Test API key
-TEST_API_KEY = "test-api-key-12345"
+TEST_API_KEY = "test-key"
 
 def get_auth_headers():
     """Get headers with API key for authenticated requests."""
@@ -103,7 +103,7 @@ def test_start_interaction_success():
             response = client.post(
                 "/api/v1/interaction/start",
                 params={"learner_id": "123"},
-                headers={"X-API-Key": "test-key"}
+                headers=get_auth_headers()
             )
             assert response.status_code in [200, 404, 500]
 

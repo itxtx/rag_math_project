@@ -66,11 +66,12 @@ async def test_initialization_and_curriculum_map_loading(mock_retriever, mock_qu
 @pytest.mark.asyncio
 async def test_select_next_question_no_concepts(question_selector):
     """Test question selection when there are no concepts available."""
+    selector = await question_selector
     # Ensure curriculum map is empty for this test
-    question_selector.curriculum_map = []
-    question_selector.is_initialized.set()
+    selector.curriculum_map = []
+    selector.is_initialized.set()
 
-    result = await question_selector.select_next_question("learner1")
+    result = await selector.select_next_question("learner1")
     
     assert result['error'] == 'No curriculum content available.'
 
@@ -78,12 +79,12 @@ async def test_select_next_question_no_concepts(question_selector):
 @pytest.mark.asyncio
 async def test_select_next_question_review_concepts(question_selector, mock_profile_manager, mock_question_generator, mock_retriever):
     """Test question selection when there are concepts for review."""
-    
+    selector = await question_selector
     mock_retriever.get_all_chunks_metadata.return_value = [
         {"concept_id": "concept1", "text": "Calculus concept", "doc_id": "doc1", "concept_name": "Calculus"}
     ]
     # We now call initialize() inside the test to ensure the mock is set up first
-    await question_selector.initialize()
+    await selector.initialize()
 
     mock_profile_manager.get_concepts_for_review.return_value = [
         {"concept_id": "concept1", "current_score": 0.2}
@@ -92,7 +93,7 @@ async def test_select_next_question_review_concepts(question_selector, mock_prof
         {'chunk_text': 'Calculus is the study of change.'}
     ]
 
-    result = await question_selector.select_next_question("learner1")
+    result = await selector.select_next_question("learner1")
     
     assert result is not None
     assert result['question_text'] == "Test question"
@@ -101,18 +102,18 @@ async def test_select_next_question_review_concepts(question_selector, mock_prof
 @pytest.mark.asyncio
 async def test_select_next_question_new_concepts(question_selector, mock_profile_manager, mock_question_generator, mock_retriever):
     """Test question selection when there are new concepts to learn."""
-    
+    selector = await question_selector
     mock_retriever.get_all_chunks_metadata.return_value = [
         {"concept_id": "concept1", "text": "Calculus concept", "doc_id": "doc1", "concept_name": "Calculus"}
     ]
-    await question_selector.initialize()
+    await selector.initialize()
 
     mock_profile_manager.get_concept_knowledge.return_value = None  # New concept
     mock_retriever.get_chunks_for_parent_block.return_value = [
         {'chunk_text': 'Calculus is the study of change.'}
     ]
 
-    result = await question_selector.select_next_question("learner1")
+    result = await selector.select_next_question("learner1")
     
     assert result is not None
     assert result['question_text'] == "Test question"

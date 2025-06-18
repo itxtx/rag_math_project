@@ -5,6 +5,7 @@ import asyncio
 import os
 import sys
 import src.pipeline as pipeline
+import runpy
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -39,7 +40,7 @@ def test_setup_environment_with_env_file(mock_env_file):
     """Test environment setup when .env file exists."""
     with patch('os.path.exists', return_value=True), \
          patch('builtins.open', mock_open(read_data=mock_env_file)), \
-         patch('dotenv.load_dotenv') as mock_load_dotenv:
+         patch('src.app.load_dotenv') as mock_load_dotenv:
         
         setup_environment()
         
@@ -58,7 +59,7 @@ def test_setup_environment_env_file_path():
     """Test that the correct .env file path is used."""
     with patch('os.path.exists', return_value=True), \
          patch('builtins.open', mock_open(read_data="")), \
-         patch('dotenv.load_dotenv') as mock_load_dotenv:
+         patch('src.app.load_dotenv') as mock_load_dotenv:
         
         setup_environment()
         
@@ -152,8 +153,10 @@ async def test_main_interactive_app_topic_selection_error(mock_input_success):
 @pytest.mark.asyncio
 async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topic):
     """Test interactive application with invalid topic choice."""
+    # The first input is learner_id, the second is topic number (simulate invalid then valid)
+    input_sequence = ["test_learner", "2", "1"]  # 2 is invalid, 1 is valid
     with patch('sys.stdin', mock_input_invalid_topic), \
-         patch('builtins.input', side_effect=mock_input_invalid_topic.getvalue().split('\n')[:-1]), \
+         patch('builtins.input', side_effect=input_sequence), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -186,7 +189,9 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
 @pytest.mark.asyncio
 async def test_main_interactive_app_default_learner_id():
     """Test interactive application with default learner ID."""
-    with patch('builtins.input', return_value=""), \
+    # First input is empty (default learner), second is empty (adaptive)
+    input_sequence = ["", ""]
+    with patch('builtins.input', side_effect=input_sequence), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -301,8 +306,10 @@ async def test_main_interactive_app_profile_manager_cleanup_on_error():
 @pytest.mark.asyncio
 async def test_main_interactive_app_invalid_learner_id_input(mock_input_invalid_learner):
     """Test interactive application with invalid learner ID input."""
+    # First input is invalid learner, second is empty (adaptive)
+    input_sequence = ["test_learner", ""]
     with patch('sys.stdin', mock_input_invalid_learner), \
-         patch('builtins.input', side_effect=mock_input_invalid_learner.getvalue().split('\n')[:-1]), \
+         patch('builtins.input', side_effect=input_sequence), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -404,49 +411,26 @@ def test_main_entry_point_success():
     """Test the main entry point with successful execution."""
     with patch('asyncio.run') as mock_run, \
          patch('src.app.main_interactive_app') as mock_main:
-        
-        # Import and run the main block
-        with patch('builtins.__import__', side_effect=__import__):
-            # This simulates running the file directly
-            if __name__ == "__main__":
-                asyncio.run(main_interactive_app())
-        
+        runpy.run_path('src/app.py', run_name='__main__')
         mock_run.assert_called_once_with(mock_main.return_value)
 
 def test_main_entry_point_keyboard_interrupt():
     """Test the main entry point with keyboard interrupt."""
     with patch('asyncio.run', side_effect=KeyboardInterrupt), \
          patch('builtins.print') as mock_print:
-        
-        # Import and run the main block
-        with patch('builtins.__import__', side_effect=__import__):
-            # This simulates running the file directly
-            if __name__ == "__main__":
-                try:
-                    asyncio.run(main_interactive_app())
-                except KeyboardInterrupt:
-                    print("\nApplication interrupted by user. Exiting.")
-        
-        mock_print.assert_called_with("\nApplication interrupted by user. Exiting.")
+        try:
+            runpy.run_path('src/app.py', run_name='__main__')
+        except KeyboardInterrupt:
+            pass
+        mock_print.assert_any_call("\nApplication interrupted by user. Exiting.")
 
 def test_main_entry_point_general_exception():
     """Test the main entry point with general exception."""
     with patch('asyncio.run', side_effect=Exception("Test error")), \
          patch('builtins.print') as mock_print, \
          patch('traceback.print_exc') as mock_traceback:
-        
-        # Import and run the main block
-        with patch('builtins.__import__', side_effect=__import__):
-            # This simulates running the file directly
-            if __name__ == "__main__":
-                try:
-                    asyncio.run(main_interactive_app())
-                except Exception as e:
-                    print(f"An error occurred in the main application flow: {e}")
-                    import traceback
-                    traceback.print_exc()
-        
-        mock_print.assert_called_with("An error occurred in the main application flow: Test error")
+        runpy.run_path('src/app.py', run_name='__main__')
+        mock_print.assert_any_call("An error occurred in the main application flow: Test error")
         mock_traceback.assert_called_once()
 
 # --- Integration Tests ---
