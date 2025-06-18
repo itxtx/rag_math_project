@@ -17,15 +17,17 @@ def setup_environment():
     else:
         print(f".env file not found at {os.path.abspath(dotenv_path)}. Relying on system environment variables.")
 
-async def get_available_topics():
+async def get_available_topics(temp_pm=None):
     """
     Fetches available topics using the same logic as in main_interactive_app.
     Returns a list of topic dicts, or an empty list on error.
+    Optionally accepts a profile manager instance to use (for testability).
     """
     try:
         weaviate_client_for_topics = pipeline.vector_store_manager.get_weaviate_client()
         pipeline.vector_store_manager.create_weaviate_schema(weaviate_client_for_topics)
-        temp_pm = pipeline.profile_manager.LearnerProfileManager()
+        if temp_pm is None:
+            temp_pm = pipeline.profile_manager.LearnerProfileManager()
         temp_retriever = pipeline.retriever.HybridRetriever(weaviate_client=weaviate_client_for_topics)
         q_selector_for_topics = pipeline.question_selector.QuestionSelector(
             profile_manager=temp_pm,
@@ -34,7 +36,6 @@ async def get_available_topics():
         )
         await q_selector_for_topics.initialize()
         available_topics_list = q_selector_for_topics.curriculum_map
-        temp_pm.close_db()
         return available_topics_list
     except Exception as e:
         print(f"Warning: Could not fetch available topics: {e}. Proceeding without topic selection.")
@@ -44,9 +45,9 @@ async def main_interactive_app():
     print("Starting RAG System - Interactive Application Mode...")
     setup_environment()
 
-    temp_pm = None
+    temp_pm = pipeline.profile_manager.LearnerProfileManager()
     try:
-        available_topics_list = await get_available_topics()
+        available_topics_list = await get_available_topics(temp_pm=temp_pm)
 
         print("\n\n--- Interactive Learner Session ---")
         default_learner_id = "default_learner"

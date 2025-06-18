@@ -266,7 +266,7 @@ async def test_main_interactive_app_profile_manager_cleanup_on_error(mock_input_
     """Test that LearnerProfileManager.close_db is called on error."""
     input_sequence = ["test_learner", "1"]
     with patch('builtins.input', side_effect=input_sequence), \
-         patch('src.app.run_full_pipeline', new_callable=AsyncMock, side_effect=Exception("Pipeline Failure")), \
+         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock, side_effect=Exception("Pipeline Failure")), \
          patch('src.learner_model.profile_manager.LearnerProfileManager') as mock_pm_class:
 
         mock_pm_instance = mock_pm_class.return_value
