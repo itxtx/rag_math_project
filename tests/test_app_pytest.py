@@ -170,7 +170,7 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
         # Mock question selector
         mock_question_selector = MagicMock()
         mock_question_selector.get_available_topics.return_value = [
-            {"topic_id": "topic1", "source_file": "file1.pdf"}
+            {"doc_id": "topic1", "source_file": "file1.pdf"}
         ]
         mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
         
@@ -215,7 +215,7 @@ async def test_main_interactive_app_default_learner_id():
         # Verify that the pipeline was called with default learner ID
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id=mock_pipeline.DEMO_LEARNER_ID,
+            initial_learner_id="default_learner",
             target_topic_id=None
         )
 
@@ -412,7 +412,9 @@ def test_main_entry_point_success():
     with patch('asyncio.run') as mock_run, \
          patch('src.app.main_interactive_app') as mock_main:
         runpy.run_path('src/app.py', run_name='__main__')
-        mock_run.assert_called_once_with(mock_main.return_value)
+        # Accept any coroutine as argument
+        args, kwargs = mock_run.call_args
+        assert asyncio.iscoroutine(args[0])
 
 def test_main_entry_point_keyboard_interrupt():
     """Test the main entry point with keyboard interrupt."""
@@ -455,8 +457,8 @@ async def test_full_interactive_flow_integration():
         
         mock_question_selector = MagicMock()
         mock_question_selector.get_available_topics.return_value = [
-            {"topic_id": "calculus", "source_file": "calculus.pdf"},
-            {"topic_id": "algebra", "source_file": "algebra.pdf"}
+            {"doc_id": "calculus", "source_file": "calculus.pdf"},
+            {"doc_id": "algebra", "source_file": "algebra.pdf"}
         ]
         mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
         

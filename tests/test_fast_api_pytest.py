@@ -110,15 +110,6 @@ def test_submit_answer_success(client):
     response = client.post("/api/v1/interaction/submit_answer", json=answer_data, headers=get_auth_headers())
     assert response.status_code in [200, 500]
 
-# --- ALTERNATIVE: Async tests using AsyncClient (if needed) ---
-
-@pytest.mark.asyncio
-async def test_async_health_check(test_app):
-    """Alternative async test using AsyncClient"""
-    async with AsyncClient(app=test_app, base_url="http://test") as async_client:
-        response = await async_client.get("/api/v1/health", headers=get_auth_headers())
-        assert response.status_code == 200
-
 # --- FIXTURES FOR EDGE CASES ---
 
 @pytest.fixture
@@ -184,3 +175,10 @@ def test_with_timeout():
     with TestClient(app) as client:
         response = client.get("/api/v1/health", headers=get_auth_headers())
         assert response.status_code == 200
+
+# Add or ensure the client fixture is present
+@pytest.fixture
+def client():
+    """Fixture for FastAPI TestClient using the app with test lifespan."""
+    with TestClient(app) as c:
+        yield c

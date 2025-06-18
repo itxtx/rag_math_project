@@ -5,6 +5,13 @@ from src.data_ingestion import vector_store_manager
 
 # Mock the weaviate client before it's imported by other modules
 mock_weaviate_client = MagicMock()
+mock_weaviate_client.is_ready.return_value = True
+mock_weaviate_client.schema.exists.return_value = True
+mock_weaviate_client.schema.create_class.return_value = None
+mock_weaviate_client.batch.configure.return_value = None
+mock_weaviate_client.batch.__enter__.return_value = mock_weaviate_client.batch
+mock_weaviate_client.batch.__exit__.return_value = None
+mock_weaviate_client.batch.add_data_object.return_value = None
 
 # It's crucial to patch 'weaviate.connect_to_local' which is used in the source code
 @patch('weaviate.connect_to_local', return_value=mock_weaviate_client)
