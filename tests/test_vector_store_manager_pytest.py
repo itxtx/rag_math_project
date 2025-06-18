@@ -151,3 +151,31 @@ def test_create_weaviate_schema_exists():
     vector_store_manager.create_weaviate_schema(mock_client)
     mock_client.collections.exists.assert_called_with("MathConcept")
     mock_client.collections.create_from_dict.assert_not_called()
+
+def test_get_weaviate_client_success():
+    mock_client = MagicMock()
+    mock_client.is_ready.return_value = True
+    with patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', return_value=mock_client) as mock_connect:
+        client = vector_store_manager.get_weaviate_client()
+        print("Returned client:", client)
+        print("Mock client:", mock_client)
+        assert isinstance(client, MagicMock)
+        assert client.is_ready() is True
+        mock_connect.assert_called_once()
+
+def test_get_weaviate_client_failure_then_success():
+    mock_client1 = MagicMock()
+    mock_client1.is_ready.return_value = False
+    mock_client2 = MagicMock()
+    mock_client2.is_ready.return_value = True
+    with patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', side_effect=[mock_client1, mock_client2]) as mock_connect:
+        # First call: not ready, should raise
+        with pytest.raises(ConnectionError):
+            vector_store_manager.get_weaviate_client()
+        # Second call: ready
+        client = vector_store_manager.get_weaviate_client()
+        print("Returned client (second call):", client)
+        print("Mock client2:", mock_client2)
+        assert isinstance(client, MagicMock)
+        assert client.is_ready() is True
+        assert mock_connect.call_count == 2
