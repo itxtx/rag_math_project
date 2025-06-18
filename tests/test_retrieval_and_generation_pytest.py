@@ -180,3 +180,136 @@ async def test_retrieve_and_generate_questions_flow(
         "The prompt sent to LLM should contain text from a retrieved chunk"
     assert f"Generate exactly {num_questions_to_generate} question(s)" in prompt_sent_to_llm
     assert "factual questions" in prompt_sent_to_llm 
+
+# --- UNIT TESTS FOR RAGQuestionGenerator ---
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
+
+@pytest.fixture
+def rag_generator():
+    return RAGQuestionGenerator(llm_api_key="fake-key", llm_model_name="fake-model")
+
+def test_build_prompt_various_inputs(rag_generator):
+    # Test with different difficulties and styles
+    context_chunks = [
+        {"chunk_text": "Definition: A group is a set with an operation satisfying closure, associativity, identity, and invertibility."},
+        {"chunk_text": "A ring is a set equipped with two binary operations satisfying certain properties."}
+    ]
+    prompt = rag_generator._build_prompt(context_chunks, num_questions=2, question_type="conceptual", difficulty_level="advanced", question_style="fill_in_blank")
+    assert "fill in the blank" in prompt.lower()
+    assert "advanced" in prompt.lower()
+    assert "group is a set" in prompt
+    assert "ring is a set" in prompt
+    assert "2. " in prompt
+
+    # Test with beginner difficulty
+    prompt2 = rag_generator._build_prompt(context_chunks, num_questions=1, difficulty_level="beginner")
+    assert "straightforward" in prompt2.lower()
+    assert "1. " in prompt2
+
+    # Test with empty context
+    prompt3 = rag_generator._build_prompt([], num_questions=1)
+    assert prompt3 == ""
+
+    # Test with context chunks with empty text
+    prompt4 = rag_generator._build_prompt([{"chunk_text": "   "}], num_questions=1)
+    assert prompt4 == ""
+
+def test_build_prompt_handles_missing_chunk_text(rag_generator):
+    # Should skip chunks with no chunk_text
+    context_chunks = [
+        {"not_chunk_text": "irrelevant"},
+        {"chunk_text": "Valid content."}
+    ]
+    prompt = rag_generator._build_prompt(context_chunks, num_questions=1)
+    assert "Valid content." in prompt
+    assert "1. " in prompt
+
+@pytest.mark.asyncio
+async def test_generate_questions_empty_context(monkeypatch, rag_generator):
+    # Should not call LLM and return empty list
+    monkeypatch.setattr(rag_generator, "_call_llm_api", AsyncMock())
+    result = await rag_generator.generate_questions([], num_questions=1)
+    assert result == []
+    rag_generator._call_llm_api.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_generate_questions_llm_error(monkeypatch, rag_generator):
+    # LLM returns None or empty string
+    monkeypatch.setattr(rag_generator, "_call_llm_api", AsyncMock(return_value=None))
+    context_chunks = [{"chunk_text": "Some context."}]
+    result = await rag_generator.generate_questions(context_chunks, num_questions=1)
+    assert result == []
+    
+    monkeypatch.setattr(rag_generator, "_call_llm_api", AsyncMock(return_value=""))
+    result2 = await rag_generator.generate_questions(context_chunks, num_questions=1)
+    assert result2 == []
+
+# --- UNIT TESTS FOR HybridRetriever (retriever.py) ---
+
+class DummyWeaviateClient:
+    def __init__(self, docs):
+        self.docs = docs
+        self.query = self
+    def get(self, *args, **kwargs):
+        return self
+    def with_additional(self, *args, **kwargs):
+        return self
+    def with_limit(self, limit):
+        self._limit = limit
+        return self
+    def with_near_vector(self, *args, **kwargs):
+        return self
+    def do(self):
+        # Return docs up to limit
+        return {"data": {"Get": {"MathDocumentChunk": self.docs[:getattr(self, '_limit', len(self.docs))]}}}
+
+@pytest.fixture
+def dummy_docs():
+    return [
+        {"chunk_id": "c1", "doc_id": "d1", "chunk_text": "alpha beta", "concept_name": "Alpha"},
+        {"chunk_id": "c2", "doc_id": "d2", "chunk_text": "gamma delta", "concept_name": "Gamma"},
+    ]
+
+@pytest.fixture
+def hybrid_retriever(dummy_docs):
+    # Patch embedding model to avoid real computation
+    with patch("src.retrieval.retriever.SentenceTransformer") as mock_st:
+        mock_st.return_value.encode.return_value = np.ones(384)
+        return HybridRetriever(weaviate_client=DummyWeaviateClient(dummy_docs))
+
+@pytest.mark.asyncio
+async def test_fast_semantic_search_returns_results(hybrid_retriever):
+    results = await hybrid_retriever.fast_semantic_search("alpha", limit=1)
+    assert isinstance(results, list)
+    assert len(results) == 1
+    assert results[0]["chunk_id"] == "c1"
+
+@pytest.mark.asyncio
+async def test_fast_semantic_search_zero_results(hybrid_retriever):
+    # Patch client to return no docs
+    hybrid_retriever.weaviate_client.docs = []
+    results = await hybrid_retriever.fast_semantic_search("no match", limit=1)
+    assert results == []
+
+@pytest.mark.asyncio
+async def test_get_all_documents_filters_by_doc_id(hybrid_retriever, dummy_docs):
+    # Simulate filtering logic (if implemented)
+    all_docs = await hybrid_retriever.get_all_documents(limit=10)
+    filtered = [doc for doc in all_docs if doc["doc_id"] == "d1"]
+    assert len(filtered) == 1
+    assert filtered[0]["chunk_id"] == "c1"
+
+# --- (Optional) UNIT TESTS FOR hybrid_retriever.py ---
+# If you want, add a basic test to ensure the class can be instantiated (full integration would require test data files)
+
+def test_hybrid_retriever_instantiation():
+    with patch("src.retrieval.hybrid_retriever.SentenceTransformer"), \
+         patch("src.retrieval.hybrid_retriever.nx.read_graphml"), \
+         patch("src.retrieval.hybrid_retriever.pickle.load", return_value={"n1": np.ones(384)}), \
+         patch("src.retrieval.hybrid_retriever.faiss.IndexFlatIP") as mock_faiss, \
+         patch("src.retrieval.hybrid_retriever.LinkPredictorGNN") as mock_gnn, \
+         patch("src.retrieval.hybrid_retriever.torch.load"):
+        mock_faiss.return_value.search.return_value = (None, [[0]])
+        instance = __import__("src.retrieval.hybrid_retriever", fromlist=["HybridRetriever"]).HybridRetriever()
+        assert instance is not None 

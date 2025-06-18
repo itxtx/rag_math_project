@@ -28,7 +28,7 @@ from src.interaction.answer_handler import AnswerHandler
 from src.adaptive_engine.question_selector import QuestionSelector
 
 # Import our optimized components
-from src.retrieval.optimized_retriever import OptimizedRetriever
+from src.retrieval.retriever import HybridRetriever
 
 class FastRAGComponents:
     """
@@ -59,7 +59,7 @@ class FastRAGComponents:
             
             # Use optimized retriever
             print("  🔍 Initializing optimized retriever...")
-            self._retriever = OptimizedRetriever(weaviate_client=self.weaviate_client)
+            self._retriever = HybridRetriever(weaviate_client=self.weaviate_client)
             
             # Profile manager
             print("  👤 Initializing profile manager...")

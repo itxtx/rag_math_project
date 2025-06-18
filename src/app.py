@@ -2,7 +2,7 @@
 import os
 import asyncio
 import sys 
-from src import pipeline 
+import src.pipeline as pipeline 
 from src import config 
 # For API call to list topics, if we decide to fetch from API
 # import httpx 
