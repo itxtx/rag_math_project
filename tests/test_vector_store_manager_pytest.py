@@ -17,12 +17,7 @@ mock_weaviate_client.batch.add_data_object.return_value = None
 @patch('weaviate.connect_to_local', return_value=mock_weaviate_client)
 def test_get_weaviate_client_success(mock_connect):
     """Test successful connection to Weaviate."""
-    mock_client = MagicMock()
-    mock_client.is_ready.return_value = True
-    mock_connect.return_value = mock_client
-    
     client = vector_store_manager.get_weaviate_client()
-    
     mock_connect.assert_called_once()
     assert client is not None
 
@@ -31,7 +26,7 @@ def test_get_weaviate_client_failure_then_success(mock_connect):
     """Test reconnection logic."""
     # Simulate failure on first call, success on second
     mock_connect.side_effect = [Exception("Connection failed"), mock_weaviate_client]
-    
+
     with pytest.raises(Exception, match="Connection failed"):
         vector_store_manager.get_weaviate_client()
 

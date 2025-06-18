@@ -19,15 +19,10 @@ def setup_environment():
 
 async def main_interactive_app():
     print("Starting RAG System - Interactive Application Mode...")
-    setup_environment() 
+    setup_environment()
 
     temp_pm = None
-    temp_retriever = None
-    q_selector_for_topics = None
     weaviate_client_for_topics = None
-    available_topics_list = []
-    learner_id = None
-    target_topic_id_input = None
     try:
         try:
             weaviate_client_for_topics = pipeline.vector_store_manager.get_weaviate_client()
@@ -37,17 +32,21 @@ async def main_interactive_app():
             q_selector_for_topics = pipeline.question_selector.QuestionSelector(
                 profile_manager=temp_pm,
                 retriever=temp_retriever,
-                question_generator=None 
+                question_generator=None
             )
             await q_selector_for_topics.initialize()
             available_topics_list = q_selector_for_topics.curriculum_map
         except Exception as e:
             print(f"Warning: Could not fetch available topics: {e}. Proceeding without topic selection.")
+            available_topics_list = []
+
         print("\n\n--- Interactive Learner Session ---")
         default_learner_id = "default_learner"
         learner_id_input = input(f"Enter your Learner ID (default: '{default_learner_id}'): ").strip()
         learner_id = learner_id_input if learner_id_input else default_learner_id
         print(f"Using Learner ID: {learner_id}")
+
+        target_topic_id_input = None
         if available_topics_list:
             print("\nAvailable Topics:")
             for i, topic_info in enumerate(available_topics_list):
@@ -69,9 +68,10 @@ async def main_interactive_app():
             print(f"Selected topic for questions: {target_topic_id_input if target_topic_id_input else 'Adaptive (any topic)'}")
         else:
             print("No topics loaded, proceeding with adaptive selection across all content (if any).")
+
         await pipeline.run_full_pipeline(
-            interactive_mode=True, 
-            initial_learner_id=learner_id, 
+            interactive_mode=True,
+            initial_learner_id=learner_id,
             target_topic_id=target_topic_id_input
         )
         print("\n--- End of Interactive Session ---")

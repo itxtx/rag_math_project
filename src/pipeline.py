@@ -56,7 +56,9 @@ class FastPipeline:
         """
         logger.info("🚀 Starting ingestion pipeline...")
         self.start_time = time.time()
-        
+        os.makedirs('data/graph_db', exist_ok=True)
+        os.makedirs('data/embeddings', exist_ok=True)
+
         try:
             # 1. Load raw content of new documents
             logger.info("📂 Loading new documents...")
@@ -71,10 +73,7 @@ class FastPipeline:
             # 2. Parse documents and build knowledge graph
             logger.info("🧠 Building Knowledge Graph...")
             self.graph_parser = LatexToGraphParser(model_name=config.EMBEDDING_MODEL_NAME)
-            
-            # Use ProcessPoolExecutor for CPU-bound parsing
-            max_workers = min(multiprocessing.cpu_count(), len(all_new_docs_data))
-            
+
             for doc_data in all_new_docs_data:
                 if doc_data['type'] == 'latex':
                     try:
@@ -92,9 +91,6 @@ class FastPipeline:
 
             # 3. Save graph and embeddings
             logger.info("💾 Saving knowledge graph and embeddings...")
-            os.makedirs('data/graph_db', exist_ok=True)
-            os.makedirs('data/embeddings', exist_ok=True)
-
             self.graph_parser.save_graph_and_embeddings(
                 'data/graph_db/knowledge_graph.graphml',
                 'data/embeddings/initial_text_embeddings.pkl'
@@ -107,7 +103,7 @@ class FastPipeline:
             if not conceptual_blocks:
                 logger.warning("⚠️  No conceptual blocks generated from graph.")
                 self._update_processed_log(all_new_docs_data)
-                return True if self.error_count < len(all_new_docs_data) else False
+                return self.error_count == 0
 
             # 5. Chunk the blocks
             final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
@@ -115,7 +111,7 @@ class FastPipeline:
             if not final_chunks:
                 logger.warning("⚠️  No chunks generated for vector store")
                 self._update_processed_log(all_new_docs_data)
-                return True if self.error_count < len(all_new_docs_data) else False
+                return False
 
             # 6. Fast embedding and storage
             logger.info(f"⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
@@ -138,7 +134,7 @@ class FastPipeline:
             if run_gnn_training:
                 logger.info("Next: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
 
-            return True if self.error_count < len(all_new_docs_data) else False
+            return self.error_count == 0
 
         except Exception as e:
             logger.error(f"❌ Pipeline failed with error: {e}")
@@ -167,21 +163,23 @@ def run_fast_gnn_training():
     """
     if not run_gnn_training:
         logger.error("❌ GNN training module not available")
-        sys.exit(1)
-    
+        return
+
     logger.info("🧠 Starting Fast GNN Training")
     start_time = time.time()
-    
+    os.makedirs('data/graph_db', exist_ok=True)
+    os.makedirs('data/embeddings', exist_ok=True)
+
     try:
         # Check if required files exist
         if not os.path.exists('data/graph_db/knowledge_graph.graphml'):
             logger.error("❌ Knowledge graph not found. Run 'make ingest' first.")
-            sys.exit(1)
-            
+            return
+
         if not os.path.exists('data/embeddings/initial_text_embeddings.pkl'):
             logger.error("❌ Initial embeddings not found. Run 'make ingest' first.")
-            sys.exit(1)
-        
+            return
+
         run_gnn_training()
         total_time = time.time() - start_time
         logger.info(f"✅ GNN training completed in {total_time:.2f} seconds!")
@@ -190,7 +188,6 @@ def run_fast_gnn_training():
         logger.error(f"❌ GNN training failed: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
 
 async def run_performance_test():
     """

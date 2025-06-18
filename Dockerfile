@@ -33,6 +33,7 @@ RUN pip install uv
 # 5. Copy the pyproject.toml file and install dependencies with uv
 
 COPY pyproject.toml .
+RUN uv sync 
 RUN uv pip install .[test] --system
 
 # 6. Copy the rest of your application source code into the container
