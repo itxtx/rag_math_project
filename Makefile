@@ -125,8 +125,8 @@ serve-dev:
 
 # Testing & Performance
 test:
-	@echo "$(BLUE)🏃 Running all tests inside Docker (with LaTeXML)...$(NC)"
-	docker-compose run --rm app pytest
+	@echo "🏃 Running tests with timeout protection..."
+	docker-compose run --rm app timeout 300 pytest -v --tb=short
 
 pytest: test
 

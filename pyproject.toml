@@ -31,6 +31,8 @@ test = [
     "pytest-asyncio>=0.23.5",
     "pytest-cov>=6.2.1",
     "pytest-mock>=3.10.0",
+    "pytest-timeout>=2.2.0",
+    "httpx>=0.27.0",
 ]
 
 [build-system]
@@ -44,15 +46,26 @@ allow-direct-references = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-asyncio_mode = "auto"
-addopts = "-v --cov=src --cov-report=term-missing"
+asyncio_mode = "strict"
+timeout = 30
+addopts = [
+    "-v",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--tb=short", 
+    "--disable-warnings",
+    "--timeout=30"
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
-    "ignore::UserWarning",
+    "ignore::UserWarning", 
+    "ignore::RuntimeWarning"
 ]
 markers = [
     "asyncio: marks tests as async",
     "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests"
 ]
 
 [tool.coverage.run]
@@ -60,6 +73,9 @@ source = ["src"]
 omit = [
     "tests/*",
     "**/__init__.py",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/.venv/*"
 ]
 
 [tool.coverage.report]
