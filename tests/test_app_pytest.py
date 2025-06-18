@@ -161,7 +161,7 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
          patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
          patch('src.retrieval.hybrid_retriever.HybridRetriever', return_value=MagicMock()), \
          patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.app.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
         mock_qs_instance = MagicMock()
         mock_qs_instance.curriculum_map = [
@@ -274,7 +274,7 @@ async def test_main_interactive_app_profile_manager_cleanup_on_error():
          patch('src.app.pipeline.vector_store_manager.get_weaviate_client', side_effect=Exception("Connection failed")), \
          patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
          patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.app.run_full_pipeline', new_callable=AsyncMock), \
+         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock), \
          patch('builtins.print') as mock_print:
         mock_profile_manager = mock_pm.return_value
         mock_profile_manager.close_db = MagicMock()
@@ -429,7 +429,7 @@ async def test_full_interactive_flow_integration():
          patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
          patch('src.retrieval.hybrid_retriever.HybridRetriever', return_value=MagicMock()), \
          patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.app.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
         mock_profile_manager = mock_pm.return_value
         mock_profile_manager.close_db = MagicMock()

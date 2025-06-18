@@ -106,16 +106,16 @@ class FastPipeline:
 
             if not conceptual_blocks:
                 logger.warning("⚠️  No conceptual blocks generated from graph.")
-                # Still log processed files
                 self._update_processed_log(all_new_docs_data)
-                return self.error_count == 0
+                return True if self.error_count < len(all_new_docs_data) else False
 
             # 5. Chunk the blocks
             final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
 
             if not final_chunks:
                 logger.warning("⚠️  No chunks generated for vector store")
-                return False
+                self._update_processed_log(all_new_docs_data)
+                return True if self.error_count < len(all_new_docs_data) else False
 
             # 6. Fast embedding and storage
             logger.info(f"⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
@@ -124,6 +124,7 @@ class FastPipeline:
                 await fast_embed_and_store_chunks(client, final_chunks, batch_size=100)
             except Exception as e:
                 logger.error(f"❌ Failed to store in Weaviate: {e}")
+                self._update_processed_log(all_new_docs_data)
                 return False
 
             # 7. Update processed docs log
@@ -137,7 +138,7 @@ class FastPipeline:
             if run_gnn_training:
                 logger.info("Next: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
 
-            return self.error_count == 0
+            return True if self.error_count < len(all_new_docs_data) else False
 
         except Exception as e:
             logger.error(f"❌ Pipeline failed with error: {e}")

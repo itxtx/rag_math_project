@@ -16,22 +16,14 @@ DEFAULT_ADDITIONAL_PROPERTIES = ["distance"]
 
 def get_weaviate_client():
     """Establishes a connection to the Weaviate instance and returns a client object."""
-    weaviate_url = config.WEAVIATE_URL
     try:
-        # Use the recommended way to connect from the weaviate-client library
-        # For local, use connect_to_local; for remote, use connect_to_wcs or connect_to_custom
-        if weaviate_url.startswith("http://") or weaviate_url.startswith("https://"):
-            host = weaviate_url.replace("http://", "").replace("https://", "").split(":")[0]
-            port = int(weaviate_url.split(":")[-1])
-            client = weaviate.connect_to_local(host=host, port=port)
-        else:
-            client = weaviate.connect_to_local()
+        client = weaviate.connect_to_local()
         if not client.is_ready():
             raise ConnectionError("Weaviate is not ready.")
         print("Successfully connected to Weaviate.")
         return client
     except Exception as e:
-        print(f"Failed to connect to Weaviate at {weaviate_url}: {e}")
+        print(f"Failed to connect to Weaviate: {e}")
         raise
 
 def get_embedding_model(model_name=None):

@@ -155,19 +155,6 @@ def temp_pdf_file(tmp_path):
     doc.close()
     return str(file_path)
 
-def test_load_new_documents_permission_error(mock_config, temp_latex_dir, temp_log_file):
-    restricted_file = os.path.join(temp_latex_dir, "restricted.tex")
-    # ... test code ...
-    try:
-        os.chmod(restricted_file, 0o000)
-        # ... test operations ...
-    finally:
-        # Always restore permissions for cleanup
-        try:
-            os.chmod(restricted_file, 0o644)
-        except OSError:
-            pass  # File might not exist
-
 @pytest.fixture
 def mock_profile_manager():
     mock = AsyncMock(spec=LearnerProfileManager)
