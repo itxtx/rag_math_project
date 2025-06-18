@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch, ANY
 import httpx
 from src.data_ingestion import vector_store_manager
 import weaviate
+import sys
 
 # Mock the weaviate client before it's imported by other modules
 mock_weaviate_client = MagicMock()
@@ -15,9 +16,10 @@ mock_weaviate_client.batch.__exit__.return_value = None
 mock_weaviate_client.batch.add_data_object.return_value = None
 
 # It's crucial to patch 'weaviate.connect_to_local' which is used in the source code
-@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', return_value=mock_weaviate_client)
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 def test_get_weaviate_client_success(mock_connect):
     """Test successful connection to Weaviate."""
+    from src.data_ingestion import vector_store_manager  # Move import here
     mock_client = MagicMock()
     mock_connect.return_value = mock_client
     vector_store_manager.get_weaviate_client(retries=1, delay=0)

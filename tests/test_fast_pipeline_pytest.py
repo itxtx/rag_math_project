@@ -411,7 +411,7 @@ def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
         f.write("test graph content")
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
-    with patch('src.pipeline.run_gnn_training') as mock_run_training, \
+    with patch('src.pipeline.run_fast_gnn_training') as mock_run_training, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
          patch('src.pipeline.sys.exit') as mock_sys_exit:
         mock_sys_exit.reset_mock()
@@ -428,12 +428,12 @@ def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
-         patch('src.pipeline.logging.getLogger') as mock_logger, \
+         patch('src.pipeline.logger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == embeddings_file), \
          patch('src.pipeline.sys.exit') as mock_sys_exit:
         mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_logger().error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
+        mock_logger.error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
         # Only check sys.exit if the code is supposed to call it; adjust as needed
 
 def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
@@ -445,12 +445,12 @@ def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
     with open(graph_file, 'w') as f:
         f.write("test graph content")
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
-         patch('src.pipeline.logging.getLogger') as mock_logger, \
+         patch('src.pipeline.logger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == graph_file), \
          patch('src.pipeline.sys.exit') as mock_sys_exit:
         mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_logger().error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
+        mock_logger.error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
         # Only check sys.exit if the code is supposed to call it; adjust as needed
 
 def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings_dir):
@@ -465,12 +465,12 @@ def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
     with patch('src.pipeline.run_gnn_training', side_effect=Exception("Training error")), \
-         patch('src.pipeline.logging.getLogger') as mock_logger, \
+         patch('src.pipeline.logger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
          patch('src.pipeline.sys.exit') as mock_sys_exit:
         mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_logger().error.assert_any_call("❌ GNN training failed: Training error")
+        mock_logger.error.assert_any_call("❌ GNN training failed: Training error")
         # Only check sys.exit if the code is supposed to call it; adjust as needed
 
 def test_run_fast_gnn_training_module_not_available():

@@ -156,7 +156,10 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
     input_sequence = ["test_learner", "99", "1"]
     with patch('sys.stdin', mock_input_invalid_topic), \
         patch('builtins.input', side_effect=input_sequence), \
-        patch('src.app.get_available_topics', return_value={"1": "topic1", "2": "topic2"}), \
+        patch('src.app.get_available_topics', return_value=[
+    {"doc_id": "topic1", "concept_name": "Topic 1"},
+    {"doc_id": "topic2", "concept_name": "Topic 2"}
+    ]), \
         patch('src.pipeline.retriever.HybridRetriever'), \
         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
         patch('src.learner_model.profile_manager.LearnerProfileManager'):
@@ -270,7 +273,8 @@ async def test_main_interactive_app_profile_manager_cleanup_on_error(mock_input_
          patch('src.learner_model.profile_manager.LearnerProfileManager') as mock_pm_class:
 
         mock_pm_instance = mock_pm_class.return_value
-        await main_interactive_app()
+        with pytest.raises(Exception, match="Pipeline Failure"):
+            await main_interactive_app()
         mock_pm_instance.close_db.assert_called_once()
 
 # --- Input Validation Tests ---
