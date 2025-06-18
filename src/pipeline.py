@@ -31,6 +31,7 @@ from src.data_ingestion import chunker
 from src.data_ingestion import vector_store_manager
 from src.data_ingestion.vector_store_manager import fast_embed_and_store_chunks
 from src.retrieval import retriever
+from src.learner_model import profile_manager
 
 # --- GNN Training Module ---
 try:

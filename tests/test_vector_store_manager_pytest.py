@@ -15,7 +15,7 @@ mock_weaviate_client.batch.__exit__.return_value = None
 mock_weaviate_client.batch.add_data_object.return_value = None
 
 # It's crucial to patch 'weaviate.connect_to_local' which is used in the source code
-@patch('src.data_ingestion.vector_store_manager.connect_to_local', return_value=mock_weaviate_client)
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', return_value=mock_weaviate_client)
 def test_get_weaviate_client_success(mock_connect):
     """Test successful connection to Weaviate."""
     mock_client = MagicMock()
@@ -23,7 +23,7 @@ def test_get_weaviate_client_success(mock_connect):
     vector_store_manager.get_weaviate_client(retries=1, delay=0)
     mock_connect.assert_called_once()
 
-@patch('src.data_ingestion.vector_store_manager.connect_to_local')
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 def test_get_weaviate_client_failure_then_success(mock_connect):
     """Test a scenario where the first connection attempt fails and the second succeeds."""
     mock_client = MagicMock()
@@ -39,7 +39,7 @@ def create_mock_response(status_code, json_body):
     mock_res.json.return_value = json_body
     return mock_res
 
-@patch('src.data_ingestion.vector_store_manager.connect_to_local')
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 def test_create_weaviate_schema_new(mock_connect):
     """Test schema creation when it does not exist."""
     mock_client = MagicMock()
@@ -52,7 +52,7 @@ def test_create_weaviate_schema_new(mock_connect):
     mock_client.collections.exists.assert_called_with("MathConcept")
     mock_client.collections.create_from_dict.assert_called_once()
 
-@patch('src.data_ingestion.vector_store_manager.connect_to_local')
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 def test_create_weaviate_schema_exists(mock_connect):
     """Test schema creation when it already exists."""
     mock_client = MagicMock()
@@ -65,7 +65,7 @@ def test_create_weaviate_schema_exists(mock_connect):
     mock_client.collections.create_from_dict.assert_not_called()
 
 @patch('src.data_ingestion.vector_store_manager.SentenceTransformer')
-@patch('src.data_ingestion.vector_store_manager.connect_to_local')
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 @pytest.mark.asyncio
 async def test_fast_embed_and_store_chunks(mock_connect, mock_transformer):
     """Test the optimized embedding and storage function."""
@@ -84,7 +84,7 @@ async def test_fast_embed_and_store_chunks(mock_connect, mock_transformer):
     mock_client.batch.__enter__.assert_called()
 
 @patch('src.data_ingestion.vector_store_manager.SentenceTransformer')
-@patch('src.data_ingestion.vector_store_manager.connect_to_local')
+@patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local')
 @pytest.mark.asyncio
 async def test_fast_embed_and_store_chunks_embedding_error(mock_connect, mock_transformer):
     """Test handling of embedding errors in the optimized function."""
