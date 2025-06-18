@@ -21,24 +21,32 @@ class HybridRetriever:
         with open('data/embeddings/initial_text_embeddings.pkl', 'rb') as f:
             text_embeddings_dict = pickle.load(f)
         
-        self.text_embeddings = np.array([text_embeddings_dict[node] for node in self.node_list])
-        self.text_index = faiss.IndexFlatIP(self.text_embeddings.shape[1])
-        self.text_index.add(self.text_embeddings)
-        print("Loaded text embeddings and FAISS index.")
+        self.text_embeddings = np.array([text_embeddings_dict.get(node) for node in self.node_list if node in text_embeddings_dict])
+        if self.text_embeddings.ndim == 2:
+            self.text_index = faiss.IndexFlatIP(self.text_embeddings.shape[1])
+            self.text_index.add(self.text_embeddings)
+            print("Loaded text embeddings and FAISS index.")
+        else:
+            print("Warning: Could not create FAISS index for text embeddings due to shape mismatch.")
+            self.text_index = None
 
         # --- Load GNN Embeddings & Build FAISS Index ---
         with open('data/embeddings/gnn_embeddings.pkl', 'rb') as f:
             gnn_embeddings_dict = pickle.load(f)
 
-        self.gnn_embeddings = np.array([gnn_embeddings_dict[node] for node in self.node_list])
-        self.gnn_index = faiss.IndexFlatIP(self.gnn_embeddings.shape[1])
-        self.gnn_index.add(self.gnn_embeddings)
-        print("Loaded GNN embeddings and FAISS index.")
+        self.gnn_embeddings = np.array([gnn_embeddings_dict.get(node) for node in self.node_list if node in gnn_embeddings_dict])
+        if self.gnn_embeddings.ndim == 2:
+            self.gnn_index = faiss.IndexFlatIP(self.gnn_embeddings.shape[1])
+            self.gnn_index.add(self.gnn_embeddings)
+            print("Loaded GNN embeddings and FAISS index.")
+        else:
+            print("Warning: Could not create FAISS index for GNN embeddings due to shape mismatch.")
+            self.gnn_index = None
         
         # --- Load Trained GNN Model for Link Prediction ---
         self.gnn_model = LinkPredictorGNN(
-            in_channels=self.text_embeddings.shape[1],
-            hidden_channels=128, # Must match training hyperparameters
+            in_channels=self.text_embeddings.shape[1] if self.text_embeddings.ndim == 2 else 768,
+            hidden_channels=128,
             out_channels=64
         )
         self.gnn_model.load_state_dict(torch.load('models/gnn/best_model.pt'))

@@ -5,6 +5,8 @@ import sys
 import asyncio
 import time
 import logging
+import pickle
+import networkx as nx
 from typing import Optional, List, Dict
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
@@ -44,13 +46,15 @@ class FastPipeline:
         self.start_time = None
         self.processed_count = 0
         self.error_count = 0
+        self.total_chunks_processed = 0
+        self.processed_doc_filenames = []
         
     async def run_ingestion(self) -> bool:
         """
         A unified and corrected data ingestion pipeline.
         Returns True if successful, False otherwise.
         """
-        logger.info("🚀 Starting Fast Data Ingestion Pipeline")
+        logger.info("🚀 Starting ingestion pipeline...")
         self.start_time = time.time()
         
         try:

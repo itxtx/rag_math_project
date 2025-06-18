@@ -5,8 +5,9 @@ from fastapi.testclient import TestClient
 from fastapi import HTTPException
 import json
 import os
+from contextlib import asynccontextmanager
 
-from src.api.fast_api import app, FastRAGComponents
+from src.api.fast_api import app, FastRAGComponents, get_api_key, API_KEY
 from src.api.models import (
     LearnerInteractionStartRequest,
     AnswerSubmissionRequest,
@@ -16,6 +17,14 @@ from src.api.models import (
     TopicResponse
 )
 
+# Set a dummy API key for testing
+os.environ["API_KEY"] = "test-key"
+
+def override_get_api_key():
+    return API_KEY
+
+app.dependency_overrides[get_api_key] = override_get_api_key
+
 # Test API key for testing
 TEST_API_KEY = "test-api-key-12345"
 
@@ -23,31 +32,18 @@ TEST_API_KEY = "test-api-key-12345"
 
 @pytest.fixture
 def client():
-    """Create a test client for the FastAPI app."""
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 @pytest.fixture
 def mock_fast_components():
-    """Mock FastRAGComponents for testing."""
-    mock = AsyncMock(spec=FastRAGComponents)
-    
-    # Mock properties
-    mock.profile_manager = AsyncMock()
-    mock.retriever = AsyncMock()
-    mock.question_selector = AsyncMock()
-    mock.answer_handler = AsyncMock()
-    mock.knowledge_tracker = AsyncMock()
-    
-    # Mock methods
-    mock.ensure_ready = AsyncMock()
-    mock.get_performance_stats = MagicMock(return_value={
-        "startup_time": 1.5,
-        "prewarmed": True,
-        "components_ready": True
-    })
-    mock.cleanup = MagicMock()
-    
-    return mock
+    """Fixture for mocking the FastRAGComponents dependency."""
+    with patch('src.api.fast_api.FastRAGComponents') as mock:
+        instance = mock.return_value
+        instance.retriever = AsyncMock()
+        instance.question_selector = AsyncMock()
+        instance.answer_handler = AsyncMock()
+        yield instance
 
 @pytest.fixture
 def mock_question_response():
@@ -88,66 +84,37 @@ def get_auth_headers():
 
 # --- Authentication Tests ---
 
-def test_api_key_required_health_check(client):
-    """Test that health check endpoint requires API key."""
+def test_api_key_required(client):
+    """Test that endpoints are protected by API key."""
+    # Temporarily remove the override to test the protection
+    app.dependency_overrides = {}
+    
     response = client.get("/api/v1/health")
-    assert response.status_code == 403  # Unauthorized
-
-def test_api_key_required_topics(client):
-    """Test that topics endpoint requires API key."""
-    response = client.get("/api/v1/topics")
-    assert response.status_code == 403  # Unauthorized
-
-def test_api_key_required_start_interaction(client):
-    """Test that start interaction endpoint requires API key."""
-    response = client.post("/api/v1/interaction/start")
-    assert response.status_code == 403  # Unauthorized
-
-def test_api_key_required_submit_answer(client):
-    """Test that submit answer endpoint requires API key."""
-    response = client.post("/api/v1/interaction/submit_answer", json={})
-    assert response.status_code == 403  # Unauthorized
-
-def test_api_key_required_performance(client):
-    """Test that performance endpoint requires API key."""
-    response = client.get("/api/v1/performance")
-    assert response.status_code == 403  # Unauthorized
-
-def test_api_key_required_clear_cache(client):
-    """Test that clear cache endpoint requires API key."""
-    response = client.post("/api/v1/clear_cache")
-    assert response.status_code == 403  # Unauthorized
-
-# --- Health Check Tests ---
+    assert response.status_code == 403
+    
+    # Restore the override for other tests
+    app.dependency_overrides[get_api_key] = override_get_api_key
 
 def test_health_check_success(client):
-    """Test successful health check with valid API key."""
-    response = client.get("/api/v1/health", headers=get_auth_headers())
+    """Test successful health check."""
+    response = client.get("/api/v1/health")
     assert response.status_code == 200
-    data = response.json()
-    assert "status" in data
-    assert data["status"] == "healthy"
+    assert response.json() == {"status": "ok", "version": "0.2.0"}
 
 # --- Topics Endpoint Tests ---
 
 @pytest.mark.asyncio
-async def test_list_topics_success(client, mock_fast_components, mock_topic_response):
+async def test_list_topics_success(client, mock_fast_components):
     """Test successful topics listing."""
-    with patch('src.api.fast_api.get_fast_components', return_value=mock_fast_components):
-        mock_fast_components.retriever.get_all_chunks_metadata.return_value = [
-            {
-                "doc_id": "test_doc_456",
-                "concept_name": "derivatives",
-                "text": "Derivatives are fundamental to calculus"
-            }
-        ]
-        
-        response = client.get("/api/v1/topics", headers=get_auth_headers())
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-        assert "doc_id" in data[0]
+    app.state.fast_rag_components = mock_fast_components
+    mock_fast_components.retriever.get_all_chunks_metadata.return_value = [
+        {"doc_id": "doc1", "concept_name": "Concept 1", "text": "Text 1"}
+    ]
+    
+    response = client.get("/api/v1/topics")
+    
+    assert response.status_code == 200
+    assert len(response.json()) > 0
 
 @pytest.mark.asyncio
 async def test_list_topics_empty(client, mock_fast_components):

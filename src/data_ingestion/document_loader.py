@@ -9,7 +9,10 @@ def load_processed_doc_filenames(log_file_path: str) -> Set[str]:
     processed_docs = set()
     if os.path.exists(log_file_path):
         with open(log_file_path, 'r', encoding='utf-8') as f:
-            processed_docs.update(line.strip() for line in f)
+            for line in f:
+                stripped_line = line.strip()
+                if stripped_line:
+                    processed_docs.add(stripped_line)
         print(f"Loaded {len(processed_docs)} filenames from processed documents log: {log_file_path}")
     return processed_docs
 
@@ -27,13 +30,11 @@ def update_processed_docs_log(log_file_path: str, newly_processed_filenames: Lis
 
 def load_new_documents() -> List[Dict]:
     """
-    Finds new LaTeX and PDF documents and loads their raw content.
-    This function NO LONGER PARSES. It only loads.
+    Finds new LaTeX documents and loads their raw content.
     """
     already_processed = load_processed_doc_filenames(config.PROCESSED_DOCS_LOG_FILE)
     new_docs_to_process = []
 
-    # --- Process LaTeX Files ---
     print(f"\n--- Checking for new LaTeX files in: {config.DATA_DIR_RAW_LATEX} ---")
     if os.path.isdir(config.DATA_DIR_RAW_LATEX):
         for filename in os.listdir(config.DATA_DIR_RAW_LATEX):
@@ -44,8 +45,14 @@ def load_new_documents() -> List[Dict]:
 
             file_path = os.path.join(config.DATA_DIR_RAW_LATEX, filename)
             try:
+                # Check for read permissions before attempting to open
+                if not os.access(file_path, os.R_OK):
+                    print(f"Warning: No read permissions for file: {file_path}. Skipping.")
+                    continue
+                
                 with open(file_path, 'r', encoding='utf-8') as f:
                     raw_content = f.read()
+                    
                 new_docs_to_process.append({
                     "doc_id": os.path.splitext(filename)[0],
                     "source": file_path,

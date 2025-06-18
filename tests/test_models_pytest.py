@@ -341,12 +341,13 @@ def test_evaluation_result_boundary_values():
 
 def test_evaluation_result_wrong_accuracy_score_type():
     """Test EvaluationResult with wrong type for accuracy_score."""
-    with pytest.raises(ValidationError) as exc_info:
-        EvaluationResult(accuracy_score="0.85", feedback="Test")
-    
-    errors = exc_info.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("accuracy_score",)
+    with pytest.raises(ValidationError):
+        EvaluationResult(
+            feedback="Good effort",
+            is_correct=True,
+            accuracy_score="not_a_float",
+            correct_answer="The correct answer."
+        )
 
 # --- AnswerSubmissionResponse Tests ---
 

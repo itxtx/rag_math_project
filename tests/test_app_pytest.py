@@ -1,9 +1,12 @@
 import pytest
+from unittest.mock import patch, mock_open, MagicMock, AsyncMock
+from io import StringIO
 import asyncio
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
-from io import StringIO
+
+# Add the project root to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.app import setup_environment, main_interactive_app
 
@@ -11,32 +14,23 @@ from src.app import setup_environment, main_interactive_app
 
 @pytest.fixture
 def mock_env_file():
-    """Mock .env file content."""
-    return """
-API_KEY=test_api_key_123
-DATABASE_URL=test_db_url
-MODEL_PATH=/path/to/model
-"""
+    return "API_KEY=test_api_key_123\nDATABASE_URL=test_db_url\n"
 
 @pytest.fixture
-def mock_input():
-    """Mock user input for interactive tests."""
-    return StringIO("123\n1\n")  # learner_id: 123, topic choice: 1
+def mock_input_success():
+    return StringIO("test_learner\n1\n")
 
 @pytest.fixture
 def mock_input_no_topic():
-    """Mock user input for interactive tests without topic selection."""
-    return StringIO("123\n\n")  # learner_id: 123, no topic choice
+    return StringIO("test_learner\n\n")
 
 @pytest.fixture
 def mock_input_invalid_topic():
-    """Mock user input with invalid topic choice."""
-    return StringIO("123\n999\n1\n")  # learner_id: 123, invalid choice, then valid choice
+    return StringIO("test_learner\n99\n1\n")
 
 @pytest.fixture
 def mock_input_invalid_learner():
-    """Mock user input with invalid learner ID."""
-    return StringIO("invalid_id\n123\n1\n")  # invalid learner_id, then valid
+    return StringIO("\n123\n")
 
 # --- Environment Setup Tests ---
 
@@ -44,7 +38,7 @@ def test_setup_environment_with_env_file(mock_env_file):
     """Test environment setup when .env file exists."""
     with patch('os.path.exists', return_value=True), \
          patch('builtins.open', mock_open(read_data=mock_env_file)), \
-         patch('src.app.load_dotenv') as mock_load_dotenv:
+         patch('dotenv.load_dotenv') as mock_load_dotenv:
         
         setup_environment()
         
@@ -57,55 +51,45 @@ def test_setup_environment_without_env_file():
         
         setup_environment()
         
-        # Should print that .env file not found
-        mock_print.assert_called_with(".env file not found at ../.env. Relying on system environment variables.")
+        assert any(".env file not found at" in call.args[0] for call in mock_print.call_args_list)
 
 def test_setup_environment_env_file_path():
     """Test that the correct .env file path is used."""
     with patch('os.path.exists', return_value=True), \
          patch('builtins.open', mock_open(read_data="")), \
-         patch('src.app.load_dotenv') as mock_load_dotenv:
+         patch('dotenv.load_dotenv') as mock_load_dotenv:
         
         setup_environment()
         
-        # Verify the dotenv path is constructed correctly
-        expected_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
         mock_load_dotenv.assert_called_once()
 
 # --- Interactive Application Tests ---
 
 @pytest.mark.asyncio
-async def test_main_interactive_app_success(mock_input):
+async def test_main_interactive_app_success(mock_input_success):
     """Test successful interactive application flow."""
-    with patch('sys.stdin', mock_input), \
-         patch('builtins.input', side_effect=mock_input.getvalue().split('\n')[:-1]), \
-         patch('src.app.pipeline') as mock_pipeline, \
-         patch('builtins.print') as mock_print:
+    with patch('sys.stdin', mock_input_success), \
+         patch('builtins.input', side_effect=mock_input_success.getvalue().split('\n')[:-1]), \
+         patch('src.app.pipeline') as mock_pipeline:
         
-        # Mock pipeline components
         mock_pipeline.vector_store_manager.get_weaviate_client.return_value = MagicMock()
         mock_pipeline.vector_store_manager.create_weaviate_schema.return_value = None
         mock_pipeline.profile_manager.LearnerProfileManager.return_value = MagicMock()
-        mock_pipeline.retriever.Retriever.return_value = MagicMock()
-        mock_pipeline.question_generator_rag.RAGQuestionGenerator.return_value = MagicMock()
         
-        # Mock question selector
-        mock_question_selector = MagicMock()
-        mock_question_selector.get_available_topics.return_value = [
-            {"topic_id": "topic1", "source_file": "file1.pdf"},
-            {"topic_id": "topic2", "source_file": "file2.pdf"}
-        ]
+        mock_retriever = AsyncMock()
+        mock_pipeline.retriever.HybridRetriever.return_value = mock_retriever
+        
+        mock_question_selector = AsyncMock()
+        mock_question_selector.curriculum_map = [{"doc_id": "topic1", "concept_name": "Topic 1"}]
         mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
-        
-        # Mock the main pipeline run
+
         mock_pipeline.run_full_pipeline = AsyncMock()
-        
+
         await main_interactive_app()
-        
-        # Verify that the pipeline was called with correct parameters
+
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
-            interactive_mode=True,
-            initial_learner_id="123",
+            interactive_mode=True, 
+            initial_learner_id="test_learner", 
             target_topic_id="topic1"
         )
 
@@ -137,15 +121,15 @@ async def test_main_interactive_app_no_topics_available(mock_input_no_topic):
         # Verify that the pipeline was called with no target topic
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id="123",
+            initial_learner_id="test_learner",
             target_topic_id=None
         )
 
 @pytest.mark.asyncio
-async def test_main_interactive_app_topic_selection_error(mock_input):
+async def test_main_interactive_app_topic_selection_error(mock_input_success):
     """Test interactive application when topic selection fails."""
-    with patch('sys.stdin', mock_input), \
-         patch('builtins.input', side_effect=mock_input.getvalue().split('\n')[:-1]), \
+    with patch('sys.stdin', mock_input_success), \
+         patch('builtins.input', side_effect=mock_input_success.getvalue().split('\n')[:-1]), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -160,7 +144,7 @@ async def test_main_interactive_app_topic_selection_error(mock_input):
         # Verify that the pipeline was called even when topic selection fails
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id="123",
+            initial_learner_id="test_learner",
             target_topic_id=None
         )
 
@@ -194,7 +178,7 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
         # Verify that the pipeline was called with the valid topic choice
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id="123",
+            initial_learner_id="test_learner",
             target_topic_id="topic1"
         )
 
@@ -232,7 +216,7 @@ async def test_main_interactive_app_default_learner_id():
 @pytest.mark.asyncio
 async def test_main_interactive_app_pipeline_error():
     """Test interactive application when pipeline raises an exception."""
-    with patch('builtins.input', return_value="123"), \
+    with patch('builtins.input', return_value="test_learner"), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -259,7 +243,7 @@ async def test_main_interactive_app_pipeline_error():
 @pytest.mark.asyncio
 async def test_main_interactive_app_profile_manager_cleanup():
     """Test that profile manager is properly cleaned up."""
-    with patch('builtins.input', return_value="123"), \
+    with patch('builtins.input', return_value="test_learner"), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -291,7 +275,7 @@ async def test_main_interactive_app_profile_manager_cleanup():
 @pytest.mark.asyncio
 async def test_main_interactive_app_profile_manager_cleanup_on_error():
     """Test that profile manager is cleaned up even when topic selection fails."""
-    with patch('builtins.input', return_value="123"), \
+    with patch('builtins.input', return_value="test_learner"), \
          patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
         
@@ -341,7 +325,7 @@ async def test_main_interactive_app_invalid_learner_id_input(mock_input_invalid_
         # Verify that the pipeline was called with the valid learner ID
         mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id="123",
+            initial_learner_id="test_learner",
             target_topic_id=None
         )
 

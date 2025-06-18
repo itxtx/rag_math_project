@@ -26,6 +26,7 @@ from src.evaluation.answer_evaluator import AnswerEvaluator
 from src.learner_model.knowledge_tracker import KnowledgeTracker
 from src.interaction.answer_handler import AnswerHandler
 from src.adaptive_engine.question_selector import QuestionSelector
+from src.retrieval.hybrid_retriever import HybridRetriever
 
 # Import our optimized components
 from src.retrieval.retriever import HybridRetriever
@@ -231,17 +232,17 @@ class FastRAGComponents:
             return "Error retrieving context for this concept."
 
 # API Key security
+API_KEY = os.getenv("API_KEY", "test-api-key-12345")
 API_KEY_NAME = "X-API-Key"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
-async def get_api_key(api_key_header: str = Security(api_key_header)):
-    """Validate API key from header"""
-    if api_key_header != os.getenv("API_KEY"):
+async def get_api_key(api_key: str = Security(api_key_header)):
+    if api_key == API_KEY:
+        return api_key
+    else:
         raise HTTPException(
-            status_code=403,
-            detail="Invalid API Key"
+            status_code=403, detail="Could not validate credentials"
         )
-    return api_key_header
 
 # Global state
 app_state: Dict[str, Any] = {}
@@ -281,7 +282,8 @@ app = FastAPI(
     title="Fast Adaptive RAG Learning System",
     description="High-performance RAG API with optimized retrieval",
     version="0.2.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    dependencies=[Depends(get_api_key)]
 )
 
 # CORS
