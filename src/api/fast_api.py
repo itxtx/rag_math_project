@@ -254,27 +254,43 @@ async def lifespan(app: FastAPI):
     
     # Initialize components
     print("🚀 Initializing Fast RAG Components...")
-    components = FastRAGComponents()
-    components._init_core_components()
-    components._init_llm_components()
-    components._init_dependent_components()
-    
-    # Store components in app state
-    app_state["components"] = components
-    app_state["profile_manager"] = components._profile_manager
-    app_state["question_selector"] = components.question_selector
-    app_state["question_generator"] = components._question_generator
-    app_state["answer_evaluator"] = components._answer_evaluator
-    app_state["active_interactions"] = {}
-    
-    print("✅ Fast startup complete! Core components ready.")
-    print("   LLM components will be loaded on first request.")
+    components = None
+    try:
+        components = FastRAGComponents()
+        components._init_core_components()
+        components._init_llm_components()
+        components._init_dependent_components()
+        
+        # Store components in app state
+        app_state["components"] = components
+        app_state["profile_manager"] = components._profile_manager
+        app_state["question_selector"] = components.question_selector
+        app_state["question_generator"] = components._question_generator
+        app_state["answer_evaluator"] = components._answer_evaluator
+        app_state["active_interactions"] = {}
+        
+        print("✅ Fast startup complete! Core components ready.")
+        print("   LLM components will be loaded on first request.")
+    except Exception as e:
+        print(f"❌ Failed to initialize components: {e}")
+        # Initialize with None values to prevent KeyError
+        app_state["components"] = None
+        app_state["profile_manager"] = None
+        app_state["question_selector"] = None
+        app_state["question_generator"] = None
+        app_state["answer_evaluator"] = None
+        app_state["active_interactions"] = {}
     
     yield
     
     print("🛑 Shutting down...")
-    if "components" in app_state:
-        await app_state["components"].cleanup()
+    try:
+        if "components" in app_state and app_state["components"] is not None:
+            app_state["components"].cleanup()
+        else:
+            print("  No components to cleanup")
+    except Exception as e:
+        print(f"  Warning: Error during cleanup: {e}")
     print("  🧹 Resources cleaned up")
 
 # Create optimized app
@@ -300,10 +316,13 @@ async def get_fast_components() -> FastRAGComponents:
     """Get components and ensure they're ready"""
     components = app_state.get("components")
     if not components:
-        raise HTTPException(status_code=503, detail="System not ready")
+        raise HTTPException(status_code=503, detail="System not ready - components not initialized")
     
-    await components.ensure_ready()
-    return components
+    try:
+        await components.ensure_ready()
+        return components
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"System not ready - {str(e)}")
 
 # Performance tracking middleware
 @app.middleware("http")

@@ -42,5 +42,5 @@ COPY . .
 EXPOSE 8000
 
 # The command to run your application
-# This will start the FastAPI server from your main_api.py
-CMD ["uvicorn", "src.api.main_api:app", "--host", "0.0.0.0", "--port", "8000"]
+# This will start the FastAPI server from your fast_api.py
+CMD ["uvicorn", "src.api.fast_api:app", "--host", "0.0.0.0", "--port", "8000"]
