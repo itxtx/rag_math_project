@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock
 from src.learner_model.knowledge_tracker import KnowledgeTracker
 from src.learner_model.profile_manager import LearnerProfileManager
 from src.adaptive_engine.srs_scheduler import SRSScheduler
@@ -30,7 +30,8 @@ def test_calculate_graded_score(knowledge_tracker):
     score = knowledge_tracker._calculate_graded_score(0.3)
     assert score == 3.0
 
-def test_update_knowledge_level_successful(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
+@pytest.mark.asyncio
+async def test_update_knowledge_level_successful(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
     """Test updating knowledge level for a successful answer."""
     learner_id = "learner1"
     concept_id = "concept1"
@@ -39,8 +40,9 @@ def test_update_knowledge_level_successful(knowledge_tracker, mock_profile_manag
     raw_evaluation = {"similarity_score": 0.9}
     
     mock_srs_scheduler.calculate_next_review_details.return_value = {"new": "srs_details"}
+    mock_profile_manager.get_concept_knowledge.return_value = None
 
-    knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
+    await knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
 
     final_score = knowledge_tracker._calculate_graded_score(accuracy_score)
     
@@ -50,11 +52,12 @@ def test_update_knowledge_level_successful(knowledge_tracker, mock_profile_manag
         doc_id=doc_id,
         score=final_score, 
         answered_correctly=True, 
-        raw_eval_data=raw_evaluation,
-        srs_details={"new": "srs_details"}
+        srs_details={"new": "srs_details"},
+        raw_eval_data=raw_evaluation
     )
 
-def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
+@pytest.mark.asyncio
+async def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
     """Test updating knowledge level for an incorrect answer."""
     learner_id = "learner2"
     concept_id = "concept2"
@@ -63,8 +66,9 @@ def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_profile
     raw_evaluation = {"similarity_score": 0.4}
 
     mock_srs_scheduler.calculate_next_review_details.return_value = {"new": "srs_details_incorrect"}
+    mock_profile_manager.get_concept_knowledge.return_value = None
 
-    knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
+    await knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
 
     final_score = knowledge_tracker._calculate_graded_score(accuracy_score)
     
@@ -74,11 +78,12 @@ def test_update_knowledge_level_incorrect_answer(knowledge_tracker, mock_profile
         doc_id=doc_id,
         score=final_score, 
         answered_correctly=False, 
-        raw_eval_data=raw_evaluation,
-        srs_details={"new": "srs_details_incorrect"}
+        srs_details={"new": "srs_details_incorrect"},
+        raw_eval_data=raw_evaluation
     )
 
-def test_update_knowledge_level_profile_manager_fails(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
+@pytest.mark.asyncio
+async def test_update_knowledge_level_profile_manager_fails(knowledge_tracker, mock_profile_manager, mock_srs_scheduler):
     """Test that an exception from the profile manager is propagated."""
     learner_id = "learner3"
     concept_id = "concept3"
@@ -88,6 +93,7 @@ def test_update_knowledge_level_profile_manager_fails(knowledge_tracker, mock_pr
 
     mock_srs_scheduler.calculate_next_review_details.return_value = {"new": "srs_details"}
     mock_profile_manager.update_concept_srs_and_difficulty.side_effect = Exception("DB error")
+    mock_profile_manager.get_concept_knowledge.return_value = None
 
     with pytest.raises(Exception, match="DB error"):
-        knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
+        await knowledge_tracker.update_knowledge_level(learner_id, concept_id, doc_id, accuracy_score, raw_evaluation)
