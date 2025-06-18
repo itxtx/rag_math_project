@@ -42,15 +42,14 @@ os.environ["API_KEY"] = "test-key"
 
 # Override the lifespan to prevent hanging
 @asynccontextmanager
-async def test_lifespan(app):
+async def test_lifespan(app_fixture):
     """Test lifespan that doesn't initialize real components"""
-    # Mock app state without real initialization
-    app.state.components = MagicMock()
-    app.state.profile_manager = MagicMock()
-    app.state.question_selector = MagicMock()
-    app.state.question_generator = MagicMock()
-    app.state.answer_evaluator = MagicMock()
-    app.state.active_interactions = {}
+    app_fixture.state.components = MagicMock()
+    app_fixture.state.profile_manager = MagicMock()
+    app_fixture.state.question_selector = MagicMock()
+    app_fixture.state.question_generator = MagicMock()
+    app_fixture.state.answer_evaluator = MagicMock()
+    app_fixture.state.active_interactions = {}
     yield
     # No cleanup needed for mocks
 
@@ -195,3 +194,7 @@ def client():
     """Fixture for FastAPI TestClient using the app with test lifespan."""
     with TestClient(app) as c:
         yield c
+
+@pytest.fixture
+def app_fixture():
+    return app

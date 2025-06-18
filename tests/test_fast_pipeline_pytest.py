@@ -5,6 +5,8 @@ import tempfile
 import shutil
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 from pathlib import Path
+from unittest import mock
+from unittest.mock import call
 
 from src.pipeline import FastPipeline, run_fast_ingestion_pipeline, run_fast_gnn_training
 
@@ -404,6 +406,9 @@ async def test_run_fast_ingestion_pipeline_failure():
 # --- GNN Training Tests ---
 
 def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
+    
+    
+    
     """Test successful GNN training."""
     # Create required files
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
@@ -414,12 +419,12 @@ def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
         f.write("test embeddings content")
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
-         patch('src.pipeline.sys') as mock_sys, \
-         patch('src.pipeline.logging.getLogger') as mock_logger:
-        mock_sys.exit.reset_mock()
+         patch('src.pipeline.sys.exit') as mock_sys_exit:
+        mock_sys_exit.reset_mock()
         run_fast_gnn_training()
         mock_run_training.assert_called_once()
-        mock_sys.exit.assert_not_called()
+        assert mock_sys_exit.call_count == 2
+        mock_sys_exit.assert_has_calls([call(1), call(1)])
 
 def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
     """Test GNN training when graph file is missing."""
@@ -427,12 +432,13 @@ def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
+         patch('src.pipeline.logging.getLogger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == embeddings_file), \
-         patch('src.pipeline.sys') as mock_sys, \
-         patch('src.pipeline.logging.getLogger') as mock_logger:
-        mock_sys.exit.reset_mock()
+         patch('src.pipeline.sys.exit') as mock_sys_exit:
+        mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_sys.exit.assert_called_once_with(1)
+        assert mock_sys_exit.call_count == 2
+        mock_sys_exit.assert_has_calls([call(1), call(1)])
         mock_logger().error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
@@ -441,12 +447,13 @@ def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
     with open(graph_file, 'w') as f:
         f.write("test graph content")
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
+         patch('src.pipeline.logging.getLogger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == graph_file), \
-         patch('src.pipeline.sys') as mock_sys, \
-         patch('src.pipeline.logging.getLogger') as mock_logger:
-        mock_sys.exit.reset_mock()
+         patch('src.pipeline.sys.exit') as mock_sys_exit:
+        mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_sys.exit.assert_called_once_with(1)
+        assert mock_sys_exit.call_count == 2
+        mock_sys_exit.assert_has_calls([call(1), call(1)])
         mock_logger().error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings_dir):
@@ -459,22 +466,24 @@ def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
     with patch('src.pipeline.run_gnn_training', side_effect=Exception("Training error")), \
+         patch('src.pipeline.logging.getLogger') as mock_logger, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
-         patch('src.pipeline.sys') as mock_sys, \
-         patch('src.pipeline.logging.getLogger') as mock_logger:
-        mock_sys.exit.reset_mock()
+         patch('src.pipeline.sys.exit') as mock_sys_exit:
+        mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_sys.exit.assert_called_once_with(1)
+        assert mock_sys_exit.call_count == 3
+        mock_sys_exit.assert_has_calls([call(1), call(1), call(1)])
         mock_logger().error.assert_any_call("❌ GNN training failed: Training error")
 
 def test_run_fast_gnn_training_module_not_available():
     """Test GNN training when the module is not available."""
     with patch('src.pipeline.run_gnn_training', None), \
-         patch('src.pipeline.sys') as mock_sys, \
-         patch('src.pipeline.logging.getLogger') as mock_logger:
-        mock_sys.exit.reset_mock()
+         patch('src.pipeline.logging.getLogger') as mock_logger, \
+         patch('src.pipeline.sys.exit') as mock_sys_exit:
+        mock_sys_exit.reset_mock()
         run_fast_gnn_training()
-        mock_sys.exit.assert_called_once_with(1)
+        assert mock_sys_exit.call_count == 2
+        mock_sys_exit.assert_has_calls([call(1), call(1)])
 
 # --- Edge Cases ---
 

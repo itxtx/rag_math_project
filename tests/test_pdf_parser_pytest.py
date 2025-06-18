@@ -177,3 +177,9 @@ def mock_profile_manager():
     # Add missing method
     mock.get_last_attempted_concept_and_doc = AsyncMock(return_value=(None, None))
     return mock 
+
+@pytest.fixture
+def temp_latex_dir(tmp_path):
+    dir_path = tmp_path / "latex_files"
+    dir_path.mkdir()
+    return str(dir_path) 

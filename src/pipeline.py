@@ -261,6 +261,10 @@ async def run_performance_test():
         traceback.print_exc()
         sys.exit(1)
 
+async def run_full_pipeline(*args, **kwargs):
+    """Backward compatibility: call run_fast_ingestion_pipeline."""
+    await run_fast_ingestion_pipeline(*args, **kwargs)
+
 def main():
     """Main function with fast pipeline commands"""
     parser = argparse.ArgumentParser(

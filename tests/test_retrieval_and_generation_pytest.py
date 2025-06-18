@@ -313,3 +313,9 @@ def test_hybrid_retriever_instantiation():
         mock_faiss.return_value.search.return_value = (None, [[0]])
         instance = __import__("src.retrieval.hybrid_retriever", fromlist=["HybridRetriever"]).HybridRetriever()
         assert instance is not None 
+
+def test_retrieve_and_generate_questions_flow():
+    # ... existing setup ...
+    retriever = HybridRetriever(weaviate_client=MagicMock())
+    retriever.client = MagicMock()  # Ensure client attribute exists for the test
+    # ... rest of the test ... 

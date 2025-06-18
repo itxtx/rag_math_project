@@ -51,25 +51,26 @@ def create_mock_response(status_code, json_body):
 def test_create_weaviate_schema_new(mock_connect):
     """Test schema creation when it does not exist."""
     mock_client = MagicMock()
-    mock_client.schema.exists.return_value = False
+    mock_client.collections.exists.return_value = False
+    mock_client.collections.create_from_dict.return_value = None
     mock_connect.return_value = mock_client
     
     vector_store_manager.create_weaviate_schema(mock_client)
     
-    mock_client.schema.exists.assert_called_with("MathConcept")
-    mock_client.schema.create_class.assert_called_once()
+    mock_client.collections.exists.assert_called_with("MathConcept")
+    mock_client.collections.create_from_dict.assert_called_once()
 
 @patch('weaviate.connect_to_local')
 def test_create_weaviate_schema_exists(mock_connect):
     """Test schema creation when it already exists."""
     mock_client = MagicMock()
-    mock_client.schema.exists.return_value = True
+    mock_client.collections.exists.return_value = True
     mock_connect.return_value = mock_client
     
     vector_store_manager.create_weaviate_schema(mock_client)
     
-    mock_client.schema.exists.assert_called_with("MathConcept")
-    mock_client.schema.create_class.assert_not_called()
+    mock_client.collections.exists.assert_called_with("MathConcept")
+    mock_client.collections.create_from_dict.assert_not_called()
 
 @patch('src.data_ingestion.vector_store_manager.SentenceTransformer')
 @patch('weaviate.connect_to_local')
@@ -143,7 +144,7 @@ def test_embed_chunk_data_empty():
     assert embedding is None
 
 def test_get_weaviate_client_success():
-    with patch('weaviate.connect_to_local', autospec=True) as mock_connect:
+    with patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', autospec=True) as mock_connect:
         mock_client = MagicMock()
         mock_client.is_ready.return_value = True
         mock_connect.return_value = mock_client
@@ -152,7 +153,7 @@ def test_get_weaviate_client_success():
         assert client is not None
 
 def test_get_weaviate_client_failure_then_success():
-    with patch('weaviate.connect_to_local', autospec=True) as mock_connect:
+    with patch('src.data_ingestion.vector_store_manager.weaviate.connect_to_local', autospec=True) as mock_connect:
         mock_connect.side_effect = [Exception("Connection failed"), MagicMock(is_ready=MagicMock(return_value=True))]
         try:
             vector_store_manager.get_weaviate_client()
@@ -164,19 +165,16 @@ def test_get_weaviate_client_failure_then_success():
         assert client is not None
 
 def test_create_weaviate_schema_new():
-    with patch('weaviate.connect_to_local', autospec=True) as mock_connect:
-        mock_client = MagicMock()
-        mock_client.schema.exists.return_value = False
-        mock_connect.return_value = mock_client
-        vector_store_manager.create_weaviate_schema(mock_client)
-        mock_client.schema.exists.assert_called_with("MathConcept")
-        mock_client.schema.create_class.assert_called_once()
+    mock_client = MagicMock()
+    mock_client.collections.exists.return_value = False
+    mock_client.collections.create_from_dict.return_value = None
+    vector_store_manager.create_weaviate_schema(mock_client)
+    mock_client.collections.exists.assert_called_with("MathConcept")
+    mock_client.collections.create_from_dict.assert_called_once()
 
 def test_create_weaviate_schema_exists():
-    with patch('weaviate.connect_to_local', autospec=True) as mock_connect:
-        mock_client = MagicMock()
-        mock_client.schema.exists.return_value = True
-        mock_connect.return_value = mock_client
-        vector_store_manager.create_weaviate_schema(mock_client)
-        mock_client.schema.exists.assert_called_with("MathConcept")
-        mock_client.schema.create_class.assert_not_called()
+    mock_client = MagicMock()
+    mock_client.collections.exists.return_value = True
+    vector_store_manager.create_weaviate_schema(mock_client)
+    mock_client.collections.exists.assert_called_with("MathConcept")
+    mock_client.collections.create_from_dict.assert_not_called()
