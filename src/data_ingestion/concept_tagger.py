@@ -6,9 +6,9 @@ import os
 # Updated patterns to match the output of the current latex_parser.py
 # The parser converts \section{Title} to "§ TITLE", etc.
 LATEX_CONCEPT_PATTERNS = {
-    "section": r"^§\\s+(.*?)\\s*$",
-    "subsection": r"^§\.§\\s+(.*?)\\s*$",
-    "subsubsection": r"^§\.§\.§\\s+(.*?)\\s*$",
+    "section": r"^§\s+(.*?)\s*$",
+    "subsection": r"^§\.§\s+(.*?)\s*$",
+    "subsubsection": r"^§\.§\.§\s+(.*?)\s*$",
     # The following patterns are for raw LaTeX and will NOT work with the current
     # latex_parser.py output, which strips these commands/environments.
     # They are commented out to prevent false negatives or errors.

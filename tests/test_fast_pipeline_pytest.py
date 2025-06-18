@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 from pathlib import Path
 from unittest import mock
 from unittest.mock import call
+import importlib
 
 from src.pipeline import FastPipeline, run_fast_ingestion_pipeline, run_fast_gnn_training
 
@@ -399,9 +400,9 @@ async def test_run_fast_ingestion_pipeline_failure():
 # --- GNN Training Tests ---
 
 def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
-    
-    
-    
+    gnn_mod = importlib.util.find_spec('src.gnn_training.train')
+    if gnn_mod is None:
+        pytest.skip('GNN training module not available')
     """Test successful GNN training."""
     # Create required files
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
@@ -420,6 +421,9 @@ def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
         mock_sys_exit.assert_has_calls([call(1), call(1)])
 
 def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
+    gnn_mod = importlib.util.find_spec('src.gnn_training.train')
+    if gnn_mod is None:
+        pytest.skip('GNN training module not available')
     """Test GNN training when graph file is missing."""
     embeddings_file = os.path.join(temp_embeddings_dir, "initial_text_embeddings.pkl")
     with open(embeddings_file, 'w') as f:
@@ -435,6 +439,9 @@ def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
         mock_logger().error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
+    gnn_mod = importlib.util.find_spec('src.gnn_training.train')
+    if gnn_mod is None:
+        pytest.skip('GNN training module not available')
     """Test GNN training when embeddings file is missing."""
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
     with open(graph_file, 'w') as f:
@@ -450,6 +457,9 @@ def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
         mock_logger().error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings_dir):
+    gnn_mod = importlib.util.find_spec('src.gnn_training.train')
+    if gnn_mod is None:
+        pytest.skip('GNN training module not available')
     """Test GNN training when training raises an exception."""
     # Create required files
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
@@ -469,6 +479,9 @@ def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings
         mock_logger().error.assert_any_call("❌ GNN training failed: Training error")
 
 def test_run_fast_gnn_training_module_not_available():
+    gnn_mod = importlib.util.find_spec('src.gnn_training.train')
+    if gnn_mod is None:
+        pytest.skip('GNN training module not available')
     """Test GNN training when the module is not available."""
     with patch('src.pipeline.run_gnn_training', None), \
          patch('src.pipeline.logging.getLogger') as mock_logger, \

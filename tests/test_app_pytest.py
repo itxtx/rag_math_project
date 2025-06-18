@@ -158,7 +158,7 @@ async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topi
         patch('builtins.input', side_effect=input_sequence), \
         patch('src.app.get_available_topics', return_value={"1": "topic1", "2": "topic2"}), \
         patch('src.pipeline.retriever.HybridRetriever'), \
-        patch('src.app.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+        patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
         patch('src.learner_model.profile_manager.LearnerProfileManager'):
 
         await main_interactive_app()

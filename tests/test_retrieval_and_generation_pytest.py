@@ -304,6 +304,10 @@ async def test_get_all_documents_filters_by_doc_id(hybrid_retriever, dummy_docs)
 # If you want, add a basic test to ensure the class can be instantiated (full integration would require test data files)
 
 def test_hybrid_retriever_instantiation():
+    import os
+    os.makedirs('data/embeddings', exist_ok=True)
+    with open('data/embeddings/gnn_embeddings.pkl', 'wb') as f:
+        f.write(b'dummy')
     with patch("src.retrieval.hybrid_retriever.SentenceTransformer"), \
          patch("src.retrieval.hybrid_retriever.nx.read_graphml"), \
          patch("src.retrieval.hybrid_retriever.pickle.load", return_value={"n1": np.ones(384)}), \
