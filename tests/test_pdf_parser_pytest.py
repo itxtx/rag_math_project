@@ -100,21 +100,22 @@ def test_pdf_file_not_found():
     extracted_text = parse_pdf_file("non_existent_file.pdf")
     assert extracted_text == ""
 
-def test_multicolumn_pdf_extraction(create_temp_pdf_file):
+def test_multicolumn_pdf_extraction(create_temp_pdf_file, temp_dir):
     # Simulate a multi-column PDF by inserting text in two locations
     file_path = create_temp_pdf_file("Column 1 text.", filename="multi_col.pdf")
     # Add a second page with different text to simulate another column
     doc = fitz.open(file_path)
     page = doc.new_page()
     page.insert_text((200, 72), "Column 2 text.")
-    # Use incremental=True to avoid ValueError
-    doc.save(file_path, incremental=True)
+    # Save to a new file to avoid incremental write issues
+    new_file_path = os.path.join(temp_dir, "multi_col_modified.pdf")
+    doc.save(new_file_path)
     doc.close()
-    extracted_text = general_pdf_extractor(file_path)
+    extracted_text = general_pdf_extractor(new_file_path)
     assert "Column 1 text." in extracted_text
     assert "Column 2 text." in extracted_text
 
-def test_pdf_with_tables_and_images(create_temp_pdf_file):
+def test_pdf_with_tables_and_images(create_temp_pdf_file, temp_dir):
     # Create a PDF with text that simulates a table and an image
     file_path = create_temp_pdf_file("Header1 | Header2\n------ | ------\nCell1  | Cell2\n", filename="table_img.pdf")
     # Add a page with an image (simulate by drawing a rectangle)
@@ -123,10 +124,11 @@ def test_pdf_with_tables_and_images(create_temp_pdf_file):
     rect = fitz.Rect(50, 50, 150, 150)
     page.draw_rect(rect)
     page.insert_text((60, 160), "Image below")
-    # Use incremental=True to avoid ValueError
-    doc.save(file_path, incremental=True)
+    # Save to a new file to avoid incremental write issues
+    new_file_path = os.path.join(temp_dir, "table_img_modified.pdf")
+    doc.save(new_file_path)
     doc.close()
-    extracted_text = general_pdf_extractor(file_path)
+    extracted_text = general_pdf_extractor(new_file_path)
     assert "Header1" in extracted_text
     assert "Cell2" in extracted_text
     assert "Image below" in extracted_text

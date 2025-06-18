@@ -10,6 +10,7 @@ from src.gnn_training.model import LinkPredictorGNN
 class HybridRetriever:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
         print("Initializing HybridRetriever...")
+        self.client = None  # For legacy test compatibility
         self.query_embedder = SentenceTransformer(model_name)
         
         # --- Load Knowledge Graph ---

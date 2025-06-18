@@ -153,34 +153,23 @@ async def test_main_interactive_app_topic_selection_error(mock_input_success):
 @pytest.mark.asyncio
 async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topic):
     """Test interactive application with invalid topic choice."""
-    # The first input is learner_id, the second is topic number (simulate invalid then valid)
-    input_sequence = ["test_learner", "2", "1"]  # 2 is invalid, 1 is valid
+    input_sequence = ["test_learner", "2", "1"]
     with patch('sys.stdin', mock_input_invalid_topic), \
          patch('builtins.input', side_effect=input_sequence), \
-         patch('src.app.pipeline') as mock_pipeline, \
+         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', return_value=MagicMock()), \
+         patch('src.app.pipeline.vector_store_manager.create_weaviate_schema', return_value=None), \
+         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
+         patch('src.app.pipeline.retriever.HybridRetriever', return_value=MagicMock()), \
+         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
+         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
-        
-        # Mock pipeline components
-        mock_pipeline.vector_store_manager.get_weaviate_client.return_value = MagicMock()
-        mock_pipeline.vector_store_manager.create_weaviate_schema.return_value = None
-        mock_pipeline.profile_manager.LearnerProfileManager.return_value = MagicMock()
-        mock_pipeline.retriever.Retriever.return_value = MagicMock()
-        mock_pipeline.question_generator_rag.RAGQuestionGenerator.return_value = MagicMock()
-        
-        # Mock question selector
-        mock_question_selector = MagicMock()
-        mock_question_selector.get_available_topics.return_value = [
-            {"doc_id": "topic1", "source_file": "file1.pdf"}
+        mock_qs_instance = MagicMock()
+        mock_qs_instance.curriculum_map = [
+            {"doc_id": "topic1", "concept_name": "Topic 1"}
         ]
-        mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
-        
-        # Mock the main pipeline run
-        mock_pipeline.run_full_pipeline = AsyncMock()
-        
+        mock_qs_class.return_value = mock_qs_instance
         await main_interactive_app()
-        
-        # Verify that the pipeline was called with the valid topic choice
-        mock_pipeline.run_full_pipeline.assert_awaited_once_with(
+        mock_run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
             initial_learner_id="test_learner",
             target_topic_id="topic1"
@@ -282,23 +271,17 @@ async def test_main_interactive_app_profile_manager_cleanup():
 async def test_main_interactive_app_profile_manager_cleanup_on_error():
     """Test that profile manager is cleaned up even when topic selection fails."""
     with patch('builtins.input', return_value="test_learner"), \
-         patch('src.app.pipeline') as mock_pipeline, \
+         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', side_effect=Exception("Connection failed")), \
+         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
+         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
+         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock), \
          patch('builtins.print') as mock_print:
-        
-        # Mock pipeline components with error
-        mock_pipeline.vector_store_manager.get_weaviate_client.side_effect = Exception("Connection failed")
-        
-        # Mock profile manager with close_db method
-        mock_profile_manager = MagicMock()
+        mock_profile_manager = mock_pm.return_value
         mock_profile_manager.close_db = MagicMock()
-        mock_pipeline.profile_manager.LearnerProfileManager.return_value = mock_profile_manager
-        
-        # Mock the main pipeline run
-        mock_pipeline.run_full_pipeline = AsyncMock()
-        
+        mock_qs_instance = MagicMock()
+        mock_qs_instance.curriculum_map = []
+        mock_qs_class.return_value = mock_qs_instance
         await main_interactive_app()
-        
-        # Verify that profile manager was closed even when error occurred
         mock_profile_manager.close_db.assert_called_once()
 
 # --- Input Validation Tests ---
@@ -441,33 +424,23 @@ def test_main_entry_point_general_exception():
 async def test_full_interactive_flow_integration():
     """Test the full interactive flow integration."""
     with patch('builtins.input', side_effect=["learner_123", "1"]), \
-         patch('src.app.pipeline') as mock_pipeline, \
+         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', return_value=MagicMock()), \
+         patch('src.app.pipeline.vector_store_manager.create_weaviate_schema', return_value=None), \
+         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
+         patch('src.app.pipeline.retriever.HybridRetriever', return_value=MagicMock()), \
+         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
+         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
-        
-        # Mock all pipeline components
-        mock_pipeline.vector_store_manager.get_weaviate_client.return_value = MagicMock()
-        mock_pipeline.vector_store_manager.create_weaviate_schema.return_value = None
-        
-        mock_profile_manager = MagicMock()
+        mock_profile_manager = mock_pm.return_value
         mock_profile_manager.close_db = MagicMock()
-        mock_pipeline.profile_manager.LearnerProfileManager.return_value = mock_profile_manager
-        
-        mock_pipeline.retriever.Retriever.return_value = MagicMock()
-        mock_pipeline.question_generator_rag.RAGQuestionGenerator.return_value = MagicMock()
-        
-        mock_question_selector = MagicMock()
-        mock_question_selector.get_available_topics.return_value = [
-            {"doc_id": "calculus", "source_file": "calculus.pdf"},
-            {"doc_id": "algebra", "source_file": "algebra.pdf"}
+        mock_qs_instance = MagicMock()
+        mock_qs_instance.curriculum_map = [
+            {"doc_id": "calculus", "concept_name": "Calculus"},
+            {"doc_id": "algebra", "concept_name": "Algebra"}
         ]
-        mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
-        
-        mock_pipeline.run_full_pipeline = AsyncMock()
-        
+        mock_qs_class.return_value = mock_qs_instance
         await main_interactive_app()
-        
-        # Verify the complete flow
-        mock_pipeline.run_full_pipeline.assert_awaited_once_with(
+        mock_run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
             initial_learner_id="learner_123",
             target_topic_id="calculus"

@@ -107,6 +107,19 @@ def test_submit_answer_success(client):
         "context_for_evaluation": "1+1=2",
         "learner_answer": "2"
     }
+    # Patch app.state/components to avoid 503
+    from src.api import fast_api
+    fast_api.app_state["components"] = fast_api.FastRAGComponents()
+    fast_api.app_state["components"]._retriever = MagicMock()
+    fast_api.app_state["components"]._question_generator = MagicMock()
+    fast_api.app_state["components"]._answer_evaluator = MagicMock()
+    fast_api.app_state["components"]._profile_manager = MagicMock()
+    fast_api.app_state["components"].answer_handler = MagicMock()
+    fast_api.app_state["components"].answer_handler.submit_answer = AsyncMock(return_value={
+        "accuracy_score": 1.0,
+        "feedback": "Correct!",
+        "correct_answer_suggestion": "2"
+    })
     response = client.post("/api/v1/interaction/submit_answer", json=answer_data, headers=get_auth_headers())
     assert response.status_code in [200, 500]
 

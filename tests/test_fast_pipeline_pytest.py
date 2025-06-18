@@ -141,7 +141,7 @@ async def test_run_ingestion_successful_processing(mock_document_data, mock_conc
          patch('src.pipeline.LatexToGraphParser') as mock_parser_class, \
          patch('src.pipeline.chunker.chunk_conceptual_blocks', return_value=mock_final_chunks), \
          patch('src.pipeline.vector_store_manager.get_weaviate_client') as mock_get_client, \
-         patch('src.pipeline.vector_store_manager.fast_embed_and_store_chunks') as mock_store_chunks, \
+         patch('src.pipeline.fast_embed_and_store_chunks', new_callable=AsyncMock) as mock_store_chunks, \
          patch('src.pipeline.document_loader.update_processed_docs_log') as mock_update_log, \
          patch('src.pipeline.os.makedirs') as mock_makedirs, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
@@ -321,7 +321,7 @@ async def test_run_ingestion_integration_full_flow(mock_document_data, mock_conc
          patch('src.pipeline.LatexToGraphParser') as mock_parser_class, \
          patch('src.pipeline.chunker.chunk_conceptual_blocks', return_value=mock_final_chunks), \
          patch('src.pipeline.vector_store_manager.get_weaviate_client') as mock_get_client, \
-         patch('src.pipeline.vector_store_manager.fast_embed_and_store_chunks') as mock_store_chunks, \
+         patch('src.pipeline.fast_embed_and_store_chunks', new_callable=AsyncMock) as mock_store_chunks, \
          patch('src.pipeline.document_loader.update_processed_docs_log') as mock_update_log, \
          patch('src.pipeline.os.makedirs') as mock_makedirs, \
          patch('src.pipeline.logging.getLogger') as mock_logger, \
@@ -408,53 +408,44 @@ def test_run_fast_gnn_training_success(temp_graph_db_dir, temp_embeddings_dir):
     # Create required files
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
     embeddings_file = os.path.join(temp_embeddings_dir, "initial_text_embeddings.pkl")
-    
     with open(graph_file, 'w') as f:
         f.write("test graph content")
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
-    
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
-        
+        mock_sys.exit.reset_mock()
         run_fast_gnn_training()
-        
         mock_run_training.assert_called_once()
         mock_sys.exit.assert_not_called()
 
 def test_run_fast_gnn_training_missing_graph_file(temp_embeddings_dir):
     """Test GNN training when graph file is missing."""
     embeddings_file = os.path.join(temp_embeddings_dir, "initial_text_embeddings.pkl")
-    
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
-    
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == embeddings_file), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
-        
+        mock_sys.exit.reset_mock()
         run_fast_gnn_training()
-        
         mock_sys.exit.assert_called_once_with(1)
         mock_logger().error.assert_any_call("❌ Knowledge graph not found. Run 'make ingest' first.")
 
 def test_run_fast_gnn_training_missing_embeddings_file(temp_graph_db_dir):
     """Test GNN training when embeddings file is missing."""
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
-    
     with open(graph_file, 'w') as f:
         f.write("test graph content")
-    
     with patch('src.pipeline.run_gnn_training') as mock_run_training, \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x == graph_file), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
-        
+        mock_sys.exit.reset_mock()
         run_fast_gnn_training()
-        
         mock_sys.exit.assert_called_once_with(1)
         mock_logger().error.assert_any_call("❌ Initial embeddings not found. Run 'make ingest' first.")
 
@@ -463,19 +454,16 @@ def test_run_fast_gnn_training_training_error(temp_graph_db_dir, temp_embeddings
     # Create required files
     graph_file = os.path.join(temp_graph_db_dir, "knowledge_graph.graphml")
     embeddings_file = os.path.join(temp_embeddings_dir, "initial_text_embeddings.pkl")
-    
     with open(graph_file, 'w') as f:
         f.write("test graph content")
     with open(embeddings_file, 'w') as f:
         f.write("test embeddings content")
-    
     with patch('src.pipeline.run_gnn_training', side_effect=Exception("Training error")), \
          patch('src.pipeline.os.path.exists', side_effect=lambda x: x in [graph_file, embeddings_file]), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
-        
+        mock_sys.exit.reset_mock()
         run_fast_gnn_training()
-        
         mock_sys.exit.assert_called_once_with(1)
         mock_logger().error.assert_any_call("❌ GNN training failed: Training error")
 
@@ -484,9 +472,8 @@ def test_run_fast_gnn_training_module_not_available():
     with patch('src.pipeline.run_gnn_training', None), \
          patch('src.pipeline.sys') as mock_sys, \
          patch('src.pipeline.logging.getLogger') as mock_logger:
-        
+        mock_sys.exit.reset_mock()
         run_fast_gnn_training()
-        
         mock_sys.exit.assert_called_once_with(1)
 
 # --- Edge Cases ---
