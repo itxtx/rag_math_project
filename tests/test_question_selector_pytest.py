@@ -1,264 +1,154 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import asyncio
-import os
-import numpy as np
-
-from src.adaptive_engine.question_selector import QuestionSelector, LOW_SCORE_THRESHOLD, PERFECT_SCORE_THRESHOLD
-from src.learner_model.profile_manager import LearnerProfileManager
-from src.retrieval.retriever import HybridRetriever
+from unittest.mock import MagicMock, patch
+from src.adaptive_engine.question_selector import QuestionSelector
+from src.retrieval.hybrid_retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
-from src import config
-from sentence_transformers import SentenceTransformer
+from src.learner_model.profile_manager import LearnerProfileManager
 
-# Test data
-SAMPLE_CHUNK_META = [
-    {"parent_block_id": "pb_intro", "concept_name": "Introduction", "concept_type": "section", "source_path": "doc1.tex", "doc_id": "doc1"},
-    {"parent_block_id": "pb_intro_sub1", "concept_name": "Background", "concept_type": "subsection", "source_path": "doc1.tex", "doc_id": "doc1"},
-    {"parent_block_id": "pb_vectors", "concept_name": "Vectors", "concept_type": "section", "source_path": "doc1.tex", "doc_id": "doc1"},
-    {"parent_block_id": "pb_matrices", "concept_name": "Matrices", "concept_type": "section", "source_path": "doc2.tex", "doc_id": "doc2"},
-]
-
-@pytest.fixture
-def mock_profile_manager():
-    return MagicMock(spec=LearnerProfileManager)
+# --- Fixtures ---
 
 @pytest.fixture
 def mock_retriever():
+    """Fixture for a mocked HybridRetriever."""
     retriever = MagicMock(spec=HybridRetriever)
-    retriever.get_all_chunks_metadata.return_value = list(SAMPLE_CHUNK_META)
+    retriever.retrieve_documents.return_value = [] 
     return retriever
 
 @pytest.fixture
-def mock_question_generator():
+def mock_qg_rag():
+    """Fixture for a mocked RAGQuestionGenerator."""
     return MagicMock(spec=RAGQuestionGenerator)
 
 @pytest.fixture
-def question_selector(mock_profile_manager, mock_retriever, mock_question_generator):
+def mock_profile_manager():
+    """Fixture for a mocked LearnerProfileManager."""
+    return MagicMock(spec=LearnerProfileManager)
+
+@pytest.fixture
+def question_selector(mock_retriever, mock_qg_rag, mock_profile_manager):
+    """Fixture to create a QuestionSelector instance with mocked dependencies."""
     return QuestionSelector(
-        profile_manager=mock_profile_manager,
         retriever=mock_retriever,
-        question_generator=mock_question_generator
+        qg_rag=mock_qg_rag,
+        profile_manager=mock_profile_manager
     )
 
-@pytest.mark.asyncio
-async def test_initialization_and_curriculum_map_loading(question_selector, mock_retriever):
-    """Test that the selector initializes correctly and loads the curriculum map."""
-    mock_retriever.get_all_chunks_metadata.assert_called_once()
-    assert len(question_selector.curriculum_map) == 4
+# --- Test Cases ---
+
+def test_initialization_and_curriculum_map_loading(mock_retriever):
+    """Test that QuestionSelector initializes and loads the curriculum map."""
+    # Setup mock data
+    mock_doc = MagicMock()
+    mock_doc.metadata = {"concept": "calculus", "difficulty": "medium"}
+    mock_doc.page_content = "This is a document about calculus."
+    mock_retriever.get_all_documents.return_value = [mock_doc]
+
+    selector = QuestionSelector(retriever=mock_retriever, qg_rag=MagicMock(), profile_manager=MagicMock())
     
-    intro_concept = next((c for c in question_selector.curriculum_map if c["concept_id"] == "pb_intro"), None)
-    assert intro_concept is not None
-    assert intro_concept["concept_name"] == "Introduction"
+    mock_retriever.get_all_documents.assert_called_once()
+    assert "calculus" in selector.curriculum_map
+    assert selector.curriculum_map["calculus"]["medium"][0]["content"] == "This is a document about calculus."
 
-@pytest.mark.asyncio
-async def test_load_curriculum_map_empty_metadata(mock_profile_manager, mock_retriever, mock_question_generator):
-    """Test handling of empty metadata when loading curriculum map."""
-    mock_retriever.get_all_chunks_metadata.return_value = []
-    selector = QuestionSelector(
-        profile_manager=mock_profile_manager,
-        retriever=mock_retriever,
-        question_generator=mock_question_generator
-    )
+def test_load_curriculum_map_empty_metadata(mock_retriever):
+    """Test loading with documents that have no metadata."""
+    mock_doc = MagicMock()
+    mock_doc.metadata = {} # Empty metadata
+    mock_doc.page_content = "Empty metadata doc."
+    mock_retriever.get_all_documents.return_value = [mock_doc]
+    
+    selector = QuestionSelector(retriever=mock_retriever, qg_rag=MagicMock(), profile_manager=MagicMock())
+    
     assert len(selector.curriculum_map) == 0
 
-@pytest.mark.asyncio
-async def test_determine_difficulty(question_selector, mock_profile_manager):
-    """Test difficulty determination based on learner's knowledge."""
-    learner_id = "learner1"
-    concept_id_new = "new_concept"
-    concept_id_low_score = "low_score_concept"
-    concept_id_mid_score = "mid_score_concept"
-    concept_id_high_score = "high_score_concept"
-
-    def get_knowledge_side_effect(lid, cid):
-        if cid == concept_id_low_score:
-            return {"current_score": LOW_SCORE_THRESHOLD - 1, "total_attempts": 1}
-        if cid == concept_id_mid_score:
-            return {"current_score": (LOW_SCORE_THRESHOLD + PERFECT_SCORE_THRESHOLD) / 2, "total_attempts": 2}
-        if cid == concept_id_high_score:
-            return {"current_score": PERFECT_SCORE_THRESHOLD, "total_attempts": 3}
-        return None
-
-    mock_profile_manager.get_concept_knowledge.side_effect = get_knowledge_side_effect
-
-    assert await question_selector._determine_difficulty(learner_id, concept_id_new) == "beginner"
-    assert await question_selector._determine_difficulty(learner_id, concept_id_low_score) == "beginner"
-    assert await question_selector._determine_difficulty(learner_id, concept_id_mid_score) == "intermediate"
-    assert await question_selector._determine_difficulty(learner_id, concept_id_high_score) == "advanced"
-    assert await question_selector._determine_difficulty(learner_id, None) == "beginner"
-
-@pytest.mark.asyncio
-async def test_select_concept_for_review(question_selector, mock_retriever, mock_profile_manager):
-    """Test selection of concepts for review based on learner's performance."""
-    learner_id = "learner_review"
+def test_determine_difficulty(question_selector):
+    """Test the difficulty determination logic."""
+    difficulty = question_selector._determine_difficulty(0.1)
+    assert difficulty == "easy"
     
-    mock_retriever.search.return_value = [
-        {"_id": "pb_intro", "chunk_id": "pb_intro", "concept_name": "Introduction", "chunk_text": "Intro text."},
-        {"_id": "pb_vectors", "chunk_id": "pb_vectors", "concept_name": "Vectors", "chunk_text": "Vector text."},
-        {"_id": "pb_matrices", "chunk_id": "pb_matrices", "concept_name": "Matrices", "chunk_text": "Matrix text."},
-    ]
+    difficulty = question_selector._determine_difficulty(0.6)
+    assert difficulty == "medium"
+
+    difficulty = question_selector._determine_difficulty(0.9)
+    assert difficulty == "hard"
+
+def test_select_concept_for_review(question_selector, mock_profile_manager):
+    """Test selecting a concept that is due for review."""
+    mock_profile_manager.get_concepts_due_for_review.return_value = [("calculus",)]
     
-    def get_knowledge_side_effect_review(lid, cid):
-        if cid == "pb_vectors":
-            return {"current_score": LOW_SCORE_THRESHOLD - 1.0, "total_attempts": 1}
-        if cid == "pb_intro":
-            return {"current_score": 8.0, "total_attempts": 2}
-        if cid == "pb_matrices":
-            return {"current_score": PERFECT_SCORE_THRESHOLD, "total_attempts": 3}
-        return None
-
-    mock_profile_manager.get_concept_knowledge.side_effect = get_knowledge_side_effect_review
-
-    selected = await question_selector._select_concept_for_review(learner_id)
-    assert selected is not None
-    assert selected["concept_id"] == "pb_vectors"
-    assert selected["is_review"] is True
-
-    # Test case where no review is needed
-    mock_profile_manager.get_concept_knowledge.side_effect = lambda lid, cid: {
-        "pb_intro": {"current_score": 8.0, "total_attempts": 2},
-        "pb_vectors": {"current_score": LOW_SCORE_THRESHOLD + 1.0, "total_attempts": 1},
-    }.get(cid)
+    concept = question_selector._select_concept_for_review("learner1")
     
-    selected_none = await question_selector._select_concept_for_review(learner_id)
-    assert selected_none is None
+    assert concept == "calculus"
+    mock_profile_manager.get_concepts_due_for_review.assert_called_once_with("learner1")
 
-@pytest.mark.asyncio
-async def test_select_new_concept(question_selector, mock_profile_manager):
-    """Test selection of new concepts based on learner's progress."""
-    learner_id = "learner_new"
+def test_select_new_concept(question_selector, mock_profile_manager):
+    """Test selecting a new concept for a learner."""
+    # Setup
+    question_selector.curriculum_map = {"calculus": {}, "algebra": {}}
+    mock_profile_manager.get_all_concept_scores.return_value = {"calculus": 0.5}
     
-    def get_knowledge_side_effect_new(lid, cid):
-        if cid == "pb_intro":
-            return {"current_score": PERFECT_SCORE_THRESHOLD, "total_attempts": 2}
-        if cid == "pb_vectors":
-            return {"current_score": LOW_SCORE_THRESHOLD + 1.0, "total_attempts": 1}
-        return None
-
-    mock_profile_manager.get_concept_knowledge.side_effect = get_knowledge_side_effect_new
-
-    selected = await question_selector._select_new_concept(learner_id)
-    assert selected is not None
-    assert selected["concept_id"] in ["pb_intro_sub1", "pb_matrices", "pb_vectors"]
-    assert selected["is_review"] is False
-
-    # Test with last attempted document
-    selected_adj = await question_selector._select_new_concept(learner_id, last_attempted_doc_id="doc1")
-    assert selected_adj is not None
-    assert selected_adj["concept_id"] in ["pb_intro_sub1", "pb_vectors"]
-    assert selected_adj.get("doc_id") == "doc1"
-
-    # Test when all concepts are mastered
-    mastered_knowledge = {"current_score": PERFECT_SCORE_THRESHOLD, "total_attempts": 1}
-    mock_profile_manager.get_concept_knowledge.return_value = mastered_knowledge
-    mock_profile_manager.get_concept_knowledge.side_effect = None
+    concept = question_selector._select_new_concept("learner1")
     
-    selected_none = await question_selector._select_new_concept(learner_id)
-    assert selected_none is None
+    # "algebra" should be chosen as it's unlearned
+    assert concept == "algebra"
 
-@pytest.mark.asyncio
-async def test_select_next_question_flow_chooses_review(question_selector, mock_retriever, mock_question_generator):
-    """Test the complete flow when selecting a question for review."""
-    learner_id = "learner_flow_review"
-    question_selector.curriculum_map = [{"concept_id": "concept_review", "concept_name": "Review Me", "doc_id": "doc1"}]
-    
-    mock_review_concept_info = {
-        "concept_id": "concept_review",
-        "concept_name": "Review Me",
-        "current_score": 3.0,
-        "is_review": True,
-        "doc_id": "doc1"
-    }
-    
-    question_selector._select_concept_for_review = AsyncMock(return_value=mock_review_concept_info)
-    question_selector._select_new_concept = AsyncMock(return_value=None)
-    mock_retriever.get_chunks_for_parent_block.return_value = [{"chunk_text": "Context for review.", "chunk_id": "chunk_rev1"}]
-    mock_question_generator.generate_questions = AsyncMock(return_value=["Review question?"])
-    
-    result = await question_selector.select_next_question(learner_id)
-    assert result is not None
-    assert "error" not in result
-    assert result["concept_id"] == "concept_review"
-    
-    args, kwargs = mock_question_generator.generate_questions.call_args
-    assert kwargs.get("difficulty_level") == "beginner"
+@patch.object(QuestionSelector, '_select_concept_for_review')
+@patch.object(QuestionSelector, '_select_new_concept')
+def test_select_next_question_flow_chooses_review(mock_select_new, mock_select_review, question_selector):
+    """Test the main flow when a review concept is available."""
+    mock_select_review.return_value = "calculus"
+    mock_select_new.return_value = "algebra"
 
-@pytest.mark.asyncio
-async def test_select_next_question_flow_chooses_new(question_selector, mock_retriever, mock_question_generator):
-    """Test the complete flow when selecting a new question."""
-    learner_id = "learner_flow_new"
-    question_selector.curriculum_map = [{"concept_id": "concept_new", "concept_name": "New Concept", "doc_id": "doc_new"}]
+    # Mock the retriever to return a chunk for the selected concept
+    mock_chunk = {"content": "Review chunk about calculus."}
+    question_selector.curriculum_map = {"calculus": {"easy": [mock_chunk]}}
+    question_selector.qg_rag.run.return_value = {"question": "What is a derivative?", "answer": "It's a rate of change."}
+
+    result = question_selector.select_next_question("learner1")
     
-    question_selector._select_concept_for_review = AsyncMock(return_value=None)
-    mock_new_concept_info = {
-        "concept_id": "concept_new",
-        "concept_name": "New Concept",
-        "is_review": False,
-        "doc_id": "doc_new"
-    }
-    question_selector._select_new_concept = AsyncMock(return_value=mock_new_concept_info)
-    mock_retriever.get_chunks_for_parent_block.return_value = [{"chunk_text": "Context for new concept.", "chunk_id": "chunk_new1"}]
-    mock_question_generator.generate_questions = AsyncMock(return_value=["New question?"])
+    mock_select_review.assert_called_once_with("learner1")
+    mock_select_new.assert_not_called()
+    assert result["question"] == "What is a derivative?"
+    assert result["concept"] == "calculus"
+
+@patch.object(QuestionSelector, '_select_concept_for_review')
+@patch.object(QuestionSelector, '_select_new_concept')
+def test_select_next_question_flow_chooses_new(mock_select_new, mock_select_review, question_selector):
+    """Test the main flow when no review concepts are available."""
+    mock_select_review.return_value = None
+    mock_select_new.return_value = "algebra"
     
-    result = await question_selector.select_next_question(learner_id)
-    assert result is not None
-    assert "error" not in result
-    assert result["concept_id"] == "concept_new"
+    mock_chunk = {"content": "New chunk about algebra."}
+    question_selector.curriculum_map = {"algebra": {"medium": [mock_chunk]}}
+    question_selector.qg_rag.run.return_value = {"question": "What is a variable?", "answer": "A symbol for a number."}
     
-    args, kwargs = mock_question_generator.generate_questions.call_args
-    assert kwargs.get("difficulty_level") == "beginner"
-
-@pytest.mark.asyncio
-async def test_select_next_question_no_concept_found(question_selector):
-    """Test handling when no concept is found for review or new questions."""
-    learner_id = "learner_flow_none"
-    question_selector._select_concept_for_review = AsyncMock(return_value=None)
-    question_selector._select_new_concept = AsyncMock(return_value=None)
-
-    result = await question_selector.select_next_question(learner_id)
-    assert result is not None
-    assert "error" in result
-
-@pytest.mark.asyncio
-async def test_select_next_question_no_context_retrieved(question_selector, mock_retriever, mock_profile_manager):
-    """Test handling when no context can be retrieved for a concept."""
-    learner_id = "learner_flow_no_context"
-    mock_concept_info = {
-        "concept_id": "concept_no_ctx",
-        "concept_name": "No Context Concept",
-        "is_review": False,
-        "doc_id": "doc_no_ctx"
-    }
+    result = question_selector.select_next_question("learner1")
     
-    question_selector._select_concept_for_review = AsyncMock(return_value=None)
-    question_selector._select_new_concept = AsyncMock(return_value=mock_concept_info)
-    mock_retriever.get_chunks_for_parent_block.return_value = []
-    mock_profile_manager.get_concept_knowledge.side_effect = lambda lid, cid: None if cid == "concept_no_ctx" else {"current_score": 0.0, "total_attempts": 0}
+    mock_select_review.assert_called_once_with("learner1")
+    mock_select_new.assert_called_once_with("learner1")
+    assert result["question"] == "What is a variable?"
+    assert result["concept"] == "algebra"
 
-    result = await question_selector.select_next_question(learner_id)
-    assert result is not None
-    assert "error" in result
-    mock_retriever.get_chunks_for_parent_block.assert_called_once_with("concept_no_ctx", limit=pytest.ANY)
+def test_select_next_question_no_concept_found(question_selector):
+    """Test flow when no new or review concepts can be found."""
+    with patch.object(question_selector, '_select_concept_for_review', return_value=None), \
+         patch.object(question_selector, '_select_new_concept', return_value=None):
+        
+        result = question_selector.select_next_question("learner1")
+        assert result is None
 
-@pytest.mark.asyncio
-async def test_select_next_question_qg_fails(question_selector, mock_retriever, mock_question_generator, mock_profile_manager):
-    """Test handling when question generation fails."""
-    learner_id = "learner_flow_qg_fail"
-    mock_concept_info = {
-        "concept_id": "concept_qg_fail",
-        "concept_name": "QG Fail Concept",
-        "is_review": False,
-        "doc_id": "doc_qg_fail"
-    }
-    
-    question_selector._select_concept_for_review = AsyncMock(return_value=None)
-    question_selector._select_new_concept = AsyncMock(return_value=mock_concept_info)
-    mock_retriever.get_chunks_for_parent_block.return_value = [{"chunk_text": "Some context."}]
-    mock_question_generator.generate_questions = AsyncMock(return_value=[])
-    mock_profile_manager.get_concept_knowledge.side_effect = lambda lid, cid: None if cid == "concept_qg_fail" else {"current_score": 0.0, "total_attempts": 0}
+def test_select_next_question_no_context_retrieved(question_selector):
+    """Test flow when a concept is chosen but no content is available for it."""
+    with patch.object(question_selector, '_select_concept_for_review', return_value="calculus"):
+        question_selector.curriculum_map = {} # Empty map
+        result = question_selector.select_next_question("learner1")
+        assert result is None
 
-    result = await question_selector.select_next_question(learner_id)
-    assert result is not None
-    assert "error" in result
-    mock_question_generator.generate_questions.assert_called_once() 
+def test_select_next_question_qg_fails(question_selector):
+    """Test flow when the question generator fails."""
+    with patch.object(question_selector, '_select_concept_for_review', return_value="calculus"):
+        mock_chunk = {"content": "A chunk that causes failure."}
+        question_selector.curriculum_map = {"calculus": {"hard": [mock_chunk]}}
+        question_selector.qg_rag.run.side_effect = Exception("Generation failed")
+
+        result = question_selector.select_next_question("learner1")
+        assert result is None

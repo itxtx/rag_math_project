@@ -31,9 +31,9 @@ WORKDIR /app
 RUN pip install uv
 
 # 5. Copy the pyproject.toml file and install dependencies with uv
-# This uses pyproject.toml as the source of truth, not requirements.txt
+
 COPY pyproject.toml .
-RUN uv pip install . --system
+RUN uv pip install .[test] --system
 
 # 6. Copy the rest of your application source code into the container
 COPY . .
