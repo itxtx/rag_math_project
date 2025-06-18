@@ -167,17 +167,17 @@ health:
 # Frontend Commands
 frontend-install:
 	@echo "$(BLUE)📦 Installing frontend dependencies...$(NC)"
-	@cd frontend && npm install
+	@cd frontend && PATH="/opt/homebrew/bin:$$PATH" npm install
 	@echo "$(GREEN)✓ Frontend dependencies installed$(NC)"
 
 frontend-dev:
 	@echo "$(BLUE)🖥️  Starting frontend development server...$(NC)"
 	@echo "$(YELLOW)Frontend will be available at: http://localhost:3000$(NC)"
-	@cd frontend && npm run dev
+	@cd frontend && PATH="/opt/homebrew/bin:$$PATH" npm run dev
 
 frontend-build:
 	@echo "$(BLUE)🏗️  Building frontend for production...$(NC)"
-	@cd frontend && npm run build
+	@cd frontend && PATH="/opt/homebrew/bin:$$PATH" npm run build
 	@echo "$(GREEN)✓ Frontend build complete!$(NC)"
 	@echo "$(YELLOW)Build output is in frontend/build$(NC)"
 

@@ -92,18 +92,31 @@ class HybridRetriever:
         """Get all documents without semantic search"""
         try:
             print("Fetching all documents from Weaviate...")
-            response = self.weaviate_client.query.get(
-                "MathDocumentChunk",
-                ["chunk_id", "doc_id", "filename", "concept_name", "concept_type", "source_path", "original_doc_type", "parent_block_id", "sequence_in_block"]
-            ).with_additional(["id"]).with_limit(limit).do()
+            collection = self.weaviate_client.collections.get("MathConcept")
+            response = collection.query.fetch_objects(limit=limit)
             
             print(f"Raw Weaviate response (first 500 chars): {str(response)[:500]}")
             
-            if not response or "data" not in response or "Get" not in response["data"]:
+            if not response or not hasattr(response, 'objects'):
                 print("Invalid response from Weaviate")
                 return []
                 
-            documents = response["data"]["Get"]["MathDocumentChunk"]
+            documents = []
+            for obj in response.objects:
+                doc = {
+                    'chunk_id': obj.properties.get('chunk_id'),
+                    'doc_id': obj.properties.get('doc_id'),
+                    'filename': obj.properties.get('filename'),
+                    'concept_name': obj.properties.get('concept_name'),
+                    'concept_type': obj.properties.get('concept_type'),
+                    'source_path': obj.properties.get('source_path'),
+                    'original_doc_type': obj.properties.get('original_doc_type'),
+                    'parent_block_id': obj.properties.get('parent_block_id'),
+                    'sequence_in_block': obj.properties.get('sequence_in_block'),
+                    'id': str(obj.uuid)
+                }
+                documents.append(doc)
+            
             print(f"Found {len(documents)} documents")
             return documents
             
@@ -136,20 +149,34 @@ class HybridRetriever:
         """Execute Weaviate search with error handling"""
         try:
             print("Executing Weaviate search...")
-            response = self.weaviate_client.query.get(
-                "MathDocumentChunk",
-                ["chunk_id", "doc_id", "filename", "concept_name", "concept_type", "source_path", "original_doc_type", "parent_block_id", "sequence_in_block"]
-            ).with_additional(["id"]).with_near_vector({
-                "vector": embedding.tolist()
-            }).with_limit(limit).do()
+            collection = self.weaviate_client.collections.get("MathConcept")
+            response = collection.query.near_vector(
+                near_vector=embedding.tolist(),
+                limit=limit
+            )
             
             print(f"Raw Weaviate search response (first 500 chars): {str(response)[:500]}")
             
-            if not response or "data" not in response or "Get" not in response["data"]:
+            if not response or not hasattr(response, 'objects'):
                 print("Invalid response from Weaviate")
                 return []
                 
-            results = response["data"]["Get"]["MathDocumentChunk"]
+            results = []
+            for obj in response.objects:
+                result = {
+                    'chunk_id': obj.properties.get('chunk_id'),
+                    'doc_id': obj.properties.get('doc_id'),
+                    'filename': obj.properties.get('filename'),
+                    'concept_name': obj.properties.get('concept_name'),
+                    'concept_type': obj.properties.get('concept_type'),
+                    'source_path': obj.properties.get('source_path'),
+                    'original_doc_type': obj.properties.get('original_doc_type'),
+                    'parent_block_id': obj.properties.get('parent_block_id'),
+                    'sequence_in_block': obj.properties.get('sequence_in_block'),
+                    'id': str(obj.uuid)
+                }
+                results.append(result)
+            
             print(f"Found {len(results)} results")
             return results
             

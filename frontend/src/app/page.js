@@ -64,8 +64,8 @@ function App() {
   const [topicsLoading, setTopicsLoading] = useState(true);
   const [topicsError, setTopicsError] = useState(null);
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-  const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1';
+  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'your-secure-api-key-here';
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -142,11 +142,19 @@ function App() {
   };
 
   const handleStartInteraction = useCallback(async () => {
+    console.log('handleStartInteraction called');
+    console.log('learnerId:', learnerId);
+    console.log('selectedTopicId:', selectedTopicId);
+    console.log('API_BASE_URL:', API_BASE_URL);
+    console.log('API_KEY:', API_KEY);
+    
     if (!learnerId.trim() || !selectedTopicId) {
+      console.log('Validation failed - missing learnerId or selectedTopicId');
       setError("Learner ID and Topic must be provided.");
       setIsErrorDialogOpen(true);
       return;
     }
+    console.log('Starting interaction request...');
     setLoading(true);
     setError(null);
     setQuestion(null);
@@ -156,22 +164,26 @@ function App() {
     setFeedback(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/interaction/start`, {
+      const url = `${API_BASE_URL}/interaction/start?learner_id=${encodeURIComponent(learnerId)}&topic_id=${encodeURIComponent(selectedTopicId)}`;
+      console.log('Making request to:', url);
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'X-API-Key': API_KEY
-        },
-        body: JSON.stringify({
-          learner_id: learnerId,
-          topic_id: selectedTopicId,
-        }),
+        }
       });
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error from start interaction.' }));
+        console.log('Error response:', errorData);
         throw new Error(errorData.detail || 'Failed to start interaction.');
       }
       const data = await response.json();
+      console.log('Success response:', data);
       setRawQuestionResponse(data);
 
       if (data.is_new_concept_context_presented === true && data.context_for_evaluation) {

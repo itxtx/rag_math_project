@@ -110,17 +110,12 @@ class FastRAGComponents:
         print("  ✓ All components initialized")
     
     async def ensure_ready(self):
-        """Ensure all components are ready (lazy initialization)"""
+        """Ensure all components are ready (pre-initialized during startup)"""
         if self.initialization_error:
             raise Exception(f"Components failed to initialize: {self.initialization_error}")
         
-        # Initialize LLM components if not already done
-        if not self._question_generator or not self._answer_evaluator:
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._init_llm_components)
-            await loop.run_in_executor(None, self._init_dependent_components)
-        
-        # Pre-warm if not already done
+        # LLM components are now pre-initialized during startup
+        # Only pre-warm if not already done
         if not self._prewarmed:
             await self._prewarm_system()
             self._prewarmed = True
@@ -264,6 +259,9 @@ async def lifespan(app: FastAPI):
     try:
         components = FastRAGComponents()
         components._init_core_components()
+        
+        # Pre-initialize LLM components during startup
+        print("🤖 Pre-initializing LLM components...")
         components._init_llm_components()
         components._init_dependent_components()
         
@@ -275,8 +273,8 @@ async def lifespan(app: FastAPI):
         app_state["answer_evaluator"] = components._answer_evaluator
         app_state["active_interactions"] = {}
         
-        print("✅ Fast startup complete! Core components ready.")
-        print("   LLM components will be loaded on first request.")
+        print("✅ Fast startup complete! All components ready.")
+        print("   LLM components pre-loaded for fast first requests.")
     except Exception as e:
         print(f"❌ Failed to initialize components: {e}")
         # Initialize with None values to prevent KeyError
@@ -304,8 +302,7 @@ app = FastAPI(
     title="Fast Adaptive RAG Learning System",
     description="High-performance RAG API with optimized retrieval",
     version="0.2.0",
-    lifespan=lifespan,
-    dependencies=[Depends(get_api_key)]
+    lifespan=lifespan
 )
 
 # CORS
@@ -341,7 +338,7 @@ async def track_performance(request, call_next):
 
 # Optimized endpoints
 @app.get("/api/v1/topics", response_model=PyList[TopicResponse])
-async def list_topics_fast(api_key: str = Security(get_api_key)):
+async def list_topics_fast():
     """Get list of available topics"""
     try:
         print("Starting topics endpoint...")
@@ -403,12 +400,25 @@ async def list_topics_fast(api_key: str = Security(get_api_key)):
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
 async def start_interaction(
     request: Request,
-    learner_id: int = 1,
-    topic_id: Optional[str] = None,
-    api_key: str = Security(get_api_key)
+    learner_id: Optional[str] = None,
+    topic_id: Optional[str] = None
 ):
     """Start a new interaction with a question"""
     try:
+        # Parse request body only if it's not empty
+        body = {}
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                body = await request.json()
+        except Exception as e:
+            print(f"Warning: Could not parse request body as JSON: {e}")
+            body = {}
+        
+        # Use query parameters if provided, otherwise use body
+        learner_id = learner_id or body.get("learner_id", "1")
+        topic_id = topic_id or body.get("topic_id")
+        
         print(f"🎯 Fast interaction start for learner: {learner_id}")
         
         # Get or create learner profile
@@ -424,7 +434,7 @@ async def start_interaction(
                 raise HTTPException(status_code=404, detail="No topics available")
             topic_id = topics[0].doc_id
         
-        # Get next question
+        # Get next question using the adaptive engine
         question_data = await app_state["question_selector"].select_next_question(
             learner_id=str(learner_id),
             target_doc_id=topic_id
@@ -436,7 +446,7 @@ async def start_interaction(
         # Get context for the concept
         context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
         
-        # Generate question
+        # Generate question using LLM
         questions = await app_state["question_generator"].generate_questions(
             context_chunks=[{"chunk_text": context}],
             num_questions=1,
@@ -472,13 +482,14 @@ async def start_interaction(
         
     except Exception as e:
         print(f"❌ Error in fast interaction start: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
     request: AnswerSubmissionRequest,
-    components: FastRAGComponents = Depends(get_fast_components),
-    api_key: str = Security(get_api_key)
+    components: FastRAGComponents = Depends(get_fast_components)
 ):
     """Fast answer submission with async evaluation"""
     print(f"📝 Fast answer submission for learner: {request.learner_id}")
@@ -512,7 +523,7 @@ async def submit_answer_fast(
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 @app.get("/api/v1/health")
-async def health_check_fast(api_key: str = Security(get_api_key)):
+async def health_check_fast():
     """Health check with performance metrics"""
     components = app_state.get("components")
     
@@ -527,7 +538,7 @@ async def health_check_fast(api_key: str = Security(get_api_key)):
     return health_data
 
 @app.get("/api/v1/performance")
-async def get_performance_stats(api_key: str = Security(get_api_key)):
+async def get_performance_stats():
     """Get detailed performance statistics"""
     components = app_state.get("components")
     if not components:
@@ -536,13 +547,76 @@ async def get_performance_stats(api_key: str = Security(get_api_key)):
     return components.get_performance_stats()
 
 @app.post("/api/v1/clear_cache")
-async def clear_cache(api_key: str = Security(get_api_key)):
+async def clear_cache():
     """Clear all caches (useful for testing)"""
     components = app_state.get("components")
     if components and components._retriever:
         components._retriever.clear_cache()
         return {"message": "Cache cleared successfully"}
     return {"message": "No cache to clear"}
+
+@app.get("/api/v1/test")
+async def test_endpoint():
+    """Simple test endpoint to verify the system is working"""
+    return {
+        "status": "working",
+        "message": "Backend is responding correctly",
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+@app.post("/api/v1/test_question")
+async def test_question():
+    """Test endpoint that returns a hardcoded question without LLM processing"""
+    return QuestionResponse(
+        question_id="test_question_1",
+        doc_id="functional_analysis",
+        concept_name="Test Concept",
+        question_text="What is a vector space?",
+        context_for_evaluation="A vector space is a mathematical structure...",
+        is_new_concept_context_presented=False
+    )
+
+@app.post("/api/v1/interaction/next_question", response_model=QuestionResponse)
+async def next_question(
+    request: Request
+):
+    try:
+        # Parse request body only if it's not empty
+        body = {}
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                body = await request.json()
+        except Exception as e:
+            print(f"Warning: Could not parse request body as JSON: {e}")
+            body = {}
+        
+        learner_id = body.get("learner_id", "1")
+        topic_id = body.get("topic_id")
+        print(f"➡️  Next question for learner: {learner_id}, topic: {topic_id}")
+        
+        # Use the real adaptive engine
+        selector = app_state["question_selector"]
+        next_question_info = await selector.select_next_question(learner_id, target_doc_id=topic_id)
+        if not next_question_info or "error" in next_question_info:
+            detail_msg = next_question_info.get("error", "Could not select a next question.") if next_question_info else "Could not select a next question."
+            raise HTTPException(status_code=404, detail=detail_msg)
+        
+        return QuestionResponse(
+            question_id=next_question_info["concept_id"],
+            doc_id=next_question_info.get("doc_id", topic_id or "unknown_doc"),
+            concept_name=next_question_info["concept_name"],
+            question_text=next_question_info["question_text"],
+            context_for_evaluation=next_question_info.get("context_for_evaluation", ""),
+            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False)
+        )
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        print(f"❌ Error in next_question: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error selecting next question: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
