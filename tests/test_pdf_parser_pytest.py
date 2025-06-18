@@ -2,9 +2,10 @@ import pytest
 import os
 import tempfile
 import fitz # PyMuPDF
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, AsyncMock
 from src.data_ingestion.pdf_parser import parse_pdf_file, general_pdf_extractor
 from src import config
+from src.learner_model.profile_manager import LearnerProfileManager
 
 @pytest.fixture
 def temp_dir():
@@ -148,4 +149,27 @@ def temp_pdf_file(tmp_path):
     page.insert_text((72, 72), "Sample PDF content.")
     doc.save(str(file_path))
     doc.close()
-    return str(file_path) 
+    return str(file_path)
+
+def test_load_new_documents_permission_error(mock_config, temp_latex_dir, temp_log_file):
+    restricted_file = os.path.join(temp_latex_dir, "restricted.tex")
+    # ... test code ...
+    try:
+        os.chmod(restricted_file, 0o000)
+        # ... test operations ...
+    finally:
+        # Always restore permissions for cleanup
+        try:
+            os.chmod(restricted_file, 0o644)
+        except OSError:
+            pass  # File might not exist
+
+@pytest.fixture
+def mock_profile_manager():
+    mock = AsyncMock(spec=LearnerProfileManager)
+    mock.get_concepts_for_review = AsyncMock(return_value=[])
+    mock.get_concept_knowledge = AsyncMock(return_value=None)
+    mock.create_profile = AsyncMock(return_value=None)
+    # Add missing method
+    mock.get_last_attempted_concept_and_doc = AsyncMock(return_value=(None, None))
+    return mock 

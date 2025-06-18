@@ -29,8 +29,7 @@ def mock_profile_manager():
     mock.get_concepts_for_review = AsyncMock(return_value=[])
     mock.get_concept_knowledge = AsyncMock(return_value=None)
     mock.create_profile = AsyncMock(return_value=None)
-    # ****** THIS IS THE FIX ******
-    # Add the missing method to the mock spec. It can return None for these tests.
+    # Add missing method
     mock.get_last_attempted_concept_and_doc = AsyncMock(return_value=(None, None))
     return mock
 

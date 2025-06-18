@@ -7,7 +7,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 
-from src.api.fast_api import app, FastRAGComponents, get_api_key, API_KEY
+from src.api.fast_api import app, FastRAGComponents, get_api_key, API_KEY, get_fast_components
 from src.api.models import (
     LearnerInteractionStartRequest,
     AnswerSubmissionRequest,
@@ -27,6 +27,15 @@ app.dependency_overrides[get_api_key] = override_get_api_key
 
 # Test API key for testing
 TEST_API_KEY = "test-api-key-12345"
+
+def override_get_fast_components():
+    components = MagicMock()
+    components.retriever = AsyncMock()
+    components.question_selector = AsyncMock()
+    components.answer_handler = AsyncMock()
+    return components
+
+app.dependency_overrides[get_fast_components] = override_get_fast_components
 
 # --- Fixtures ---
 
