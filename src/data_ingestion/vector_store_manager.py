@@ -54,7 +54,7 @@ def embed_chunk_data(chunk_data: dict) -> Optional[np.ndarray]:
 
 def create_weaviate_schema(client):
     """Create the Weaviate schema if it doesn't exist."""
-    if not client.schema.exists(WEAVIATE_CLASS_NAME):
+    if not client.collections.exists(WEAVIATE_CLASS_NAME):
         class_obj = {
             "class": WEAVIATE_CLASS_NAME,
             "vectorizer": "none",  # We'll provide our own vectors
@@ -72,7 +72,7 @@ def create_weaviate_schema(client):
                 {"name": "filename", "dataType": ["string"]}
             ]
         }
-        client.schema.create_class(class_obj)
+        client.collections.create_from_dict(class_obj)
 
 class VectorStoreManager:
     """
