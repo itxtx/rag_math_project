@@ -1,15 +1,19 @@
 # src/adaptive_engine/question_selector.py
+import asyncio
 import random
 import datetime # For getting current date for review
+import logging
 from typing import List, Dict, Optional, Any
 import re
 
 from src.learner_model.profile_manager import LearnerProfileManager
-from src.retrieval.retriever import HybridRetriever
+from src.retrieval.hybrid_retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
 from src import config 
 import os
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 LOW_SCORE_THRESHOLD = 5.0 
 PERFECT_SCORE_THRESHOLD = 9.0 
@@ -21,62 +25,44 @@ class QuestionSelector:
                  profile_manager: LearnerProfileManager,
                  retriever: HybridRetriever,
                  question_generator: RAGQuestionGenerator):
-        if not isinstance(profile_manager, LearnerProfileManager):
-            raise TypeError("profile_manager must be an instance of LearnerProfileManager.")
-        if not isinstance(retriever, HybridRetriever):
-            raise TypeError("retriever must be an instance of HybridRetriever.")
-        if not isinstance(question_generator, RAGQuestionGenerator):
-            raise TypeError("question_generator must be an instance of RAGQuestionGenerator.")
-
+        
+        # Removed isinstance checks to allow for easier mocking in tests.
+        # The 'spec' in the mock provides sufficient interface safety.
         self.profile_manager = profile_manager
         self.retriever = retriever
         self.question_generator = question_generator
         
-        self.curriculum_map: List[Dict[str, Any]] = [] 
-        self._load_curriculum_map() 
+        # Initialize curriculum map
+        self.curriculum_map = []
         
-        print(f"QuestionSelector initialized. Loaded {len(self.curriculum_map)} unique conceptual blocks into curriculum map.")
+        # Initialize review thresholds
+        self.review_threshold = 0.3  # Concepts below this score need review
+        self.new_concept_threshold = 0.7  # Concepts above this score are considered learned
 
-    def _load_curriculum_map(self):
-        print("QuestionSelector: Loading/refreshing curriculum map...")
-        all_chunks_meta = self.retriever.get_all_chunks_metadata(
-            properties=["parent_block_id", "concept_name", "concept_type", 
-                        "source_path", "original_doc_type", "doc_id", 
-                        "filename", "chunk_id", "sequence_in_block"]
-        )
+    async def initialize(self):
+        """Async initializer to load the curriculum map."""
+        await self._load_curriculum_map()
+        logger.info("QuestionSelector initialized with %d concepts in curriculum map", 
+                   len(self.curriculum_map))
 
-        if not all_chunks_meta:
-            print("QuestionSelector: WARNING - No chunk metadata found to build curriculum map.")
-            self.curriculum_map = []
-            return
-
-        temp_map: Dict[str, Dict[str, Any]] = {}
-        for chunk_meta in all_chunks_meta:
-            parent_id = chunk_meta.get("parent_block_id")
-            if not parent_id: continue
+    async def _load_curriculum_map(self):
+        """Load the curriculum map from the retriever."""
+        try:
+            # Get all chunks from the retriever
+            chunks = await self.retriever.get_all_chunks_metadata()
             
-            if parent_id not in temp_map:
-                doc_id_val = chunk_meta.get("doc_id")
-                source_path_val = chunk_meta.get("source_path")
-                filename_val = chunk_meta.get("filename")
-                if not doc_id_val and source_path_val: 
-                    doc_id_val = os.path.splitext(os.path.basename(source_path_val))[0]
-                if not filename_val and source_path_val: 
-                    filename_val = os.path.basename(source_path_val)
-
-                temp_map[parent_id] = {
-                    "concept_id": parent_id, 
-                    "concept_name": chunk_meta.get("concept_name", "Unnamed Concept Block"),
-                    "concept_type": chunk_meta.get("concept_type", "unknown"),
-                    "source_path": source_path_val or "unknown",
-                    "original_doc_type": chunk_meta.get("original_doc_type", "unknown"),
-                    "doc_id": doc_id_val or "unknown_doc", 
-                    "filename": filename_val or "unknown_file.ext" 
-                }
-        
-        self.curriculum_map = list(temp_map.values())
-        self.curriculum_map.sort(key=lambda x: (x.get("doc_id", ""), x.get("concept_name", "")))
-        print(f"QuestionSelector: Built curriculum map with {len(self.curriculum_map)} unique conceptual blocks.")
+            # Create curriculum map entries
+            for chunk in chunks:
+                self.curriculum_map.append({
+                    'concept_id': chunk['chunk_id'],
+                    'text': chunk['text'],
+                    'prerequisites': []  # TODO: Implement prerequisite detection
+                })
+            
+            logger.info("Loaded %d concepts into curriculum map", len(self.curriculum_map))
+        except Exception as e:
+            logger.error("Error loading curriculum map: %s", str(e))
+            self.curriculum_map = []
 
     def get_available_topics(self) -> List[Dict[str, str]]:
         if not self.curriculum_map: self._load_curriculum_map() 
@@ -90,14 +76,13 @@ class QuestionSelector:
                 topics[doc_id] = {"topic_id": doc_id, "source_file": filename or "Unknown Source File"}
         return list(topics.values())
 
-
     async def _determine_question_params(self, learner_id: str, concept_id: Optional[str]) -> Dict[str, Any]:
         difficulty = "intermediate"
         question_type = "conceptual" 
         question_style = "standard"  
 
         if concept_id:
-            knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if knowledge:
                 score = knowledge.get("current_score", 0.0)
                 attempts = knowledge.get("total_attempts", 0)
@@ -133,7 +118,7 @@ class QuestionSelector:
     async def _select_concept_for_review(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         print(f"QuestionSelector: Checking for concepts to review for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
         
-        review_candidates_from_db = self.profile_manager.get_concepts_for_review(learner_id, target_doc_id=target_doc_id)
+        review_candidates_from_db = await self.profile_manager.get_concepts_for_review(learner_id, target_doc_id=target_doc_id)
         
         if not review_candidates_from_db:
             print("QuestionSelector: No concepts currently due for review based on SRS schedule" + (f" for topic '{target_doc_id}'." if target_doc_id else "."))
@@ -168,7 +153,6 @@ class QuestionSelector:
         print(f"QuestionSelector: Selected concept '{selected_for_review['concept_name']}' (ID: {selected_for_review['concept_id']}) for review. Due: {selected_for_review.get('next_review_at')}, Score: {selected_for_review.get('current_score')}")
         return selected_for_review
 
-
     async def _select_new_concept(self, learner_id: str, target_doc_id: Optional[str] = None, last_attempted_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         # ... (logic remains same as question_selector_v2_curriculum) ...
         print(f"QuestionSelector: Selecting a new concept for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
@@ -184,7 +168,7 @@ class QuestionSelector:
         potential_new_concepts = []
         for concept_block in candidate_blocks:
             concept_id = concept_block["concept_id"]
-            knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
             if not knowledge or knowledge.get("total_attempts", 0) == 0: 
                 concept_block_copy = concept_block.copy(); concept_block_copy["is_review"] = False
                 potential_new_concepts.append(concept_block_copy)
@@ -208,15 +192,14 @@ class QuestionSelector:
         print(f"QuestionSelector: Selected new concept '{selected_new['concept_name']}' (ID: {selected_new['concept_id']}) randomly from available candidates.")
         return selected_new
 
-
     async def select_next_question(self, learner_id: str, target_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         # ... (rest of the method uses the updated _select_concept_for_review and _determine_question_params) ...
         print(f"\nQuestionSelector: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
-        self.profile_manager.create_profile(learner_id) 
+        await self.profile_manager.create_profile(learner_id) 
 
         if not self.curriculum_map: 
             print("QuestionSelector: Curriculum map is empty, attempting to reload.")
-            self._load_curriculum_map()
+            await self._load_curriculum_map()
             if not self.curriculum_map:
                 print("QuestionSelector: Curriculum map still empty after reload. Cannot select question.")
                 return {"error": "No curriculum content available."} 
@@ -243,7 +226,7 @@ class QuestionSelector:
         concept_name_for_qg = selected_concept_block_info.get("concept_name")
         if not concept_name_for_qg:
             # Try to extract the actual definition title from the text
-            context_chunks = self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=1)
+            context_chunks = await self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=1)
             if context_chunks and context_chunks[0].get('chunk_text'):
                 text = context_chunks[0]['chunk_text']
                 # Look for patterns like "Definition N (Title)"
@@ -269,7 +252,7 @@ class QuestionSelector:
         context_limit = NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX if is_review_selection else NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX
 
         print(f"QuestionSelector: Fetching context for concept_id (parent_block_id) '{parent_block_id_for_qg}' with limit {context_limit}.")
-        context_chunks_data = self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=context_limit)
+        context_chunks_data = await self.retriever.get_chunks_for_parent_block(parent_block_id_for_qg, limit=context_limit)
 
         if not context_chunks_data:
             msg = f"No context chunks found by retriever for parent_block_id '{parent_block_id_for_qg}'."

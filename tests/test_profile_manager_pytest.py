@@ -118,6 +118,7 @@ def test_delete_cascade(profile_manager, test_ids):
     
     # Direct deletion for test purposes
     conn = sqlite3.connect(profile_manager.db_path)
+    conn.execute("PRAGMA foreign_keys = ON;")  # Ensure foreign keys are enabled
     cursor = conn.cursor()
     cursor.execute("DELETE FROM learners WHERE learner_id = ?", (test_ids["learner_id_1"],))
     conn.commit()
