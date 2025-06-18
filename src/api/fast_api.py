@@ -189,6 +189,12 @@ class FastRAGComponents:
         """Cleanup resources"""
         if self._profile_manager:
             self._profile_manager.close_db()
+        if hasattr(self, 'weaviate_client') and self.weaviate_client is not None:
+            try:
+                self.weaviate_client.close()
+                print("  Weaviate client connection closed.")
+            except Exception as e:
+                print(f"  Warning: Failed to close Weaviate client: {e}")
         print("  🧹 Resources cleaned up")
 
     async def _get_context_for_concept(self, concept_id: str, limit: int = 2) -> str:
