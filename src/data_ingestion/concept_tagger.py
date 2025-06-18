@@ -9,17 +9,14 @@ LATEX_CONCEPT_PATTERNS = {
     "section": r"^§\s+(.*?)\s*$",              # Matches "§ TITLE" at the start of a line, captures TITLE
     "subsection": r"^§\.§\s+(.*?)\s*$",        # Matches "§.§ TITLE", captures TITLE
     "subsubsection": r"^§\.§\.§\s+(.*?)\s*$",  # Matches "§.§.§ TITLE", captures TITLE
-    
     # The following patterns are for raw LaTeX and will NOT work with the current
     # latex_parser.py output, which strips these commands/environments.
     # They are commented out to prevent false negatives or errors.
     # If these concepts need to be tagged, either latex_parser.py must preserve
     # these structures, or a different tagging strategy is needed here.
-
-    "paragraph_title": r"\\paragraph\*?\{(.*?)\}", # Current latex_parser.py removes \paragraph command
-    
-    "environment": r"\\begin\{(theorem|definition|lemma|proof|example|remark|corollary|proposition|problem|solution)\}\s*(?:\[(.*?)\])?([\s\S]*?)\\end\{\1\}"
-    # Current latex_parser.py removes \begin{} and \end{} tags for these environments, outputting only their content.
+    # "paragraph_title": r"\\paragraph\*?\{(.*?)\}", # Current latex_parser.py removes \\paragraph command
+    # "environment": r"\\begin\{(theorem|definition|lemma|proof|example|remark|corollary|proposition|problem|solution)\}\s*(?:\[(.*?)\])?([\s\S]*?)\\end\{\1\}"
+    # Current latex_parser.py removes \\begin{} and \\end{} tags for these environments, outputting only their content.
 }
 
 # If you need to tag content that was previously in theorem-like environments,

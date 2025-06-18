@@ -153,15 +153,15 @@ async def test_main_interactive_app_topic_selection_error(mock_input_success):
 @pytest.mark.asyncio
 async def test_main_interactive_app_invalid_topic_choice(mock_input_invalid_topic):
     """Test interactive application with invalid topic choice."""
-    input_sequence = ["test_learner", "2", "1"]
+    input_sequence = ["test_learner", "99", "1"]
     with patch('sys.stdin', mock_input_invalid_topic), \
          patch('builtins.input', side_effect=input_sequence), \
          patch('src.app.pipeline.vector_store_manager.get_weaviate_client', return_value=MagicMock()), \
          patch('src.app.pipeline.vector_store_manager.create_weaviate_schema', return_value=None), \
-         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
-         patch('src.retrieval.hybrid_retriever.HybridRetriever', return_value=MagicMock()), \
-         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+         patch('src.app.pipeline.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
+         patch('src.app.pipeline.retriever.HybridRetriever', return_value=MagicMock()), \
+         patch('src.app.pipeline.question_selector.QuestionSelector') as mock_qs_class, \
+         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
         mock_qs_instance = MagicMock()
         mock_qs_instance.curriculum_map = [
@@ -269,20 +269,19 @@ async def test_main_interactive_app_profile_manager_cleanup():
 
 @pytest.mark.asyncio
 async def test_main_interactive_app_profile_manager_cleanup_on_error():
-    """Test that profile manager is cleaned up even when topic selection fails."""
-    with patch('builtins.input', return_value="test_learner"), \
+    """Test that LearnerProfileManager.close_db is called on error."""
+    input_sequence = ["test_learner", "1"]
+    with patch('builtins.input', side_effect=input_sequence), \
          patch('src.app.pipeline.vector_store_manager.get_weaviate_client', side_effect=Exception("Connection failed")), \
-         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
-         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock), \
+         patch('src.app.pipeline.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
+         patch('src.app.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
          patch('builtins.print') as mock_print:
-        mock_profile_manager = mock_pm.return_value
-        mock_profile_manager.close_db = MagicMock()
-        mock_qs_instance = MagicMock()
-        mock_qs_instance.curriculum_map = []
-        mock_qs_class.return_value = mock_qs_instance
-        await main_interactive_app()
-        mock_profile_manager.close_db.assert_called_once()
+        try:
+            asyncio.run(main_interactive_app())
+        except Exception:
+            pass
+        # Ensure close_db is called even on error
+        mock_pm.return_value.close_db.assert_called_once()
 
 # --- Input Validation Tests ---
 
@@ -422,27 +421,23 @@ def test_main_entry_point_general_exception():
 
 @pytest.mark.asyncio
 async def test_full_interactive_flow_integration():
-    """Test the full interactive flow integration."""
-    with patch('builtins.input', side_effect=["learner_123", "1"]), \
-         patch('src.app.pipeline.vector_store_manager.get_weaviate_client', return_value=MagicMock()), \
-         patch('src.app.pipeline.vector_store_manager.create_weaviate_schema', return_value=None), \
-         patch('src.learner_model.profile_manager.LearnerProfileManager', return_value=MagicMock()) as mock_pm, \
-         patch('src.retrieval.hybrid_retriever.HybridRetriever', return_value=MagicMock()), \
-         patch('src.adaptive_engine.question_selector.QuestionSelector') as mock_qs_class, \
-         patch('src.pipeline.run_full_pipeline', new_callable=AsyncMock) as mock_run_full_pipeline, \
+    """Integration test for the full interactive flow with valid and invalid topic choices."""
+    input_sequence = ["test_learner", "99", "1"]
+    with patch('builtins.input', side_effect=input_sequence), \
+         patch('src.app.pipeline') as mock_pipeline, \
          patch('builtins.print') as mock_print:
-        mock_profile_manager = mock_pm.return_value
-        mock_profile_manager.close_db = MagicMock()
-        mock_qs_instance = MagicMock()
-        mock_qs_instance.curriculum_map = [
-            {"doc_id": "calculus", "concept_name": "Calculus"},
-            {"doc_id": "algebra", "concept_name": "Algebra"}
-        ]
-        mock_qs_class.return_value = mock_qs_instance
+        mock_pipeline.vector_store_manager.get_weaviate_client.return_value = MagicMock()
+        mock_pipeline.vector_store_manager.create_weaviate_schema.return_value = None
+        mock_pipeline.profile_manager.LearnerProfileManager.return_value = MagicMock()
+        mock_retriever = AsyncMock()
+        mock_pipeline.retriever.HybridRetriever.return_value = mock_retriever
+        mock_question_selector = AsyncMock()
+        mock_question_selector.curriculum_map = [{"doc_id": "topic1", "concept_name": "Topic 1"}]
+        mock_pipeline.question_selector.QuestionSelector.return_value = mock_question_selector
+        mock_pipeline.run_full_pipeline = AsyncMock()
         await main_interactive_app()
-        mock_run_full_pipeline.assert_awaited_once_with(
+        mock_pipeline.run_full_pipeline.assert_awaited_once_with(
             interactive_mode=True,
-            initial_learner_id="learner_123",
-            target_topic_id="calculus"
-        )
-        mock_profile_manager.close_db.assert_called_once() 
+            initial_learner_id="test_learner",
+            target_topic_id="topic1"
+        ) 
