@@ -74,18 +74,32 @@ class SessionManager:
         self.session_timeout_minutes = session_timeout_minutes
         self.interaction_start_times: Dict[str, datetime] = {}  # interaction_id -> start_time
         
+        # FIXED: Add memory management tracking
+        self._cleanup_counter = 0
+        self._last_cleanup_time = datetime.now()
+        self._max_sessions_before_cleanup = 50  # Reduced from 100
+        self._max_interactions_before_cleanup = 100
+        
         logger.info(f"SessionManager initialized with {session_timeout_minutes}min timeout")
     
     def get_or_create_session(self, learner_id: str) -> SessionData:
         """Get existing session or create new one for learner"""
-        # Add automatic cleanup every 100 sessions to prevent memory leaks
-        if len(self.sessions) % 100 == 0 and len(self.sessions) > 0:
+        # FIXED: More aggressive cleanup to prevent memory leaks
+        self._cleanup_counter += 1
+        
+        # Cleanup every 50 sessions instead of 100
+        if self._cleanup_counter % self._max_sessions_before_cleanup == 0:
             self.cleanup_expired_sessions()
+            self._last_cleanup_time = datetime.now()
         
         # Additional cleanup if we have too many sessions (memory pressure)
-        if len(self.sessions) > 500:
+        if len(self.sessions) > 200:  # Reduced from 500
             self.cleanup_expired_sessions()
             logger.warning(f"Memory pressure detected: {len(self.sessions)} sessions, triggered cleanup")
+        
+        # Additional cleanup if we have too many interaction start times
+        if len(self.interaction_start_times) > self._max_interactions_before_cleanup:
+            self._cleanup_interaction_start_times()
         
         if learner_id not in self.sessions:
             self.sessions[learner_id] = SessionData(learner_id=learner_id)
@@ -101,6 +115,22 @@ class SessionManager:
             session = self.sessions[learner_id]
         
         return session
+    
+    def _cleanup_interaction_start_times(self):
+        """Clean up old interaction start times more aggressively"""
+        current_time = datetime.now()
+        expired_interactions = []
+        
+        for interaction_id, start_time in self.interaction_start_times.items():
+            # Reduced timeout from 1 hour to 30 minutes
+            if (current_time - start_time).total_seconds() > 1800:  # 30 minutes
+                expired_interactions.append(interaction_id)
+        
+        for interaction_id in expired_interactions:
+            del self.interaction_start_times[interaction_id]
+        
+        if expired_interactions:
+            logger.info(f"Cleaned up {len(expired_interactions)} expired interaction start times")
     
     def start_interaction(self, learner_id: str, interaction_id: str):
         """Record start of an interaction"""
@@ -208,8 +238,9 @@ class SessionManager:
         initial_count = len(self.sessions)
         expired_learners = []
         
+        # FIXED: More aggressive cleanup with shorter timeout
         for learner_id, session in self.sessions.items():
-            if session.is_session_expired(self.session_timeout_minutes * 2):  # Double timeout for cleanup
+            if session.is_session_expired(self.session_timeout_minutes):  # Use regular timeout instead of double
                 expired_learners.append(learner_id)
         
         for learner_id in expired_learners:
@@ -217,26 +248,17 @@ class SessionManager:
             logger.debug(f"Cleaned up expired session for learner {learner_id}")
         
         # Also cleanup old interaction start times
-        current_time = datetime.now()
-        expired_interactions = []
-        
-        for interaction_id, start_time in self.interaction_start_times.items():
-            if (current_time - start_time).total_seconds() > 3600:  # 1 hour timeout
-                expired_interactions.append(interaction_id)
-        
-        for interaction_id in expired_interactions:
-            del self.interaction_start_times[interaction_id]
+        self._cleanup_interaction_start_times()
         
         final_count = len(self.sessions)
         cleaned_sessions = initial_count - final_count
         
-        if expired_learners or expired_interactions:
-            logger.info(f"Memory cleanup: removed {cleaned_sessions} expired sessions and "
-                       f"{len(expired_interactions)} expired interactions. "
+        if expired_learners:
+            logger.info(f"Memory cleanup: removed {cleaned_sessions} expired sessions. "
                        f"Total sessions: {initial_count} -> {final_count}")
         
-        # If we still have too many sessions after cleanup, log a warning
-        if final_count > 300:
+        # FIXED: More aggressive warning threshold
+        if final_count > 150:  # Reduced from 300
             logger.warning(f"High session count after cleanup: {final_count} sessions remain")
     
     def get_all_active_sessions(self) -> List[Dict[str, Any]]:

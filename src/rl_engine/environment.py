@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Protocol, runtime_checkable
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -123,6 +123,87 @@ class State:
             'total': cls.get_feature_size(num_concepts)
         }
 
+@runtime_checkable
+class ProfileManagerProtocol(Protocol):
+    """Protocol for profile manager interface"""
+    
+    def get_profile(self, learner_id: str):
+        ...
+    
+    def create_profile(self, learner_id: str):
+        ...
+    
+    def get_concept_knowledge(self, learner_id: str, concept_id: str):
+        ...
+    
+    def get_last_attempted_concept_and_doc(self, learner_id: str):
+        ...
+
+@runtime_checkable
+class AsyncProfileManagerProtocol(Protocol):
+    """Protocol for async profile manager interface"""
+    
+    async def get_profile(self, learner_id: str):
+        ...
+    
+    async def create_profile(self, learner_id: str):
+        ...
+    
+    async def get_concept_knowledge(self, learner_id: str, concept_id: str):
+        ...
+    
+    async def get_last_attempted_concept_and_doc(self, learner_id: str):
+        ...
+
+class ProfileManagerAdapter:
+    """Adapter to handle both sync and async profile managers consistently"""
+    
+    def __init__(self, profile_manager):
+        self.profile_manager = profile_manager
+        self._is_async = self._detect_async_interface()
+        logger.info(f"ProfileManagerAdapter initialized with {'async' if self._is_async else 'sync'} interface")
+    
+    def _detect_async_interface(self) -> bool:
+        """Detect if the profile manager uses async interface"""
+        # Check if the profile manager has async methods by looking for coroutine functions
+        methods_to_check = ['get_profile', 'get_concept_knowledge', 'get_last_attempted_concept_and_doc']
+        
+        for method_name in methods_to_check:
+            if hasattr(self.profile_manager, method_name):
+                method = getattr(self.profile_manager, method_name)
+                if asyncio.iscoroutinefunction(method):
+                    return True
+        
+        return False
+    
+    async def get_profile(self, learner_id: str):
+        """Get learner profile with proper async/sync handling"""
+        if self._is_async:
+            return await self.profile_manager.get_profile(learner_id)
+        else:
+            return self.profile_manager.get_profile(learner_id)
+    
+    async def create_profile(self, learner_id: str):
+        """Create learner profile with proper async/sync handling"""
+        if self._is_async:
+            return await self.profile_manager.create_profile(learner_id)
+        else:
+            return self.profile_manager.create_profile(learner_id)
+    
+    async def get_concept_knowledge(self, learner_id: str, concept_id: str):
+        """Get concept knowledge with proper async/sync handling"""
+        if self._is_async:
+            return await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+        else:
+            return self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+    
+    async def get_last_attempted_concept_and_doc(self, learner_id: str):
+        """Get last attempted concept with proper async/sync handling"""
+        if self._is_async:
+            return await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+        else:
+            return self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+
 class RLEnvironment:
     """
     RL Environment for adaptive question selection
@@ -130,7 +211,7 @@ class RLEnvironment:
     """
     
     def __init__(self, profile_manager, retriever):
-        self.profile_manager = profile_manager
+        self.profile_manager = ProfileManagerAdapter(profile_manager)
         self.retriever = retriever
         self.available_concepts = []
         self.action_space_size = 0
@@ -171,32 +252,18 @@ class RLEnvironment:
     async def get_current_state(self, learner_id: str) -> State:
         """Get the current state for a learner with real session data"""
         try:
-            # FIXED: Handle both sync and async profile manager methods
-            profile = None
-            if hasattr(self.profile_manager, 'get_profile') and callable(getattr(self.profile_manager, 'get_profile')):
-                if asyncio.iscoroutinefunction(self.profile_manager.get_profile):
-                    profile = await self.profile_manager.get_profile(learner_id)
-                else:
-                    profile = self.profile_manager.get_profile(learner_id)
+            # FIXED: Use ProfileManagerAdapter for consistent async/sync handling
+            profile = await self.profile_manager.get_profile(learner_id)
             
             if not profile:
-                if hasattr(self.profile_manager, 'create_profile') and callable(getattr(self.profile_manager, 'create_profile')):
-                    if asyncio.iscoroutinefunction(self.profile_manager.create_profile):
-                        await self.profile_manager.create_profile(learner_id)
-                    else:
-                        self.profile_manager.create_profile(learner_id)
+                await self.profile_manager.create_profile(learner_id)
             
             # Get concept knowledge
             concept_scores = {}
             concept_attempts = {}
             
             for concept_id in self.available_concepts:
-                knowledge = None
-                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
-                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
-                        knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-                    else:
-                        knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
                 
                 if knowledge:
                     concept_scores[concept_id] = knowledge.get('current_score', 0.0) / 10.0  # normalize to 0-1
@@ -206,23 +273,13 @@ class RLEnvironment:
                     concept_attempts[concept_id] = 0
             
             # Get last attempted concept and score
-            last_concept_id, last_doc_id = None, None
-            if hasattr(self.profile_manager, 'get_last_attempted_concept_and_doc') and callable(getattr(self.profile_manager, 'get_last_attempted_concept_and_doc')):
-                if asyncio.iscoroutinefunction(self.profile_manager.get_last_attempted_concept_and_doc):
-                    last_concept_id, last_doc_id = await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
-                else:
-                    last_concept_id, last_doc_id = self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+            last_concept_id, last_doc_id = await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
             
             last_score = 0.0
             last_difficulty = None
             
             if last_concept_id:
-                last_knowledge = None
-                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
-                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
-                        last_knowledge = await self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
-                    else:
-                        last_knowledge = self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
+                last_knowledge = await self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
                 
                 if last_knowledge:
                     last_score = last_knowledge.get('current_score', 0.0) / 10.0
@@ -287,8 +344,13 @@ class RLEnvironment:
         """Get list of valid action indices for current state"""
         valid_actions = []
         
-        # FIXED: Improved action filtering with better edge case handling
+        # FIXED: Improved action filtering with better edge case handling and bounds checking
         for i, concept_id in enumerate(self.available_concepts):
+            # FIXED: Validate concept index is within bounds
+            if i >= len(self.available_concepts):
+                logger.error(f"Concept index {i} out of bounds for {len(self.available_concepts)} concepts")
+                continue
+            
             concept_score = state.concept_scores.get(concept_id, 0.0)
             concept_attempts = state.concept_attempts.get(concept_id, 0)
             
@@ -301,7 +363,12 @@ class RLEnvironment:
                 for difficulty_level in [DifficultyLevel.EASY, DifficultyLevel.MEDIUM]:
                     difficulty_idx = list(DifficultyLevel).index(difficulty_level)
                     action_idx = i * len(DifficultyLevel) + difficulty_idx
-                    valid_actions.append(action_idx)
+                    
+                    # FIXED: Validate action index before adding
+                    if 0 <= action_idx < self.action_space_size:
+                        valid_actions.append(action_idx)
+                    else:
+                        logger.error(f"Generated invalid action index {action_idx} for concept {concept_id}, difficulty {difficulty_level}")
             
             # For concepts with some attempts, allow all difficulties based on performance
             else:
@@ -318,7 +385,12 @@ class RLEnvironment:
                 for difficulty_level in allowed_difficulties:
                     difficulty_idx = list(DifficultyLevel).index(difficulty_level)
                     action_idx = i * len(DifficultyLevel) + difficulty_idx
-                    valid_actions.append(action_idx)
+                    
+                    # FIXED: Validate action index before adding
+                    if 0 <= action_idx < self.action_space_size:
+                        valid_actions.append(action_idx)
+                    else:
+                        logger.error(f"Generated invalid action index {action_idx} for concept {concept_id}, difficulty {difficulty_level}")
         
         # FIXED: Enhanced fallback mechanisms for edge cases
         if not valid_actions:
@@ -326,21 +398,29 @@ class RLEnvironment:
             
             # Fallback 1: Allow all concepts with easy difficulty only
             for i, concept_id in enumerate(self.available_concepts):
+                if i >= len(self.available_concepts):
+                    continue
+                    
                 action_idx = i * len(DifficultyLevel) + list(DifficultyLevel).index(DifficultyLevel.EASY)
-                valid_actions.append(action_idx)
+                
+                # FIXED: Validate action index before adding
+                if 0 <= action_idx < self.action_space_size:
+                    valid_actions.append(action_idx)
+                else:
+                    logger.error(f"Fallback generated invalid action index {action_idx} for concept {concept_id}")
             
             if not valid_actions:
                 logger.error(f"Still no valid actions after easy-only fallback for learner {state.learner_id}")
                 # Fallback 2: Allow all actions (last resort)
-                valid_actions = list(range(self.action_space_size))
+                valid_actions = [i for i in range(self.action_space_size)]
                 logger.warning(f"Using all actions as final fallback for learner {state.learner_id}")
         
-        # FIXED: Validate that we have valid actions
+        # FIXED: Final validation that we have valid actions
         if not valid_actions:
             logger.error(f"CRITICAL: No valid actions available for learner {state.learner_id}")
             raise ValueError(f"No valid actions available for learner {state.learner_id}")
         
-        # FIXED: Ensure all action indices are within bounds
+        # FIXED: Final bounds check (should be redundant but safe)
         valid_actions = [action for action in valid_actions if 0 <= action < self.action_space_size]
         
         if not valid_actions:

@@ -133,6 +133,26 @@ class ReplayBuffer:
     def can_sample(self, batch_size: int) -> bool:
         return len(self.buffer) >= batch_size
 
+class RLAgentError(Exception):
+    """Base exception for RL agent errors"""
+    pass
+
+class DeviceError(RLAgentError):
+    """Exception for device-related errors"""
+    pass
+
+class TrainingError(RLAgentError):
+    """Exception for training-related errors"""
+    pass
+
+class ValidationError(RLAgentError):
+    """Exception for validation errors"""
+    pass
+
+class MemoryError(RLAgentError):
+    """Exception for memory-related errors"""
+    pass
+
 class RLAgent:
     """
     Deep Q-Learning agent for adaptive question selection
@@ -224,7 +244,14 @@ class RLAgent:
             return action
         
         # FIXED: Use safe operation wrapper for device error handling
-        return self.safe_tensor_operation(_exploit_operation)
+        try:
+            return self.safe_tensor_operation(_exploit_operation)
+        except DeviceError as e:
+            logger.error(f"Device error in exploit: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in exploit: {e}")
+            raise TrainingError(f"Exploit operation failed: {e}") from e
     
     def _explore(self, valid_actions: Optional[List[int]] = None) -> int:
         """Explore: choose random action"""
@@ -374,6 +401,14 @@ class RLAgent:
             logger.error(f"Error during device consistency validation: {e}")
             return False
     
+    def ensure_device_consistency(self) -> bool:
+        """Ensure all components are on the correct device, migrate if needed"""
+        if self.validate_device_consistency():
+            return True
+        
+        logger.warning("Device inconsistency detected, attempting to fix...")
+        return self.migrate_to_device(self.device)
+    
     def migrate_to_device(self, new_device: torch.device) -> bool:
         """Migrate all components to a new device"""
         try:
@@ -451,6 +486,11 @@ class RLAgent:
     
     def safe_tensor_operation(self, operation_func, *args, **kwargs):
         """Safely execute tensor operations with device error handling"""
+        # FIXED: Ensure device consistency before operations
+        if not self.ensure_device_consistency():
+            logger.error("Failed to ensure device consistency")
+            raise RuntimeError("Device consistency check failed")
+        
         try:
             return operation_func(*args, **kwargs)
         except Exception as e:
@@ -463,3 +503,50 @@ class RLAgent:
                     raise
             else:
                 raise
+
+    def _calculate_confidence(self, state_vector: np.ndarray, action_index: int) -> float:
+        """Calculate confidence in the selected action"""
+        try:
+            if not self.agent:
+                raise ValidationError("Agent not initialized")
+            
+            state_tensor = torch.FloatTensor(state_vector).unsqueeze(0).to(self.agent.device)
+            
+            with torch.no_grad():
+                q_values = self.agent.q_network(state_tensor)
+                q_values_np = q_values.cpu().numpy()[0]
+                
+                # FIXED: Improved confidence calculation
+                if len(q_values_np) <= action_index:
+                    raise ValidationError(f"Action index {action_index} out of bounds for Q-values of length {len(q_values_np)}")
+                
+                # Confidence based on Q-value difference and distribution
+                max_q = np.max(q_values_np)
+                selected_q = q_values_np[action_index]
+                min_q = np.min(q_values_np)
+                
+                # Normalize Q-values to 0-1 range
+                q_range = max_q - min_q
+                if q_range == 0:
+                    return 0.5  # Neutral confidence if all Q-values are equal
+                
+                normalized_selected = (selected_q - min_q) / q_range
+                
+                # Additional confidence from how much better this action is than the average
+                mean_q = np.mean(q_values_np)
+                relative_advantage = (selected_q - mean_q) / (q_range + 1e-8)
+                
+                # Combine normalized value and relative advantage
+                confidence = 0.7 * normalized_selected + 0.3 * (0.5 + relative_advantage)
+                confidence = max(0.1, min(0.95, confidence))  # Bound between 0.1 and 0.95
+                
+                return confidence
+                
+        except ValidationError:
+            raise
+        except DeviceError as e:
+            logger.error(f"Device error calculating confidence: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error calculating confidence: {e}")
+            raise TrainingError(f"Confidence calculation failed: {e}") from e

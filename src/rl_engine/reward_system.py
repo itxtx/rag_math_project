@@ -6,6 +6,8 @@ from enum import Enum
 import logging
 from datetime import datetime, timedelta
 import asyncio
+import threading
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +349,38 @@ class InteractionTracker:
         if to_remove or to_timeout:
             logger.info(f"Cleaned up {len(to_remove)} completed and {len(to_timeout)} timed out interactions")
 
+class KnowledgeLock:
+    """Thread-safe lock for knowledge updates to prevent race conditions"""
+    
+    def __init__(self):
+        self._locks = {}
+        self._global_lock = asyncio.Lock()  # FIXED: Use asyncio.Lock for async contexts
+    
+    @asynccontextmanager
+    async def acquire(self, learner_id: str, concept_id: str):
+        """Acquire lock for a specific learner-concept pair"""
+        lock_key = f"{learner_id}:{concept_id}"
+        
+        async with self._global_lock:
+            if lock_key not in self._locks:
+                self._locks[lock_key] = asyncio.Lock()
+        
+        async with self._locks[lock_key]:
+            yield
+    
+    async def cleanup_old_locks(self, max_age_minutes: int = 30):
+        """Clean up old locks to prevent memory leaks"""
+        # FIXED: Async cleanup for asyncio locks
+        async with self._global_lock:
+            # In a real implementation, you might want to track lock creation times
+            # For now, we'll just limit the number of locks
+            if len(self._locks) > 1000:
+                # Keep only the most recent locks (simplified cleanup)
+                keys_to_remove = list(self._locks.keys())[:-500]
+                for key in keys_to_remove:
+                    del self._locks[key]
+                logger.info(f"Cleaned up {len(keys_to_remove)} old knowledge locks")
+
 class RewardSystemManager:
     """
     High-level manager for the reward system
@@ -357,6 +391,7 @@ class RewardSystemManager:
         self.profile_manager = profile_manager
         self.interaction_tracker = InteractionTracker()
         self.reward_calculator = HybridRewardCalculator()
+        self.knowledge_lock = KnowledgeLock()
     
     async def start_interaction(self,
                               interaction_id: str,
@@ -373,26 +408,27 @@ class RewardSystemManager:
         """
         try:
             # FIXED: Handle both sync and async profile manager methods
-            knowledge = None
-            if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
-                if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
-                    knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-                else:
-                    knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-            
-            score_before = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
-            
-            self.interaction_tracker.start_interaction(
-                interaction_id=interaction_id,
-                learner_id=learner_id,
-                concept_id=concept_id,
-                difficulty=difficulty,
-                score_before=score_before,
-                state_before=state_before,
-                action_index=action_index  # FIXED: Pass action_index
-            )
-            
-            return True
+            async with self.knowledge_lock.acquire(learner_id, concept_id):
+                knowledge = None
+                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                        knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                    else:
+                        knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                
+                score_before = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
+                
+                self.interaction_tracker.start_interaction(
+                    interaction_id=interaction_id,
+                    learner_id=learner_id,
+                    concept_id=concept_id,
+                    difficulty=difficulty,
+                    score_before=score_before,
+                    state_before=state_before,
+                    action_index=action_index  # FIXED: Pass action_index
+                )
+                
+                return True
             
         except Exception as e:
             logger.error(f"Error starting interaction tracking: {e}")
@@ -426,14 +462,15 @@ class RewardSystemManager:
             score_before = interaction_data['score_before']
             
             # Get updated knowledge score for the "after" state
-            knowledge = None
-            if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
-                if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
-                    knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-                else:
-                    knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
-            
-            score_after = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
+            async with self.knowledge_lock.acquire(learner_id, concept_id):
+                knowledge = None
+                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                        knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                    else:
+                        knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                
+                score_after = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
             
             # Validate score_after
             if not isinstance(score_after, (int, float)) or score_after < 0 or score_after > 1:
