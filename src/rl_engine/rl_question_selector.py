@@ -114,7 +114,7 @@ class RLQuestionSelector:
             state_vector = current_state.to_feature_vector(self.environment.available_concepts)
             
             # Get valid actions (filter by target_doc_id if specified)
-            valid_actions = self._get_valid_actions(current_state, target_doc_id)
+            valid_actions = await self._get_valid_actions(current_state, target_doc_id)
             
             if not valid_actions:
                 logger.warning(f"No valid actions available for learner {learner_id}")
@@ -122,10 +122,29 @@ class RLQuestionSelector:
             
             # Agent selects action
             action_index = self.agent.act(state_vector, valid_actions)
-            selected_action = self.environment.action_index_to_action(action_index)
+            selected_action = await self.environment.action_index_to_action(action_index)
             
             logger.info(f"RL agent selected: concept={selected_action.concept_id}, "
                        f"difficulty={selected_action.difficulty_level.value}")
+            
+            # CRITICAL FIX: Start tracking this interaction BEFORE question generation
+            # This ensures we can properly clean up if question generation fails
+            interaction_id = str(uuid.uuid4())
+            success = await self.reward_manager.start_interaction(
+                interaction_id=interaction_id,
+                learner_id=learner_id,
+                concept_id=selected_action.concept_id,
+                difficulty=selected_action.difficulty_level.value,
+                state_before=state_vector,
+                action_index=action_index
+            )
+            
+            if not success:
+                logger.error("Failed to start interaction tracking")
+                return {"error": "Failed to start interaction tracking"}
+            
+            # Notify environment of interaction start
+            self.environment.start_interaction(learner_id, interaction_id)
             
             # Generate question for the selected concept
             question_data = await self._generate_question_for_action(
@@ -134,28 +153,9 @@ class RLQuestionSelector:
             
             if not question_data:
                 logger.warning(f"Question generation failed for concept {selected_action.concept_id}")
+                # CRITICAL FIX: Clean up interaction tracking when question generation fails
+                await self._cleanup_failed_interaction_async(interaction_id, learner_id, selected_action.concept_id)
                 return {"error": "Failed to generate question for selected concept"}
-            
-            # FIXED: Start tracking this interaction for reward calculation with action_index
-            interaction_id = str(uuid.uuid4())
-            success = await self.reward_manager.start_interaction(
-                interaction_id=interaction_id,
-                learner_id=learner_id,
-                concept_id=selected_action.concept_id,
-                difficulty=selected_action.difficulty_level.value,
-                state_before=state_vector,
-                action_index=action_index  # FIXED: Now passing the action index
-            )
-            
-            if not success:
-                logger.error("Failed to start interaction tracking")
-                # FIXED: Clean up any partial resources when interaction tracking fails
-                if interaction_id and selected_action:
-                    self._cleanup_failed_interaction(interaction_id, learner_id, selected_action.concept_id)
-                return {"error": "Failed to start interaction tracking"}
-            
-            # FIXED: Notify environment of interaction start
-            self.environment.start_interaction(learner_id, interaction_id)
             
             # Add RL-specific metadata to question response
             question_data.update({
@@ -174,24 +174,28 @@ class RLQuestionSelector:
             import traceback
             traceback.print_exc()
             
-            # FIXED: Clean up any partial interaction tracking on error
+            # CRITICAL FIX: Clean up any partial interaction tracking on error
             if interaction_id and selected_action:
-                self._cleanup_failed_interaction(interaction_id, learner_id, selected_action.concept_id)
+                await self._cleanup_failed_interaction_async(interaction_id, learner_id, selected_action.concept_id)
             
             return {"error": f"RL selection failed: {str(e)}"}
     
-    def _cleanup_failed_interaction(self, interaction_id: str, learner_id: str, concept_id: str):
-        """Clean up resources when an interaction fails"""
+    async def _cleanup_failed_interaction_async(self, interaction_id: str, learner_id: str, concept_id: str):
+        """Async cleanup method for failed interactions"""
         cleanup_errors = []
         
         try:
             # Clean up reward manager tracking
             if hasattr(self, 'reward_manager') and self.reward_manager:
-                # Remove from pending interactions if it exists
-                if hasattr(self.reward_manager.interaction_tracker, 'pending_interactions'):
-                    if interaction_id in self.reward_manager.interaction_tracker.pending_interactions:
-                        del self.reward_manager.interaction_tracker.pending_interactions[interaction_id]
-                        logger.debug(f"Cleaned up pending interaction {interaction_id}")
+                # Cancel the interaction in the reward manager
+                if hasattr(self.reward_manager, 'cancel_interaction'):
+                    await self.reward_manager.cancel_interaction(interaction_id)
+                else:
+                    # Fallback: manually remove from pending interactions
+                    if hasattr(self.reward_manager.interaction_tracker, 'pending_interactions'):
+                        if interaction_id in self.reward_manager.interaction_tracker.pending_interactions:
+                            del self.reward_manager.interaction_tracker.pending_interactions[interaction_id]
+                            logger.debug(f"Cleaned up pending interaction {interaction_id}")
             
             # Clean up environment session tracking
             if hasattr(self, 'environment') and self.environment:
@@ -201,39 +205,43 @@ class RLQuestionSelector:
                         del self.environment.session_manager.interaction_start_times[interaction_id]
                         logger.debug(f"Cleaned up environment interaction {interaction_id}")
             
-            # FIXED: Add cleanup for knowledge locks if they exist
+            # Clean up knowledge locks if they exist
             if hasattr(self, 'reward_manager') and hasattr(self.reward_manager, 'knowledge_lock'):
-                # Note: This would need to be async in a real implementation
-                logger.debug(f"Knowledge lock cleanup needed for {interaction_id}")
+                # Release any held locks
+                if hasattr(self.reward_manager.knowledge_lock, 'release'):
+                    try:
+                        self.reward_manager.knowledge_lock.release()
+                        logger.debug(f"Released knowledge lock for {interaction_id}")
+                    except Exception as lock_error:
+                        logger.debug(f"Knowledge lock already released for {interaction_id}: {lock_error}")
             
-            # FIXED: Add cleanup for any other tracking dictionaries
+            # Trigger session cleanup to remove any orphaned data
             if hasattr(self, 'environment') and hasattr(self.environment, 'session_manager'):
-                # Trigger session cleanup to remove any orphaned data
                 self.environment.session_manager.cleanup_expired_sessions()
             
-            # FIXED: Update cleanup statistics
+            # Update cleanup statistics
             self.cleanup_stats['failed_interactions_cleaned'] += 1
             self.cleanup_stats['last_cleanup_time'] = datetime.now().isoformat()
             
             logger.info(f"Cleaned up failed interaction {interaction_id} for learner {learner_id}, concept {concept_id}")
             
         except Exception as cleanup_error:
-            cleanup_errors.append(f"Reward manager cleanup: {cleanup_error}")
-            logger.error(f"Error during cleanup of failed interaction {interaction_id}: {cleanup_error}")
+            cleanup_errors.append(f"Async cleanup: {cleanup_error}")
+            logger.error(f"Error during async cleanup of failed interaction {interaction_id}: {cleanup_error}")
         
-        # FIXED: Report all cleanup errors
+        # Report all cleanup errors
         if cleanup_errors:
-            logger.error(f"Multiple cleanup errors for {interaction_id}: {'; '.join(cleanup_errors)}")
-            raise RuntimeError(f"Cleanup failed for {interaction_id}: {'; '.join(cleanup_errors)}")
+            logger.error(f"Multiple async cleanup errors for {interaction_id}: {'; '.join(cleanup_errors)}")
+            # Don't raise here as this is cleanup code - just log the errors
     
-    def _get_valid_actions(self, state: State, target_doc_id: Optional[str] = None) -> List[int]:
+    async def _get_valid_actions(self, state: State, target_doc_id: Optional[str] = None) -> List[int]:
         """Get valid actions, optionally filtered by document ID"""
         valid_actions = self.environment.get_valid_actions(state)
         
         if target_doc_id is None:
             return valid_actions
         
-        # FIXED: Improved document filtering
+        # FIXED: Improved document filtering with proper async handling
         filtered_actions = []
         
         # This requires a mapping from concepts to documents
@@ -245,10 +253,16 @@ class RLQuestionSelector:
             
             # This is a simplified implementation - in practice you might want to cache this
             for action_idx in valid_actions:
-                action = self.environment.action_index_to_action(action_idx)
-                # For now, we'll assume all concepts are available for any document
-                # This should be enhanced with actual concept-document mapping
-                filtered_actions.append(action_idx)
+                try:
+                    # FIXED: Properly await the async method
+                    action = await self.environment.action_index_to_action(action_idx)
+                    # For now, we'll assume all concepts are available for any document
+                    # This should be enhanced with actual concept-document mapping
+                    filtered_actions.append(action_idx)
+                except Exception as action_error:
+                    logger.warning(f"Error converting action index {action_idx}: {action_error}")
+                    # Skip this action if there's an error
+                    continue
             
             return filtered_actions if filtered_actions else valid_actions
             

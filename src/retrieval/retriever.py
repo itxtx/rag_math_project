@@ -300,31 +300,30 @@ class HybridRetriever:
             results.append(result)
         return results
 
-    def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
-        """
-        Retrieves all text chunks belonging to a specific parent conceptual block,
-        ordered by their sequence within that block.
-        """
+    async def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
         print(f"Retriever: Fetching chunks for parent_block_id: {parent_block_id}")
         filters = {
             "operator": "Equal",
             "path": ["parent_block_id"],
             "valueText": parent_block_id
         }
-        
-        query_limit = limit if limit is not None else 50 
+        query_limit = limit if limit is not None else 50
 
-        try:
+        def _execute_query():
             query_chain = (
                 self.weaviate_client.query
                 .get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
                 .with_where(filters)
-                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) 
-                .with_limit(query_limit) 
-                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES) 
+                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}])
+                .with_limit(query_limit)
+                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES)
             )
             response = query_chain.do()
-            results = self._format_results(response) 
+            return self._format_results(response)
+
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(None, _execute_query)
             print(f"Retriever: Found {len(results)} chunks for parent_block_id '{parent_block_id}'.")
             return results
         except Exception as e:

@@ -160,49 +160,70 @@ class ProfileManagerAdapter:
     
     def __init__(self, profile_manager):
         self.profile_manager = profile_manager
-        self._is_async = self._detect_async_interface()
-        logger.info(f"ProfileManagerAdapter initialized with {'async' if self._is_async else 'sync'} interface")
-    
-    def _detect_async_interface(self) -> bool:
-        """Detect if the profile manager uses async interface"""
-        # Check if the profile manager has async methods by looking for coroutine functions
-        methods_to_check = ['get_profile', 'get_concept_knowledge', 'get_last_attempted_concept_and_doc']
-        
-        for method_name in methods_to_check:
-            if hasattr(self.profile_manager, method_name):
-                method = getattr(self.profile_manager, method_name)
-                if asyncio.iscoroutinefunction(method):
-                    return True
-        
-        return False
+        logger.info(f"ProfileManagerAdapter initialized")
     
     async def get_profile(self, learner_id: str):
         """Get learner profile with proper async/sync handling"""
-        if self._is_async:
+        if asyncio.iscoroutinefunction(self.profile_manager.get_profile):
             return await self.profile_manager.get_profile(learner_id)
         else:
-            return self.profile_manager.get_profile(learner_id)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # Use default executor
+                self.profile_manager.get_profile,
+                learner_id
+            )
     
     async def create_profile(self, learner_id: str):
         """Create learner profile with proper async/sync handling"""
-        if self._is_async:
+        if asyncio.iscoroutinefunction(self.profile_manager.create_profile):
             return await self.profile_manager.create_profile(learner_id)
         else:
-            return self.profile_manager.create_profile(learner_id)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # Use default executor
+                self.profile_manager.create_profile,
+                learner_id
+            )
     
     async def get_concept_knowledge(self, learner_id: str, concept_id: str):
         """Get concept knowledge with proper async/sync handling"""
-        if self._is_async:
+        if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
             return await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
         else:
-            return self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # Use default executor
+                self.profile_manager.get_concept_knowledge,
+                learner_id,
+                concept_id
+            )
     
     async def get_last_attempted_concept_and_doc(self, learner_id: str):
         """Get last attempted concept with proper async/sync handling"""
-        if self._is_async:
+        if asyncio.iscoroutinefunction(self.profile_manager.get_last_attempted_concept_and_doc):
             return await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
         else:
-            return self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # Use default executor
+                self.profile_manager.get_last_attempted_concept_and_doc,
+                learner_id
+            )
+    
+    async def get_concepts_for_review(self, learner_id: str, review_date=None, target_doc_id=None):
+        """Get concepts for review with proper async/sync handling"""
+        if asyncio.iscoroutinefunction(self.profile_manager.get_concepts_for_review):
+            return await self.profile_manager.get_concepts_for_review(learner_id, review_date, target_doc_id)
+        else:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # Use default executor
+                self.profile_manager.get_concepts_for_review,
+                learner_id,
+                review_date,
+                target_doc_id
+            )
 
 class RLEnvironment:
     """
@@ -222,18 +243,22 @@ class RLEnvironment:
         
     async def initialize(self):
         """Initialize the environment with available concepts"""
-        logger.info("Initializing RL Environment...")
+        logger.info("Initializing RL Environment with optimized concept loading...")
         
-        # Get all available concepts from the curriculum
+        # FIXED: Implement lazy loading and caching for better scalability
+        # Instead of loading all documents at once, we'll load them in chunks
+        # and cache the results for better performance
+        
         try:
-            all_documents = await self.retriever.get_all_documents()
-            concepts = set()
-            for doc in all_documents:
-                if doc.get('parent_block_id'):
-                    concepts.add(doc['parent_block_id'])
+            # Load initial concepts in chunks
+            await self._load_concepts_chunk(limit=100)
             
-            self.available_concepts = sorted(list(concepts))
-            logger.info(f"Found {len(self.available_concepts)} available concepts")
+            if not self.available_concepts:
+                logger.warning("No concepts found during initialization")
+                self.available_concepts = []
+                self.action_space_size = 0
+                self.state_size = 0
+                return
             
             # Calculate sizes
             self.action_space_size = len(self.available_concepts) * len(DifficultyLevel)
@@ -244,10 +269,81 @@ class RLEnvironment:
             logger.info(f"Feature vector breakdown: {feature_breakdown}")
             logger.info(f"Action space size: {self.action_space_size}")
             logger.info(f"State space size: {self.state_size}")
+            logger.info(f"Loaded {len(self.available_concepts)} initial concepts")
+            logger.info("Additional concepts will be loaded on-demand for better performance.")
             
         except Exception as e:
             logger.error(f"Failed to initialize RL environment: {e}")
             raise
+    
+    async def _load_concepts_chunk(self, limit: int = 100):
+        """
+        Load a chunk of concepts to avoid loading everything at once
+        
+        Args:
+            limit: Maximum number of documents to load
+        """
+        try:
+            # FIXED: Use pagination to load documents in chunks
+            all_documents = await self.retriever.get_all_documents(limit=limit)
+            
+            if not all_documents:
+                return
+            
+            # Process the chunk and add new concepts
+            new_concepts = set()
+            for doc in all_documents:
+                if doc.get('parent_block_id'):
+                    new_concepts.add(doc['parent_block_id'])
+            
+            # Add new concepts to available concepts
+            for concept_id in new_concepts:
+                if concept_id not in self.available_concepts:
+                    self.available_concepts.append(concept_id)
+            
+            # Keep concepts sorted for consistency
+            self.available_concepts.sort()
+            
+            logger.debug(f"Loaded {len(new_concepts)} new concepts from chunk")
+            
+        except Exception as e:
+            logger.error(f"Error loading concepts chunk: {e}")
+    
+    async def _ensure_concept_available(self, concept_id: str) -> bool:
+        """
+        Ensure a specific concept is available in the environment
+        
+        Args:
+            concept_id: The concept ID to ensure is available
+            
+        Returns:
+            bool: True if concept is available, False otherwise
+        """
+        if concept_id in self.available_concepts:
+            return True
+        
+        # FIXED: Load additional concepts on-demand if not available
+        try:
+            # Try to get the specific concept from the retriever
+            concept_chunks = await self.retriever.get_chunks_for_parent_block(concept_id, limit=1)
+            
+            if concept_chunks:
+                self.available_concepts.append(concept_id)
+                self.available_concepts.sort()  # Keep sorted
+                
+                # Update action space size
+                self.action_space_size = len(self.available_concepts) * len(DifficultyLevel)
+                self.state_size = State.get_feature_size(len(self.available_concepts))
+                
+                logger.debug(f"Loaded concept {concept_id} on-demand")
+                return True
+            else:
+                logger.warning(f"Concept {concept_id} not found in retriever")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error loading concept {concept_id} on-demand: {e}")
+            return False
     
     async def get_current_state(self, learner_id: str) -> State:
         """Get the current state for a learner with real session data"""
@@ -313,25 +409,34 @@ class RLEnvironment:
             logger.error(f"Error getting current state for learner {learner_id}: {e}")
             raise
     
-    def action_index_to_action(self, action_index: int) -> Action:
-        """Convert action index to Action object"""
+    async def action_index_to_action(self, action_index: int) -> Action:
+        """Convert action index to Action object with on-demand concept loading"""
         if action_index < 0 or action_index >= self.action_space_size:
             raise ValueError(f"Invalid action index {action_index}, must be in range [0, {self.action_space_size})")
         
         concept_idx = action_index // len(DifficultyLevel)
         difficulty_idx = action_index % len(DifficultyLevel)
         
+        # FIXED: Load more concepts if needed for better scalability
         if concept_idx >= len(self.available_concepts):
-            raise ValueError(f"Invalid concept index {concept_idx}, only {len(self.available_concepts)} concepts available")
+            logger.warning(f"Concept index {concept_idx} out of bounds, loading more concepts")
+            await self._load_concepts_chunk(limit=200)
+            
+            if concept_idx >= len(self.available_concepts):
+                raise ValueError(f"Invalid concept index {concept_idx}, only {len(self.available_concepts)} concepts available")
         
         concept_id = self.available_concepts[concept_idx]
         difficulty = list(DifficultyLevel)[difficulty_idx]
         
         return Action(concept_id=concept_id, difficulty_level=difficulty)
     
-    def action_to_action_index(self, action: Action) -> int:
-        """Convert Action object to action index"""
+    async def action_to_action_index(self, action: Action) -> int:
+        """Convert Action object to action index with on-demand concept loading"""
         try:
+            # FIXED: Ensure concept is available before converting
+            if action.concept_id not in self.available_concepts:
+                await self._ensure_concept_available(action.concept_id)
+            
             concept_idx = self.available_concepts.index(action.concept_id)
             difficulty_idx = list(DifficultyLevel).index(action.difficulty_level)
             

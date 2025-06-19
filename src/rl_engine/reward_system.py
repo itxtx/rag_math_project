@@ -560,3 +560,39 @@ class RewardSystemManager:
         if total_interactions > 0 and total_interactions % 100 == 0:
             self.cleanup()
             logger.info(f"Auto-cleanup triggered after {total_interactions} interactions")
+    
+    async def cancel_interaction(self, interaction_id: str) -> bool:
+        """
+        Cancel a pending interaction and clean up resources
+        
+        Args:
+            interaction_id: ID of the interaction to cancel
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Check if interaction exists in pending interactions
+            if interaction_id not in self.interaction_tracker.pending_interactions:
+                logger.warning(f"Interaction {interaction_id} not found in pending interactions")
+                return False
+            
+            # Get interaction data for cleanup
+            interaction_data = self.interaction_tracker.pending_interactions[interaction_id]
+            learner_id = interaction_data.get('learner_id')
+            concept_id = interaction_data.get('concept_id')
+            
+            # Remove from pending interactions
+            del self.interaction_tracker.pending_interactions[interaction_id]
+            
+            # Release any knowledge locks if they exist
+            if hasattr(self, 'knowledge_lock') and learner_id and concept_id:
+                # Note: We can't directly release a specific lock, but we can trigger cleanup
+                await self.knowledge_lock.cleanup_old_locks()
+            
+            logger.info(f"Successfully cancelled interaction {interaction_id} for learner {learner_id}, concept {concept_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error cancelling interaction {interaction_id}: {e}")
+            return False

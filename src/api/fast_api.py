@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime
 from src.rl_engine.rl_question_selector import RLQuestionSelector
 from src.rl_engine.reward_system import VoteType
+from src.rl_engine.environment import ProfileManagerAdapter
 from src.api.feedback_models import InteractionFeedbackRequest, InteractionFeedbackResponse, FeedbackRating
 
 from src import config
@@ -114,7 +115,7 @@ class FastRAGComponents:
         
         # Keep old question selector as fallback
         self.question_selector = QuestionSelector(
-            profile_manager=self._profile_manager,
+            profile_manager=ProfileManagerAdapter(self._profile_manager),
             retriever=self._retriever,
             question_generator=self._question_generator
         )
@@ -131,11 +132,16 @@ class FastRAGComponents:
         if self.initialization_error:
             raise Exception(f"Components failed to initialize: {self.initialization_error}")
         
-        # FIXED: Initialize RL components properly
-        if not self.rl_question_selector.is_initialized:
-            print("  🤖 Initializing RL Question Selector...")
-            await self.rl_question_selector.initialize()
-            print("  ✓ RL Question Selector initialized")
+        # FIXED: Initialize RL components with graceful error handling
+        if hasattr(self, 'rl_question_selector') and not self.rl_question_selector.is_initialized:
+            try:
+                print("  🤖 Initializing RL Question Selector...")
+                await self.rl_question_selector.initialize()
+                print("  ✓ RL Question Selector initialized")
+            except Exception as e:
+                print(f"  ⚠️  Failed to initialize RL Question Selector (non-critical): {e}")
+                # Don't fail the entire system if RL fails to initialize
+                # The system can still work with rule-based selection
         
         # LLM components are now pre-initialized during startup
         # Only pre-warm if not already done
@@ -303,10 +309,17 @@ async def lifespan(app: FastAPI):
         app_state["answer_evaluator"] = components._answer_evaluator
         app_state["active_interactions"] = {}
         
+        # FIXED: Add debugging to verify components are stored
+        print(f"✅ Components stored in app_state: {components is not None}")
+        print(f"✅ App state keys: {list(app_state.keys())}")
+        print(f"✅ Components initialization_error: {components.initialization_error}")
+        
         print("✅ Fast startup complete! All components ready.")
         print("   LLM components pre-loaded for fast first requests.")
     except Exception as e:
         print(f"❌ Failed to initialize components: {e}")
+        import traceback
+        traceback.print_exc()
         # Initialize with None values to prevent KeyError
         app_state["components"] = None
         app_state["profile_manager"] = None
@@ -471,7 +484,7 @@ async def start_interaction(
             topic_id = topics[0].doc_id
         
         # Choose question selector based on use_rl parameter and availability
-        if use_rl and components.rl_question_selector.is_initialized:
+        if use_rl and hasattr(components, 'rl_question_selector') and components.rl_question_selector.is_initialized:
             question_selector = components.rl_question_selector
             print(f"Using RL question selector")
         else:
@@ -483,10 +496,16 @@ async def start_interaction(
                 await question_selector.initialize()
         
         # Get next question using the selected engine
-        question_data = await question_selector.select_next_question(
-            learner_id=str(learner_id),
-            target_doc_id=topic_id
-        )
+        try:
+            question_data = await question_selector.select_next_question(
+                learner_id=str(learner_id),
+                target_doc_id=topic_id
+            )
+        except Exception as selector_error:
+            print(f"❌ Error in question selector: {selector_error}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Question selection failed: {str(selector_error)}")
         
         if not question_data:
             raise HTTPException(status_code=404, detail="No questions available for this topic")

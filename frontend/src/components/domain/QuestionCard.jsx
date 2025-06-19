@@ -6,15 +6,7 @@ import { Card, CardHeader, CardContent, CardFooter, CardTitle } from '@/componen
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-
-const cleanLatexString = (text) => {
-  if (typeof text !== 'string') {
-    return text;
-  }
-  let cleanedText = text.replace(/`(\${1,2}[^`]*?\${1,2})`/g, '$1');
-  cleanedText = cleanedText.replace(/\${3,}/g, '$$');
-  return cleanedText;
-};
+import { cleanLatexString } from '@/lib/utils';
 
 const QuestionCard = ({
   question,

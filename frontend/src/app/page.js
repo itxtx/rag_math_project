@@ -25,24 +25,8 @@ import QuestionCard from '@/components/domain/QuestionCard';
 import FeedbackCard from '@/components/domain/FeedbackCard';
 import ContextView from '@/components/domain/ContextView';
 
-// Helper function to clean LaTeX strings
-const cleanLatexString = (text) => {
-  if (typeof text !== 'string') {
-    return text;
-  }
-  // First, remove any backticks around LaTeX expressions, which is good practice
-  let cleanedText = text.replace(/`(\${1,2}[^`]*?\${1,2})`/g, '$1');
-
-  // Normalize multiple dollar signs.
-  // This regex finds three or more consecutive dollar signs and replaces them with two.
-  cleanedText = cleanedText.replace(/\${3,}/g, '$$');
-  
-  // You could also add a rule for single dollar signs if you want all math to be display style:
-  // cleanedText = cleanedText.replace(/(?<!\$)\$([^\$]+)\$(?!\$)/g, '$$$1$$');
-
-  return cleanedText;
-};
-
+// Import utility functions
+import { cleanLatexString } from '@/lib/utils';
 
 // Main App component
 function App() {
