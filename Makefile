@@ -36,6 +36,7 @@ help:
 	@echo "$(GREEN)Phase 2 - Online Server:$(NC)"
 	@echo "  make serve                - Start optimized API server"
 	@echo "  make serve-dev            - Start server in development mode"
+	@echo "  make backend-dev          - Start backend in development mode (alias for serve-dev)"
 	@echo "  make app                  - Start interactive RAG application"
 	@echo ""
 	@echo "$(GREEN)Testing & Monitoring:$(NC)"
@@ -113,6 +114,9 @@ serve-dev:
 	@echo "$(BLUE)🛠️  Starting API server in development mode...$(NC)"
 	@echo "$(YELLOW)Development mode includes auto-reload and debug info$(NC)"
 	@uvicorn src.api.fast_api:app --host 0.0.0.0 --port 8000 --reload
+
+backend-dev: serve-dev
+	@echo "$(GREEN)✓ Backend development server started (alias for serve-dev)$(NC)"
 
 app:
 	@echo "$(BLUE)🎯 Starting interactive RAG application...$(NC)"

@@ -122,10 +122,9 @@ class FastPipeline:
                 await fast_embed_and_store_chunks(client, final_chunks, batch_size=100)
             except Exception as e:
                 logger.error(f"❌ Failed to store in Weaviate: {e}")
-                self._update_processed_log(all_new_docs_data)
                 return False
 
-            # 7. Update processed docs log
+            # 7. Update processed docs log (only after successful processing)
             self._update_processed_log(all_new_docs_data)
 
             total_time = time.time() - self.start_time

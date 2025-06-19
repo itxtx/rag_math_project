@@ -52,7 +52,7 @@ class QuestionSelector:
         logger.info("Initializing QuestionSelector and loading curriculum map...")
         try:
             # Retrieve all conceptual block metadata from the vector store
-            all_chunks_metadata = await self.retriever.get_all_chunks_metadata()
+            all_chunks_metadata = await self.retriever.get_all_documents()
             
             if not all_chunks_metadata:
                 logger.warning("No curriculum metadata found from retriever.")
@@ -62,15 +62,15 @@ class QuestionSelector:
 
             # The goal is to have one entry per "conceptual block"
             # In our current setup, this is the parent_block_id from Weaviate
-            # We assume get_all_chunks_metadata gives us one entry per-chunk, so we group by concept
+            # We assume get_all_documents gives us one entry per-chunk, so we group by concept
             
             temp_curriculum_map = {}
             for chunk in all_chunks_metadata:
                 # ****** THIS IS THE FIX ******
-                # The key in the metadata is 'concept_id', not 'chunk_id'
-                concept_id = chunk.get("concept_id")
+                # The key in the metadata is 'parent_block_id', not 'concept_id'
+                concept_id = chunk.get("parent_block_id")
                 if not concept_id:
-                    logger.warning(f"Skipping chunk, missing 'concept_id': {chunk}")
+                    logger.warning(f"Skipping chunk, missing 'parent_block_id': {chunk}")
                     continue
 
                 if concept_id not in temp_curriculum_map:
