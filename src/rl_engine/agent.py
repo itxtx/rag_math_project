@@ -101,7 +101,12 @@ class RLAgent:
         self.target_update_freq = target_update_freq
         
         # Device selection
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
         logger.info(f"RL Agent using device: {self.device}")
         
         # Neural networks

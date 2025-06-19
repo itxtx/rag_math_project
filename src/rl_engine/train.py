@@ -25,12 +25,16 @@ from src.retrieval.retriever import HybridRetriever
 from src.generation.question_generator_rag import RAGQuestionGenerator
 from src import config
 
+# Ensure logs directory exists
+logs_dir = os.path.join(project_root, 'data', 'logs')
+os.makedirs(logs_dir, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('data/logs/rl_training.log'),
+        logging.FileHandler(os.path.join(logs_dir, 'rl_training.log')),
         logging.StreamHandler(sys.stdout)
     ]
 )

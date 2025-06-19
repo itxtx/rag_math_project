@@ -25,6 +25,7 @@ dependencies = [
     "torch-geometric>=2.6.1",
     "uvicorn[standard]>=0.34.3",
     "weaviate-client>=4.15.1",
+    
 ]
 
 [project.optional-dependencies]
