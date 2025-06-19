@@ -8,8 +8,15 @@ from typing import Dict, Any, Optional, List as PyList
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import datetime
-import uuid
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+from datetime import datetime
+from src.rl_engine.rl_question_selector import RLQuestionSelector
+from src.rl_engine.reward_system import VoteType
+from src.api.feedback_models import InteractionFeedbackRequest, InteractionFeedbackResponse
 
 from src import config
 from src.api.models import (
@@ -87,6 +94,7 @@ class FastRAGComponents:
             print("  📝 Initializing answer evaluator...")
             self._answer_evaluator = AnswerEvaluator()
     
+        
     def _init_dependent_components(self):
         """Initialize components that depend on others"""
         print("  🔗 Initializing dependent components...")
@@ -96,6 +104,14 @@ class FastRAGComponents:
             srs_scheduler=self.srs_scheduler
         )
         
+        # Initialize RL Question Selector instead of rule-based one
+        self.rl_question_selector = RLQuestionSelector(
+            profile_manager=self._profile_manager,
+            retriever=self._retriever,
+            question_generator=self._question_generator
+        )
+        
+        # Keep old question selector as fallback
         self.question_selector = QuestionSelector(
             profile_manager=self._profile_manager,
             retriever=self._retriever,
@@ -114,11 +130,16 @@ class FastRAGComponents:
         if self.initialization_error:
             raise Exception(f"Components failed to initialize: {self.initialization_error}")
         
+        # Initialize RL components
+        if not self.rl_question_selector.is_initialized:
+            await self.rl_question_selector.initialize()
+        
         # LLM components are now pre-initialized during startup
         # Only pre-warm if not already done
         if not self._prewarmed:
             await self._prewarm_system()
             self._prewarmed = True
+    
     
     async def _prewarm_system(self):
         """Pre-warm caches with common operations"""
@@ -399,17 +420,29 @@ async def list_topics_fast():
 
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
 async def start_interaction(
-    request: LearnerInteractionStartRequest,
+    request: Request,
     learner_id: Optional[str] = None,
-    topic_id: Optional[str] = None
+    topic_id: Optional[str] = None,
+    use_rl: bool = True  # New parameter to choose between RL and rule-based
 ):
     """Start a new interaction with a question"""
     try:
-        # Use query parameters if provided, otherwise use request body
-        learner_id = learner_id or request.learner_id or "1"
-        topic_id = topic_id or request.topic_id
+        # Parse request body only if it's not empty
+        body = {}
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                body = await request.json()
+        except Exception as e:
+            print(f"Warning: Could not parse request body as JSON: {e}")
+            body = {}
         
-        print(f"🎯 Fast interaction start for learner: {learner_id}")
+        # Use query parameters if provided, otherwise use body
+        learner_id = learner_id or body.get("learner_id", "1")
+        topic_id = topic_id or body.get("topic_id")
+        use_rl = body.get("use_rl", use_rl)
+        
+        print(f"🎯 Starting interaction for learner: {learner_id} (RL: {use_rl})")
         
         # Get or create learner profile
         profile = app_state["profile_manager"].get_profile(str(learner_id))
@@ -424,8 +457,16 @@ async def start_interaction(
                 raise HTTPException(status_code=404, detail="No topics available")
             topic_id = topics[0].doc_id
         
-        # Get next question using the adaptive engine
-        question_data = await app_state["question_selector"].select_next_question(
+        # Choose question selector based on use_rl parameter
+        if use_rl and app_state["components"].rl_question_selector.is_initialized:
+            question_selector = app_state["components"].rl_question_selector
+            print(f"Using RL question selector")
+        else:
+            question_selector = app_state["question_selector"]
+            print(f"Using rule-based question selector")
+        
+        # Get next question using the selected engine
+        question_data = await question_selector.select_next_question(
             learner_id=str(learner_id),
             target_doc_id=topic_id
         )
@@ -433,48 +474,51 @@ async def start_interaction(
         if not question_data:
             raise HTTPException(status_code=404, detail="No questions available for this topic")
         
-        # Get context for the concept
-        context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
+        if "error" in question_data:
+            raise HTTPException(status_code=500, detail=question_data["error"])
         
-        # Generate question using LLM
-        questions = await app_state["question_generator"].generate_questions(
-            context_chunks=[{"chunk_text": context}],
-            num_questions=1,
-            question_type=question_data["question_type"],
-            difficulty_level=question_data["difficulty"],
-            question_style=question_data["style"]
-        )
-        
-        if not questions:
-            raise HTTPException(status_code=500, detail="Failed to generate question")
-        
-        question = questions[0]
-        
-        # Create interaction
-        interaction_id = str(uuid.uuid4())
-        app_state["active_interactions"][interaction_id] = {
-            "learner_id": learner_id,
-            "topic_id": topic_id,
-            "concept_id": question_data["concept_id"],
-            "question": question,
-            "start_time": datetime.datetime.now(),
-            "status": "active"
-        }
+        # For rule-based selector, generate the question using LLM
+        if not use_rl or not app_state["components"].rl_question_selector.is_initialized:
+            # Get context for the concept
+            context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
+            
+            # Generate question using LLM
+            questions = await app_state["question_generator"].generate_questions(
+                context_chunks=[{"chunk_text": context}],
+                num_questions=1,
+                question_type=question_data.get("question_type", "conceptual"),
+                difficulty_level=question_data.get("difficulty", "intermediate"),
+                question_style=question_data.get("question_style", "standard")
+            )
+            
+            if not questions:
+                raise HTTPException(status_code=500, detail="Failed to generate question")
+            
+            question_data["question_text"] = questions[0]
+            question_data["context_for_evaluation"] = context
         
         return QuestionResponse(
             question_id=question_data["concept_id"],
-            doc_id=topic_id,
+            doc_id=question_data.get("doc_id", topic_id or "unknown_doc"),
             concept_name=question_data.get("concept_name", "Unknown Concept"),
-            question_text=question,
-            context_for_evaluation=context,
-            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False)
+            question_text=question_data["question_text"],
+            context_for_evaluation=question_data.get("context_for_evaluation", ""),
+            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False),
+            # Add RL-specific fields if available
+            interaction_id=question_data.get("interaction_id"),
+            rl_metadata={
+                "selected_by_rl": question_data.get("selected_by_rl", False),
+                "rl_action": question_data.get("rl_action"),
+                "rl_confidence": question_data.get("rl_confidence")
+            } if use_rl else None
         )
         
     except Exception as e:
-        print(f"❌ Error in fast interaction start: {e}")
+        print(f"❌ Error in interaction start: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
@@ -607,6 +651,134 @@ async def next_question(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error selecting next question: {str(e)}")
+
+@app.post("/api/v1/interaction/{interaction_id}/rate", response_model=InteractionFeedbackResponse)
+async def rate_interaction(
+    interaction_id: str,
+    request: InteractionFeedbackRequest,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """
+    Rate an interaction with engagement feedback
+    This triggers the reward calculation for the RL system
+    """
+    try:
+        logger.info(f"Received rating for interaction {interaction_id}: {request.rating.value}")
+        
+        # Convert rating to VoteType
+        vote_type = VoteType.UPVOTE if request.rating == FeedbackRating.UP else VoteType.DOWNVOTE
+        
+        # Get interaction data to find learner and concept
+        interaction_data = components.rl_question_selector.reward_manager.interaction_tracker.get_interaction_data(interaction_id)
+        
+        if not interaction_data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Interaction {interaction_id} not found"
+            )
+        
+        learner_id = interaction_data['learner_id']
+        concept_id = interaction_data['concept_id']
+        
+        # Process the feedback
+        success = await components.rl_question_selector.process_feedback(
+            interaction_id=interaction_id,
+            learner_id=learner_id,
+            concept_id=concept_id,
+            vote_type=vote_type
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process feedback"
+            )
+        
+        # Get the completed interaction data with reward
+        completed_data = components.rl_question_selector.reward_manager.interaction_tracker.get_interaction_data(interaction_id)
+        
+        reward_components = None
+        reward_total = None
+        
+        if completed_data and completed_data.get('completed'):
+            reward_components = completed_data['reward_components'].to_dict()
+            reward_total = reward_components['total_reward']
+        
+        return InteractionFeedbackResponse(
+            interaction_id=interaction_id,
+            learner_id=learner_id,
+            rating=request.rating,
+            reward_calculated=success,
+            reward_total=reward_total,
+            reward_components=reward_components,
+            message="Feedback processed successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing interaction rating: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error processing feedback: {str(e)}"
+        )
+
+@app.get("/api/v1/rl/stats")
+async def get_rl_stats(components: FastRAGComponents = Depends(get_fast_components)):
+    """Get RL system statistics"""
+    try:
+        if not components.rl_question_selector.is_initialized:
+            return {"error": "RL system not initialized"}
+        
+        stats = components.rl_question_selector.get_stats()
+        return {
+            "rl_system": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting RL stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/training/enable")
+async def enable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
+    """Enable RL training mode"""
+    try:
+        components.rl_question_selector.enable_training_mode()
+        return {"message": "RL training mode enabled", "training_mode": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/training/disable")
+async def disable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
+    """Disable RL training mode"""
+    try:
+        components.rl_question_selector.disable_training_mode()
+        return {"message": "RL training mode disabled", "training_mode": False}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/model/save")
+async def save_rl_model(components: FastRAGComponents = Depends(get_fast_components)):
+    """Save the current RL model"""
+    try:
+        components.rl_question_selector.save_model()
+        return {"message": "RL model saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
