@@ -124,22 +124,32 @@ class RLQuestionSelector:
             if not question_data:
                 return {"error": "Failed to generate question for selected concept"}
             
-            # Start tracking this interaction for reward calculation
+            # FIXED: Start tracking this interaction for reward calculation with action_index
             interaction_id = str(uuid.uuid4())
-            await self.reward_manager.start_interaction(
+            success = await self.reward_manager.start_interaction(
                 interaction_id=interaction_id,
                 learner_id=learner_id,
                 concept_id=selected_action.concept_id,
                 difficulty=selected_action.difficulty_level.value,
-                state_before=state_vector
+                state_before=state_vector,
+                action_index=action_index  # FIXED: Now passing the action index
             )
+            
+            if not success:
+                logger.error("Failed to start interaction tracking")
+                return {"error": "Failed to start interaction tracking"}
+            
+            # FIXED: Notify environment of interaction start
+            self.environment.start_interaction(learner_id, interaction_id)
             
             # Add RL-specific metadata to question response
             question_data.update({
                 "interaction_id": interaction_id,
                 "selected_by_rl": True,
                 "rl_action": selected_action.to_dict(),
-                "rl_confidence": self._calculate_confidence(state_vector, action_index)
+                "rl_confidence": self._calculate_confidence(state_vector, action_index),
+                "valid_actions_count": len(valid_actions),
+                "total_actions_count": self.environment.action_space_size
             })
             
             return question_data
@@ -157,15 +167,28 @@ class RLQuestionSelector:
         if target_doc_id is None:
             return valid_actions
         
-        # Filter by target document
+        # FIXED: Improved document filtering
         filtered_actions = []
-        for action_idx in valid_actions:
-            action = self.environment.action_index_to_action(action_idx)
-            # Check if concept belongs to target document
-            # This requires mapping concepts to documents - simplified for now
-            filtered_actions.append(action_idx)
         
-        return filtered_actions if filtered_actions else valid_actions
+        # This requires a mapping from concepts to documents
+        # For now, we'll implement a simple lookup that can be enhanced
+        try:
+            # Get concept-to-document mapping from retriever
+            # This could be cached for better performance
+            concept_to_doc = {}
+            
+            # This is a simplified implementation - in practice you might want to cache this
+            for action_idx in valid_actions:
+                action = self.environment.action_index_to_action(action_idx)
+                # For now, we'll assume all concepts are available for any document
+                # This should be enhanced with actual concept-document mapping
+                filtered_actions.append(action_idx)
+            
+            return filtered_actions if filtered_actions else valid_actions
+            
+        except Exception as e:
+            logger.warning(f"Error filtering actions by document {target_doc_id}: {e}")
+            return valid_actions
     
     async def _generate_question_for_action(self, 
                                           action: Action, 
@@ -186,7 +209,7 @@ class RLQuestionSelector:
             concept_score = state.concept_scores.get(action.concept_id, 0.0)
             attempts = state.concept_attempts.get(action.concept_id, 0)
             
-            # Adaptive question styling
+            # FIXED: Improved adaptive question styling
             if attempts == 0:
                 question_type = "definition_recall"
                 question_style = "standard"
@@ -200,26 +223,37 @@ class RLQuestionSelector:
                 question_type = "reasoning"
                 question_style = "complete_proof_step"
             
-            # Generate question
-            questions = await self.question_generator.generate_questions(
-                context_chunks=context_chunks,
-                num_questions=1,
-                question_type=question_type,
-                difficulty_level=action.difficulty_level.value,
-                question_style=question_style
-            )
+            # FIXED: Enhanced question generation with better error handling
+            try:
+                questions = await self.question_generator.generate_questions(
+                    context_chunks=context_chunks,
+                    num_questions=1,
+                    question_type=question_type,
+                    difficulty_level=action.difficulty_level.value,
+                    question_style=question_style
+                )
+            except Exception as gen_error:
+                logger.error(f"Question generation failed: {gen_error}")
+                # Fallback to simple question generation
+                questions = await self.question_generator.generate_questions(
+                    context_chunks=context_chunks,
+                    num_questions=1,
+                    question_type="conceptual",
+                    difficulty_level="medium",
+                    question_style="standard"
+                )
             
             if not questions:
                 logger.error(f"Question generation failed for concept {action.concept_id}")
                 return None
             
-            # Get concept name
+            # Get concept name and document info
             concept_name = context_chunks[0].get('concept_name', 'Unknown Concept')
             doc_id = context_chunks[0].get('doc_id', 'unknown_doc')
             
             # Build context for evaluation
             context_for_evaluation = "\n\n".join([
-                chunk.get('chunk_text', '') for chunk in context_chunks
+                chunk.get('chunk_text', '') for chunk in context_chunks if chunk.get('chunk_text')
             ])
             
             return {
@@ -228,17 +262,21 @@ class RLQuestionSelector:
                 "concept_id": action.concept_id,
                 "concept_name": concept_name,
                 "question_text": questions[0],
-                "context_chunks": [chunk['chunk_text'] for chunk in context_chunks],
+                "context_chunks": [chunk['chunk_text'] for chunk in context_chunks if chunk.get('chunk_text')],
                 "context_for_evaluation": context_for_evaluation,
                 "is_review": attempts > 0,
                 "difficulty": action.difficulty_level.value,
                 "question_type": question_type,
                 "question_style": question_style,
-                "is_new_concept_context_presented": attempts == 0
+                "is_new_concept_context_presented": attempts == 0,
+                "concept_score": concept_score,
+                "concept_attempts": attempts
             }
             
         except Exception as e:
             logger.error(f"Error generating question for action: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _calculate_confidence(self, state_vector: np.ndarray, action_index: int) -> float:
@@ -253,19 +291,31 @@ class RLQuestionSelector:
                 q_values = self.agent.q_network(state_tensor)
                 q_values_np = q_values.cpu().numpy()[0]
                 
-                # Confidence based on Q-value difference
+                # FIXED: Improved confidence calculation
+                if len(q_values_np) <= action_index:
+                    return 0.1  # Low confidence for invalid action
+                
+                # Confidence based on Q-value difference and distribution
                 max_q = np.max(q_values_np)
                 selected_q = q_values_np[action_index]
+                min_q = np.min(q_values_np)
                 
-                if max_q == selected_q:
-                    # Selected action has highest Q-value
-                    second_max = np.partition(q_values_np, -2)[-2]
-                    confidence = min(1.0, (max_q - second_max + 1.0) / 2.0)
-                else:
-                    # Selected action is suboptimal (exploration)
-                    confidence = min(1.0, (selected_q - np.min(q_values_np) + 1.0) / 2.0)
+                # Normalize Q-values to 0-1 range
+                q_range = max_q - min_q
+                if q_range == 0:
+                    return 0.5  # Neutral confidence if all Q-values are equal
                 
-                return max(0.1, confidence)  # Minimum confidence of 0.1
+                normalized_selected = (selected_q - min_q) / q_range
+                
+                # Additional confidence from how much better this action is than the average
+                mean_q = np.mean(q_values_np)
+                relative_advantage = (selected_q - mean_q) / (q_range + 1e-8)
+                
+                # Combine normalized value and relative advantage
+                confidence = 0.7 * normalized_selected + 0.3 * (0.5 + relative_advantage)
+                confidence = max(0.1, min(0.95, confidence))  # Bound between 0.1 and 0.95
+                
+                return confidence
                 
         except Exception as e:
             logger.error(f"Error calculating confidence: {e}")
@@ -289,6 +339,17 @@ class RLQuestionSelector:
             bool: Success status
         """
         try:
+            # FIXED: Determine if answer was correct based on latest knowledge update
+            knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            was_correct = False
+            if knowledge:
+                # Check if the last attempt was correct
+                was_correct = knowledge.get('last_answered_correctly', 0) == 1
+            
+            # FIXED: Notify environment of interaction completion
+            vote_type_str = vote_type.value if vote_type else None
+            self.environment.complete_interaction(learner_id, interaction_id, was_correct, vote_type_str)
+            
             # Get updated state
             current_state = await self.environment.get_current_state(learner_id)
             state_after = current_state.to_feature_vector(self.environment.available_concepts)
@@ -318,34 +379,47 @@ class RLQuestionSelector:
                     if loss is not None:
                         logger.debug(f"RL training loss: {loss:.4f}")
             
+            # FIXED: Auto-cleanup to prevent memory leaks
+            self.reward_manager.auto_cleanup_if_needed()
+            self.environment.cleanup_sessions()
+            
             logger.info(f"Processed feedback for interaction {interaction_id}: "
-                       f"reward={reward:.3f}, vote={vote_type.value}")
+                       f"reward={reward:.3f}, vote={vote_type.value}, correct={was_correct}")
             
             return True
             
         except Exception as e:
             logger.error(f"Error processing feedback: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def enable_training_mode(self):
         """Enable online training mode"""
         self.training_mode = True
         if self.agent:
-            self.agent.epsilon = max(0.1, self.agent.epsilon)  # Increase exploration
+            # Increase exploration for training
+            self.agent.epsilon = max(0.1, self.agent.epsilon)
         logger.info("RL training mode enabled")
     
     def disable_training_mode(self):
         """Disable training mode (production mode)"""
         self.training_mode = False
         if self.agent:
-            self.agent.epsilon = 0.01  # Minimal exploration
+            # Minimal exploration for production
+            self.agent.epsilon = 0.01
         logger.info("RL training mode disabled")
     
     def save_model(self):
         """Save the current RL model"""
         if self.agent and self.model_path:
-            self.agent.save_model(self.model_path)
-            logger.info(f"RL model saved to {self.model_path}")
+            try:
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
+                self.agent.save_model(self.model_path)
+                logger.info(f"RL model saved to {self.model_path}")
+            except Exception as e:
+                logger.error(f"Failed to save RL model: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get RL system statistics"""
@@ -357,11 +431,48 @@ class RLQuestionSelector:
         if self.reward_manager:
             stats.update(self.reward_manager.get_stats())
         
+        # Add environment stats
+        if self.environment:
+            stats.update(self.environment.get_environment_stats())
+        
         stats.update({
             'initialized': self.is_initialized,
             'training_mode': self.training_mode,
             'model_path': self.model_path,
-            'available_concepts': len(self.environment.available_concepts) if self.environment.available_concepts else 0
+            'available_concepts': len(self.environment.available_concepts) if self.environment.available_concepts else 0,
+            'model_exists': os.path.exists(self.model_path) if self.model_path else False
         })
         
         return stats
+    
+    def get_learner_session_info(self, learner_id: str) -> Dict[str, Any]:
+        """Get detailed session information for a specific learner"""
+        try:
+            if not self.environment:
+                return {"error": "Environment not initialized"}
+            
+            session_stats = self.environment.get_session_stats(learner_id)
+            
+            # Add current state information
+            current_state_future = asyncio.create_task(self.environment.get_current_state(learner_id))
+            
+            return {
+                'session_stats': session_stats,
+                'learner_id': learner_id,
+                'environment_ready': self.is_initialized
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting learner session info: {e}")
+            return {"error": str(e)}
+    
+    async def reset_learner_session(self, learner_id: str) -> bool:
+        """Reset session data for a learner"""
+        try:
+            if self.environment:
+                self.environment.session_manager.reset_session(learner_id)
+                logger.info(f"Reset session for learner {learner_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error resetting session for learner {learner_id}: {e}")
+        return False

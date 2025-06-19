@@ -1,4 +1,4 @@
-# src/api/fast_api.py
+# src/api/fast_api.py - Updated with fixed RL integration
 import os
 import asyncio
 import time
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime
 from src.rl_engine.rl_question_selector import RLQuestionSelector
 from src.rl_engine.reward_system import VoteType
-from src.api.feedback_models import InteractionFeedbackRequest, InteractionFeedbackResponse
+from src.api.feedback_models import InteractionFeedbackRequest, InteractionFeedbackResponse, FeedbackRating
 
 from src import config
 from src.api.models import (
@@ -41,10 +41,11 @@ from src.retrieval.retriever import HybridRetriever
 class FastRAGComponents:
     """
     Optimized RAG components with pre-loading and async initialization
+    Now includes RL integration
     """
     
     def __init__(self):
-        print("🚀 Initializing Fast RAG Components...")
+        print("🚀 Initializing Fast RAG Components with RL...")
         self.initialization_error = None
         self.startup_time = time.time()
         
@@ -69,8 +70,8 @@ class FastRAGComponents:
             print("  🔍 Initializing optimized retriever...")
             self._retriever = HybridRetriever(weaviate_client=self.weaviate_client)
             
-            # Profile manager
-            print("  👤 Initializing profile manager...")
+            # FIXED: Use improved profile manager
+            print("  👤 Initializing improved profile manager...")
             self._profile_manager = LearnerProfileManager()
             
             # SRS Scheduler
@@ -104,7 +105,7 @@ class FastRAGComponents:
             srs_scheduler=self.srs_scheduler
         )
         
-        # Initialize RL Question Selector instead of rule-based one
+        # FIXED: Initialize RL Question Selector with proper async handling
         self.rl_question_selector = RLQuestionSelector(
             profile_manager=self._profile_manager,
             retriever=self._retriever,
@@ -130,16 +131,17 @@ class FastRAGComponents:
         if self.initialization_error:
             raise Exception(f"Components failed to initialize: {self.initialization_error}")
         
-        # Initialize RL components
+        # FIXED: Initialize RL components properly
         if not self.rl_question_selector.is_initialized:
+            print("  🤖 Initializing RL Question Selector...")
             await self.rl_question_selector.initialize()
+            print("  ✓ RL Question Selector initialized")
         
         # LLM components are now pre-initialized during startup
         # Only pre-warm if not already done
         if not self._prewarmed:
             await self._prewarm_system()
             self._prewarmed = True
-    
     
     async def _prewarm_system(self):
         """Pre-warm caches with common operations"""
@@ -164,14 +166,12 @@ class FastRAGComponents:
                     print(f"  ⚠️  Failed to pre-warm cache for query '{query}': {e}")
                     continue
             
-            # Load curriculum map
+            # Load curriculum map for rule-based selector
             try:
-                await asyncio.get_event_loop().run_in_executor(
-                    None, 
-                    self.question_selector._load_curriculum_map
-                )
+                await self.question_selector.initialize()
+                print("  ✓ Rule-based question selector initialized")
             except Exception as e:
-                print(f"  ⚠️  Failed to load curriculum map: {e}")
+                print(f"  ⚠️  Failed to initialize rule-based selector: {e}")
             
             print(f"  ✓ System pre-warmed in {time.time() - self.startup_time:.2f}s")
             
@@ -193,11 +193,20 @@ class FastRAGComponents:
         stats = {
             "startup_time": time.time() - self.startup_time,
             "prewarmed": self._prewarmed,
-            "components_ready": self.initialization_error is None
+            "components_ready": self.initialization_error is None,
+            "rl_initialized": self.rl_question_selector.is_initialized if hasattr(self, 'rl_question_selector') else False
         }
         
         if self._retriever:
             stats.update(self._retriever.get_cache_stats())
+        
+        # Add RL stats if available
+        if hasattr(self, 'rl_question_selector') and self.rl_question_selector.is_initialized:
+            try:
+                rl_stats = self.rl_question_selector.get_stats()
+                stats['rl_stats'] = rl_stats
+            except Exception as e:
+                logger.warning(f"Failed to get RL stats: {e}")
         
         return stats
     
@@ -216,7 +225,7 @@ class FastRAGComponents:
     async def _get_context_for_concept(self, concept_id: str, limit: int = 2) -> str:
         """Get context for a concept with proper LaTeX formatting"""
         try:
-            chunks = self.retriever.get_chunks_for_parent_block(concept_id, limit)
+            chunks = await self.retriever.get_chunks_for_parent_block(concept_id, limit)
             if not chunks:
                 return "No context available for this concept."
                 
@@ -320,9 +329,9 @@ async def lifespan(app: FastAPI):
 
 # Create optimized app
 app = FastAPI(
-    title="Fast Adaptive RAG Learning System",
-    description="High-performance RAG API with optimized retrieval",
-    version="0.2.0",
+    title="Fast Adaptive RAG Learning System with RL",
+    description="High-performance RAG API with RL-powered question selection",
+    version="0.3.0",
     lifespan=lifespan
 )
 
@@ -363,9 +372,11 @@ async def list_topics_fast():
     """Get list of available topics"""
     try:
         print("Starting topics endpoint...")
+        components = await get_fast_components()
+        
         # Get all documents without semantic search
         print("Fetching all documents...")
-        results = await app_state["components"].retriever.get_all_documents(limit=1000)
+        results = await components.retriever.get_all_documents(limit=1000)
         print(f"Found {len(results)} documents")
         
         # Group by doc_id and create topic responses
@@ -423,9 +434,9 @@ async def start_interaction(
     request: Request,
     learner_id: Optional[str] = None,
     topic_id: Optional[str] = None,
-    use_rl: bool = True  # New parameter to choose between RL and rule-based
+    use_rl: bool = True  # FIXED: Default to True for RL system
 ):
-    """Start a new interaction with a question"""
+    """Start a new interaction with a question using RL or rule-based selection"""
     try:
         # Parse request body only if it's not empty
         body = {}
@@ -444,11 +455,13 @@ async def start_interaction(
         
         print(f"🎯 Starting interaction for learner: {learner_id} (RL: {use_rl})")
         
+        components = await get_fast_components()
+        
         # Get or create learner profile
-        profile = app_state["profile_manager"].get_profile(str(learner_id))
+        profile = await components.profile_manager.get_profile(str(learner_id))
         if not profile:
-            app_state["profile_manager"].create_profile(str(learner_id))
-            profile = app_state["profile_manager"].get_profile(str(learner_id))
+            await components.profile_manager.create_profile(str(learner_id))
+            profile = await components.profile_manager.get_profile(str(learner_id))
         
         # Select topic if not provided
         if not topic_id:
@@ -457,13 +470,17 @@ async def start_interaction(
                 raise HTTPException(status_code=404, detail="No topics available")
             topic_id = topics[0].doc_id
         
-        # Choose question selector based on use_rl parameter
-        if use_rl and app_state["components"].rl_question_selector.is_initialized:
-            question_selector = app_state["components"].rl_question_selector
+        # Choose question selector based on use_rl parameter and availability
+        if use_rl and components.rl_question_selector.is_initialized:
+            question_selector = components.rl_question_selector
             print(f"Using RL question selector")
         else:
-            question_selector = app_state["question_selector"]
+            question_selector = components.question_selector
             print(f"Using rule-based question selector")
+            
+            # Initialize rule-based selector if not done yet
+            if not hasattr(question_selector, 'curriculum_map') or not question_selector.curriculum_map:
+                await question_selector.initialize()
         
         # Get next question using the selected engine
         question_data = await question_selector.select_next_question(
@@ -477,25 +494,12 @@ async def start_interaction(
         if "error" in question_data:
             raise HTTPException(status_code=500, detail=question_data["error"])
         
-        # For rule-based selector, generate the question using LLM
-        if not use_rl or not app_state["components"].rl_question_selector.is_initialized:
-            # Get context for the concept
-            context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
-            
-            # Generate question using LLM
-            questions = await app_state["question_generator"].generate_questions(
-                context_chunks=[{"chunk_text": context}],
-                num_questions=1,
-                question_type=question_data.get("question_type", "conceptual"),
-                difficulty_level=question_data.get("difficulty", "intermediate"),
-                question_style=question_data.get("question_style", "standard")
-            )
-            
-            if not questions:
-                raise HTTPException(status_code=500, detail="Failed to generate question")
-            
-            question_data["question_text"] = questions[0]
-            question_data["context_for_evaluation"] = context
+        # For rule-based selector, enhance the response
+        if not use_rl or not components.rl_question_selector.is_initialized:
+            # Get context for the concept if not already provided
+            if not question_data.get("context_for_evaluation"):
+                context = await components._get_context_for_concept(question_data["concept_id"])
+                question_data["context_for_evaluation"] = context
         
         return QuestionResponse(
             question_id=question_data["concept_id"],
@@ -506,11 +510,13 @@ async def start_interaction(
             is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False),
             # Add RL-specific fields if available
             interaction_id=question_data.get("interaction_id"),
-            rl_metadata={
+            rl_metadata=question_data.get("rl_metadata") or {
                 "selected_by_rl": question_data.get("selected_by_rl", False),
                 "rl_action": question_data.get("rl_action"),
-                "rl_confidence": question_data.get("rl_confidence")
-            } if use_rl else None
+                "rl_confidence": question_data.get("rl_confidence"),
+                "valid_actions_count": question_data.get("valid_actions_count"),
+                "total_actions_count": question_data.get("total_actions_count")
+            }
         )
         
     except Exception as e:
@@ -518,7 +524,6 @@ async def start_interaction(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
@@ -556,102 +561,6 @@ async def submit_answer_fast(
         print(f"❌ Error in fast answer submission: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-@app.get("/api/v1/health")
-async def health_check_fast():
-    """Health check with performance metrics"""
-    components = app_state.get("components")
-    
-    health_data = {
-        "status": "healthy" if components and not components.initialization_error else "degraded",
-        "timestamp": datetime.datetime.utcnow().isoformat()
-    }
-    
-    if components:
-        health_data.update(components.get_performance_stats())
-    
-    return health_data
-
-@app.get("/api/v1/performance")
-async def get_performance_stats():
-    """Get detailed performance statistics"""
-    components = app_state.get("components")
-    if not components:
-        return {"error": "Components not initialized"}
-    
-    return components.get_performance_stats()
-
-@app.post("/api/v1/clear_cache")
-async def clear_cache():
-    """Clear all caches (useful for testing)"""
-    components = app_state.get("components")
-    if components and components._retriever:
-        components._retriever.clear_cache()
-        return {"message": "Cache cleared successfully"}
-    return {"message": "No cache to clear"}
-
-@app.get("/api/v1/test")
-async def test_endpoint():
-    """Simple test endpoint to verify the system is working"""
-    return {
-        "status": "working",
-        "message": "Backend is responding correctly",
-        "timestamp": datetime.datetime.now().isoformat()
-    }
-
-@app.post("/api/v1/test_question")
-async def test_question():
-    """Test endpoint that returns a hardcoded question without LLM processing"""
-    return QuestionResponse(
-        question_id="test_question_1",
-        doc_id="functional_analysis",
-        concept_name="Test Concept",
-        question_text="What is a vector space?",
-        context_for_evaluation="A vector space is a mathematical structure...",
-        is_new_concept_context_presented=False
-    )
-
-@app.post("/api/v1/interaction/next_question", response_model=QuestionResponse)
-async def next_question(
-    request: Request
-):
-    try:
-        # Parse request body only if it's not empty
-        body = {}
-        try:
-            body_bytes = await request.body()
-            if body_bytes:
-                body = await request.json()
-        except Exception as e:
-            print(f"Warning: Could not parse request body as JSON: {e}")
-            body = {}
-        
-        learner_id = body.get("learner_id", "1")
-        topic_id = body.get("topic_id")
-        print(f"➡️  Next question for learner: {learner_id}, topic: {topic_id}")
-        
-        # Use the real adaptive engine
-        selector = app_state["question_selector"]
-        next_question_info = await selector.select_next_question(learner_id, target_doc_id=topic_id)
-        if not next_question_info or "error" in next_question_info:
-            detail_msg = next_question_info.get("error", "Could not select a next question.") if next_question_info else "Could not select a next question."
-            raise HTTPException(status_code=404, detail=detail_msg)
-        
-        return QuestionResponse(
-            question_id=next_question_info["concept_id"],
-            doc_id=next_question_info.get("doc_id", topic_id or "unknown_doc"),
-            concept_name=next_question_info["concept_name"],
-            question_text=next_question_info["question_text"],
-            context_for_evaluation=next_question_info.get("context_for_evaluation", ""),
-            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False)
-        )
-    except HTTPException as http_exc:
-        raise http_exc
-    except Exception as e:
-        print(f"❌ Error in next_question: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal server error selecting next question: {str(e)}")
-
 @app.post("/api/v1/interaction/{interaction_id}/rate", response_model=InteractionFeedbackResponse)
 async def rate_interaction(
     interaction_id: str,
@@ -667,6 +576,16 @@ async def rate_interaction(
         
         # Convert rating to VoteType
         vote_type = VoteType.UPVOTE if request.rating == FeedbackRating.UP else VoteType.DOWNVOTE
+        
+        # Check if RL system is available and this was an RL interaction
+        if not components.rl_question_selector.is_initialized:
+            return InteractionFeedbackResponse(
+                interaction_id=interaction_id,
+                learner_id="unknown",
+                rating=request.rating,
+                reward_calculated=False,
+                message="RL system not available for this interaction"
+            )
         
         # Get interaction data to find learner and concept
         interaction_data = components.rl_question_selector.reward_manager.interaction_tracker.get_interaction_data(interaction_id)
@@ -728,12 +647,13 @@ async def get_rl_stats(components: FastRAGComponents = Depends(get_fast_componen
     """Get RL system statistics"""
     try:
         if not components.rl_question_selector.is_initialized:
-            return {"error": "RL system not initialized"}
+            return {"error": "RL system not initialized", "initialized": False}
         
         stats = components.rl_question_selector.get_stats()
         return {
             "rl_system": stats,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "initialized": True
         }
         
     except Exception as e:
@@ -744,8 +664,13 @@ async def get_rl_stats(components: FastRAGComponents = Depends(get_fast_componen
 async def enable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
     """Enable RL training mode"""
     try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
         components.rl_question_selector.enable_training_mode()
         return {"message": "RL training mode enabled", "training_mode": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -753,8 +678,13 @@ async def enable_rl_training(components: FastRAGComponents = Depends(get_fast_co
 async def disable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
     """Disable RL training mode"""
     try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
         components.rl_question_selector.disable_training_mode()
         return {"message": "RL training mode disabled", "training_mode": False}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -762,25 +692,89 @@ async def disable_rl_training(components: FastRAGComponents = Depends(get_fast_c
 async def save_rl_model(components: FastRAGComponents = Depends(get_fast_components)):
     """Save the current RL model"""
     try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
         components.rl_question_selector.save_model()
         return {"message": "RL model saved successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/learner/{learner_id}/session")
+async def get_learner_session(
+    learner_id: str,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Get detailed session information for a learner"""
+    try:
+        session_info = components.rl_question_selector.get_learner_session_info(learner_id)
+        return session_info
+    except Exception as e:
+        logger.error(f"Error getting learner session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/learner/{learner_id}/session/reset")
+async def reset_learner_session(
+    learner_id: str,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Reset session data for a learner"""
+    try:
+        success = await components.rl_question_selector.reset_learner_session(learner_id)
+        if success:
+            return {"message": f"Session reset for learner {learner_id}", "success": True}
+        else:
+            return {"message": f"Failed to reset session for learner {learner_id}", "success": False}
+    except Exception as e:
+        logger.error(f"Error resetting learner session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/health")
+async def health_check_fast():
+    """Health check with performance metrics"""
+    components = app_state.get("components")
+    
+    health_data = {
+        "status": "healthy" if components and not components.initialization_error else "degraded",
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    if components:
+        health_data.update(components.get_performance_stats())
+    
+    return health_data
 
+@app.get("/api/v1/performance")
+async def get_performance_stats():
+    """Get detailed performance statistics"""
+    components = app_state.get("components")
+    if not components:
+        return {"error": "Components not initialized"}
+    
+    return components.get_performance_stats()
 
+@app.post("/api/v1/clear_cache")
+async def clear_cache():
+    """Clear all caches (useful for testing)"""
+    components = app_state.get("components")
+    if components and components._retriever:
+        components._retriever.clear_cache()
+        return {"message": "Cache cleared successfully"}
+    return {"message": "No cache to clear"}
 
-
-
-
-
-
-
-
+@app.get("/api/v1/test")
+async def test_endpoint():
+    """Simple test endpoint to verify the system is working"""
+    return {
+        "status": "working",
+        "message": "Backend is responding correctly",
+        "timestamp": datetime.now().isoformat(),
+        "version": "0.3.0 with RL integration"
+    }
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Fast RAG API Server...")
+    print("🚀 Starting Fast RAG API Server with RL...")
     uvicorn.run("src.api.fast_api:app", host="0.0.0.0", port=8000, reload=True)

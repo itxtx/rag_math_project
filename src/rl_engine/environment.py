@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 import json
 import logging
+from .session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +44,26 @@ class State:
     last_concept_id: Optional[str]
     last_score: float
     last_difficulty: Optional[DifficultyLevel]
-    session_length: int  # questions answered in current session
-    recent_engagement: List[float]  # last 5 engagement scores
-    time_since_last_question: float  # minutes
+    session_data: Dict[str, float]  # FIXED: Now uses real session data
     
     def to_feature_vector(self, available_concepts: List[str]) -> np.ndarray:
         """Convert state to feature vector for RL agent"""
         features = []
         
-        # Global learner features
+        # Global learner features - FIXED: Now uses real session data
         features.extend([
             self.last_score,
-            self.session_length / 10.0,  # normalize
-            np.mean(self.recent_engagement) if self.recent_engagement else 0.0,
-            min(self.time_since_last_question / 30.0, 1.0),  # cap at 30 minutes
+            self.session_data.get('session_length_normalized', 0.0),
+            self.session_data.get('average_engagement', 0.5),
+            self.session_data.get('time_since_last_normalized', 0.0),
+        ])
+        
+        # Session-based features - FIXED: Added more sophisticated features
+        features.extend([
+            self.session_data.get('fatigue_factor', 1.0),
+            self.session_data.get('momentum', 0.5),
+            self.session_data.get('current_streak_normalized', 0.0),
+            self.session_data.get('upvote_rate', 0.5),
         ])
         
         # Per-concept features (fixed size based on available concepts)
@@ -84,7 +91,8 @@ class State:
     @classmethod
     def get_feature_size(cls, num_concepts: int) -> int:
         """Calculate the size of the feature vector"""
-        return 4 + (num_concepts * 3) + 3  # global + per-concept + difficulty
+        # FIXED: Updated to reflect new feature structure
+        return 8 + (num_concepts * 3) + 3  # global(4) + session(4) + per-concept + difficulty
 
 class RLEnvironment:
     """
@@ -98,6 +106,9 @@ class RLEnvironment:
         self.available_concepts = []
         self.action_space_size = 0
         self.state_size = 0
+        
+        # FIXED: Added session manager integration
+        self.session_manager = SessionManager(session_timeout_minutes=30)
         
     async def initialize(self):
         """Initialize the environment with available concepts"""
@@ -126,19 +137,19 @@ class RLEnvironment:
             raise
     
     async def get_current_state(self, learner_id: str) -> State:
-        """Get the current state for a learner"""
+        """Get the current state for a learner with real session data"""
         try:
             # Get learner profile
-            profile = await self.profile_manager.get_profile(learner_id)
+            profile = self.profile_manager.get_profile(learner_id)  # FIXED: Removed await
             if not profile:
-                await self.profile_manager.create_profile(learner_id)
+                self.profile_manager.create_profile(learner_id)  # FIXED: Removed await
             
             # Get concept knowledge
             concept_scores = {}
             concept_attempts = {}
             
             for concept_id in self.available_concepts:
-                knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)  # FIXED: Removed await
                 if knowledge:
                     concept_scores[concept_id] = knowledge.get('current_score', 0.0) / 10.0  # normalize to 0-1
                     concept_attempts[concept_id] = knowledge.get('total_attempts', 0)
@@ -147,22 +158,22 @@ class RLEnvironment:
                     concept_attempts[concept_id] = 0
             
             # Get last attempted concept and score
-            last_concept_id, last_doc_id = await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+            last_concept_id, last_doc_id = self.profile_manager.get_last_attempted_concept_and_doc(learner_id)  # FIXED: Removed await
             last_score = 0.0
             last_difficulty = None
             
             if last_concept_id:
-                last_knowledge = await self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
+                last_knowledge = self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)  # FIXED: Removed await
                 if last_knowledge:
                     last_score = last_knowledge.get('current_score', 0.0) / 10.0
                     difficulty_str = last_knowledge.get('current_difficulty_level', 'easy')
-                    last_difficulty = DifficultyLevel(difficulty_str)
+                    try:
+                        last_difficulty = DifficultyLevel(difficulty_str)
+                    except ValueError:
+                        last_difficulty = DifficultyLevel.EASY
             
-            # Calculate session length and recent engagement
-            # This would need to be tracked separately in a session management system
-            session_length = 0  # TODO: implement session tracking
-            recent_engagement = []  # TODO: implement engagement tracking
-            time_since_last_question = 0.0  # TODO: implement timing
+            # FIXED: Get real session data from session manager
+            session_data = self.session_manager.get_session_state_for_rl(learner_id)
             
             return State(
                 learner_id=learner_id,
@@ -171,9 +182,7 @@ class RLEnvironment:
                 last_concept_id=last_concept_id,
                 last_score=last_score,
                 last_difficulty=last_difficulty,
-                session_length=session_length,
-                recent_engagement=recent_engagement,
-                time_since_last_question=time_since_last_question
+                session_data=session_data  # FIXED: Now uses real session data
             )
             
         except Exception as e:
@@ -182,8 +191,14 @@ class RLEnvironment:
     
     def action_index_to_action(self, action_index: int) -> Action:
         """Convert action index to Action object"""
+        if action_index < 0 or action_index >= self.action_space_size:
+            raise ValueError(f"Invalid action index {action_index}, must be in range [0, {self.action_space_size})")
+        
         concept_idx = action_index // len(DifficultyLevel)
         difficulty_idx = action_index % len(DifficultyLevel)
+        
+        if concept_idx >= len(self.available_concepts):
+            raise ValueError(f"Invalid concept index {concept_idx}, only {len(self.available_concepts)} concepts available")
         
         concept_id = self.available_concepts[concept_idx]
         difficulty = list(DifficultyLevel)[difficulty_idx]
@@ -192,23 +207,83 @@ class RLEnvironment:
     
     def action_to_action_index(self, action: Action) -> int:
         """Convert Action object to action index"""
-        concept_idx = self.available_concepts.index(action.concept_id)
-        difficulty_idx = list(DifficultyLevel).index(action.difficulty_level)
-        
-        return concept_idx * len(DifficultyLevel) + difficulty_idx
+        try:
+            concept_idx = self.available_concepts.index(action.concept_id)
+            difficulty_idx = list(DifficultyLevel).index(action.difficulty_level)
+            
+            return concept_idx * len(DifficultyLevel) + difficulty_idx
+        except ValueError as e:
+            logger.error(f"Invalid action: {action}, error: {e}")
+            raise
     
     def get_valid_actions(self, state: State) -> List[int]:
         """Get list of valid action indices for current state"""
         valid_actions = []
         
+        # FIXED: Improved action filtering based on learner state
         for i, concept_id in enumerate(self.available_concepts):
-            # Skip concepts that are already mastered (score > 0.9)
-            if state.concept_scores.get(concept_id, 0.0) > 0.9:
+            concept_score = state.concept_scores.get(concept_id, 0.0)
+            concept_attempts = state.concept_attempts.get(concept_id, 0)
+            
+            # Skip concepts that are fully mastered (score > 0.95)
+            if concept_score > 0.95:
                 continue
+            
+            # For new concepts (no attempts), only allow easy and medium difficulty
+            if concept_attempts == 0:
+                for difficulty_level in [DifficultyLevel.EASY, DifficultyLevel.MEDIUM]:
+                    difficulty_idx = list(DifficultyLevel).index(difficulty_level)
+                    action_idx = i * len(DifficultyLevel) + difficulty_idx
+                    valid_actions.append(action_idx)
+            
+            # For concepts with some attempts, allow all difficulties based on performance
+            else:
+                if concept_score < 0.3:
+                    # Low performance - prefer easier questions
+                    allowed_difficulties = [DifficultyLevel.EASY, DifficultyLevel.MEDIUM]
+                elif concept_score < 0.7:
+                    # Medium performance - allow medium and hard
+                    allowed_difficulties = [DifficultyLevel.MEDIUM, DifficultyLevel.HARD]
+                else:
+                    # High performance - allow all difficulties
+                    allowed_difficulties = list(DifficultyLevel)
                 
-            # Add all difficulty levels for valid concepts
-            for j in range(len(DifficultyLevel)):
-                action_idx = i * len(DifficultyLevel) + j
-                valid_actions.append(action_idx)
+                for difficulty_level in allowed_difficulties:
+                    difficulty_idx = list(DifficultyLevel).index(difficulty_level)
+                    action_idx = i * len(DifficultyLevel) + difficulty_idx
+                    valid_actions.append(action_idx)
         
-        return valid_actions if valid_actions else list(range(self.action_space_size))
+        # Fallback - if no valid actions, allow all actions
+        if not valid_actions:
+            logger.warning(f"No valid actions found for learner {state.learner_id}, allowing all actions")
+            valid_actions = list(range(self.action_space_size))
+        
+        return valid_actions
+    
+    def start_interaction(self, learner_id: str, interaction_id: str):
+        """Notify session manager of interaction start"""
+        self.session_manager.start_interaction(learner_id, interaction_id)
+    
+    def complete_interaction(self, learner_id: str, interaction_id: str, was_correct: bool, vote_type: str = None):
+        """Notify session manager of interaction completion"""
+        self.session_manager.complete_interaction(learner_id, interaction_id, was_correct, vote_type)
+    
+    def cleanup_sessions(self):
+        """Clean up expired sessions"""
+        self.session_manager.cleanup_expired_sessions()
+    
+    def get_session_stats(self, learner_id: str) -> Dict[str, Any]:
+        """Get session statistics for a learner"""
+        return self.session_manager.get_session_stats(learner_id)
+    
+    def get_environment_stats(self) -> Dict[str, Any]:
+        """Get comprehensive environment statistics"""
+        session_stats = self.session_manager.get_global_stats()
+        
+        return {
+            'available_concepts': len(self.available_concepts),
+            'action_space_size': self.action_space_size,
+            'state_size': self.state_size,
+            'session_stats': session_stats,
+            'environment_initialized': len(self.available_concepts) > 0
+        }
