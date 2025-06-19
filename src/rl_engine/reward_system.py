@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 from datetime import datetime, timedelta
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -371,8 +372,14 @@ class RewardSystemManager:
             bool: Success status
         """
         try:
-            # Get current knowledge score
-            knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)  # FIXED: Removed await
+            # FIXED: Handle both sync and async profile manager methods
+            knowledge = None
+            if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                    knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                else:
+                    knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            
             score_before = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
             
             self.interaction_tracker.start_interaction(
@@ -419,7 +426,13 @@ class RewardSystemManager:
             score_before = interaction_data['score_before']
             
             # Get updated knowledge score for the "after" state
-            knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)  # FIXED: Removed await
+            knowledge = None
+            if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                    knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                else:
+                    knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+            
             score_after = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
             
             # Validate score_after

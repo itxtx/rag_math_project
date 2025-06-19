@@ -119,6 +119,12 @@ class RLConfig:
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'RLConfig':
         """Create config from dictionary"""
+        # FIXED: Validate configuration before creating instance
+        is_valid, errors = validate_rl_config(config_dict)
+        if not is_valid:
+            error_msg = "Invalid RL configuration:\n" + "\n".join(f"  - {error}" for error in errors)
+            raise ValueError(error_msg)
+        
         return cls(**{k: v for k, v in config_dict.items() if hasattr(cls, k)})
     
     def to_dict(self) -> Dict[str, Any]:
@@ -146,6 +152,21 @@ class RLConfig:
             config_dict = json.load(f)
         
         return cls.from_dict(config_dict)
+
+    def validate(self) -> tuple[bool, list[str]]:
+        """Validate the current configuration"""
+        config_dict = self.to_dict()
+        return validate_rl_config(config_dict)
+    
+    def is_valid(self) -> bool:
+        """Check if the configuration is valid"""
+        is_valid, _ = self.validate()
+        return is_valid
+    
+    def get_validation_errors(self) -> list[str]:
+        """Get validation errors for the current configuration"""
+        _, errors = self.validate()
+        return errors
 
 # src/rl_engine/utils.py
 import numpy as np
@@ -683,3 +704,130 @@ rl-save:
 rl-setup: setup rl-train rl-deploy
 	@echo "$(GREEN)🎉 Complete RL system setup finished!$(NC)"
 """
+
+# FIXED: Add configuration validation
+def validate_rl_config(config: dict) -> tuple[bool, list[str]]:
+    """
+    Validate RL configuration
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        tuple: (is_valid, list_of_errors)
+    """
+    errors = []
+    
+    # Required top-level keys
+    required_keys = ['model_path', 'state_features', 'reward_weights', 'agent_hyperparameters', 'training_config']
+    for key in required_keys:
+        if key not in config:
+            errors.append(f"Missing required configuration key: {key}")
+    
+    # Validate reward weights
+    if 'reward_weights' in config:
+        weights = config['reward_weights']
+        required_weights = ['vote', 'learning', 'effort']
+        for weight_key in required_weights:
+            if weight_key not in weights:
+                errors.append(f"Missing required reward weight: {weight_key}")
+            elif not isinstance(weights[weight_key], (int, float)):
+                errors.append(f"Reward weight {weight_key} must be numeric")
+            elif weights[weight_key] < 0:
+                errors.append(f"Reward weight {weight_key} must be non-negative")
+        
+        # Check if weights sum to approximately 1.0
+        if all(key in weights for key in required_weights):
+            total_weight = sum(weights[key] for key in required_weights)
+            if abs(total_weight - 1.0) > 0.01:
+                errors.append(f"Reward weights must sum to 1.0, got {total_weight}")
+    
+    # Validate agent hyperparameters
+    if 'agent_hyperparameters' in config:
+        agent_config = config['agent_hyperparameters']
+        required_agent_keys = ['learning_rate', 'gamma', 'epsilon_start', 'epsilon_end', 'epsilon_decay', 'buffer_size', 'batch_size', 'target_update_freq']
+        
+        for key in required_agent_keys:
+            if key not in agent_config:
+                errors.append(f"Missing required agent hyperparameter: {key}")
+            elif not isinstance(agent_config[key], (int, float)):
+                errors.append(f"Agent hyperparameter {key} must be numeric")
+        
+        # Validate specific ranges
+        if 'learning_rate' in agent_config:
+            lr = agent_config['learning_rate']
+            if lr <= 0 or lr > 1:
+                errors.append(f"Learning rate must be between 0 and 1, got {lr}")
+        
+        if 'gamma' in agent_config:
+            gamma = agent_config['gamma']
+            if gamma < 0 or gamma > 1:
+                errors.append(f"Gamma must be between 0 and 1, got {gamma}")
+        
+        if 'epsilon_start' in agent_config and 'epsilon_end' in agent_config:
+            eps_start = agent_config['epsilon_start']
+            eps_end = agent_config['epsilon_end']
+            if eps_start < eps_end:
+                errors.append(f"Epsilon start ({eps_start}) must be greater than epsilon end ({eps_end})")
+        
+        if 'batch_size' in agent_config:
+            batch_size = agent_config['batch_size']
+            if batch_size <= 0:
+                errors.append(f"Batch size must be positive, got {batch_size}")
+        
+        if 'buffer_size' in agent_config:
+            buffer_size = agent_config['buffer_size']
+            if buffer_size <= 0:
+                errors.append(f"Buffer size must be positive, got {buffer_size}")
+    
+    # Validate training config
+    if 'training_config' in config:
+        training_config = config['training_config']
+        required_training_keys = ['episodes', 'interactions_per_episode', 'virtual_learners']
+        
+        for key in required_training_keys:
+            if key not in training_config:
+                errors.append(f"Missing required training config key: {key}")
+            elif not isinstance(training_config[key], int):
+                errors.append(f"Training config {key} must be integer")
+            elif training_config[key] <= 0:
+                errors.append(f"Training config {key} must be positive, got {training_config[key]}")
+    
+    # Validate state features
+    if 'state_features' in config:
+        state_features = config['state_features']
+        required_state_keys = ['global_features', 'per_concept_features', 'difficulty_features']
+        
+        for key in required_state_keys:
+            if key not in state_features:
+                errors.append(f"Missing required state feature: {key}")
+            elif not isinstance(state_features[key], int):
+                errors.append(f"State feature {key} must be integer")
+            elif state_features[key] < 0:
+                errors.append(f"State feature {key} must be non-negative")
+    
+    return len(errors) == 0, errors
+
+def get_validated_config(config: dict = None) -> dict:
+    """
+    Get validated configuration with defaults
+    
+    Args:
+        config: Optional configuration dictionary
+        
+    Returns:
+        dict: Validated configuration
+        
+    Raises:
+        ValueError: If configuration is invalid
+    """
+    if config is None:
+        config = DEFAULT_RL_CONFIG.copy()
+    
+    is_valid, errors = validate_rl_config(config)
+    
+    if not is_valid:
+        error_msg = "Invalid RL configuration:\n" + "\n".join(f"  - {error}" for error in errors)
+        raise ValueError(error_msg)
+    
+    return config

@@ -8,6 +8,7 @@ from enum import Enum
 import json
 import logging
 from .session_manager import SessionManager
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -170,17 +171,33 @@ class RLEnvironment:
     async def get_current_state(self, learner_id: str) -> State:
         """Get the current state for a learner with real session data"""
         try:
-            # Get learner profile
-            profile = self.profile_manager.get_profile(learner_id)  # FIXED: Removed await
+            # FIXED: Handle both sync and async profile manager methods
+            profile = None
+            if hasattr(self.profile_manager, 'get_profile') and callable(getattr(self.profile_manager, 'get_profile')):
+                if asyncio.iscoroutinefunction(self.profile_manager.get_profile):
+                    profile = await self.profile_manager.get_profile(learner_id)
+                else:
+                    profile = self.profile_manager.get_profile(learner_id)
+            
             if not profile:
-                self.profile_manager.create_profile(learner_id)  # FIXED: Removed await
+                if hasattr(self.profile_manager, 'create_profile') and callable(getattr(self.profile_manager, 'create_profile')):
+                    if asyncio.iscoroutinefunction(self.profile_manager.create_profile):
+                        await self.profile_manager.create_profile(learner_id)
+                    else:
+                        self.profile_manager.create_profile(learner_id)
             
             # Get concept knowledge
             concept_scores = {}
             concept_attempts = {}
             
             for concept_id in self.available_concepts:
-                knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)  # FIXED: Removed await
+                knowledge = None
+                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                        knowledge = await self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                    else:
+                        knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)
+                
                 if knowledge:
                     concept_scores[concept_id] = knowledge.get('current_score', 0.0) / 10.0  # normalize to 0-1
                     concept_attempts[concept_id] = knowledge.get('total_attempts', 0)
@@ -189,12 +206,24 @@ class RLEnvironment:
                     concept_attempts[concept_id] = 0
             
             # Get last attempted concept and score
-            last_concept_id, last_doc_id = self.profile_manager.get_last_attempted_concept_and_doc(learner_id)  # FIXED: Removed await
+            last_concept_id, last_doc_id = None, None
+            if hasattr(self.profile_manager, 'get_last_attempted_concept_and_doc') and callable(getattr(self.profile_manager, 'get_last_attempted_concept_and_doc')):
+                if asyncio.iscoroutinefunction(self.profile_manager.get_last_attempted_concept_and_doc):
+                    last_concept_id, last_doc_id = await self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+                else:
+                    last_concept_id, last_doc_id = self.profile_manager.get_last_attempted_concept_and_doc(learner_id)
+            
             last_score = 0.0
             last_difficulty = None
             
             if last_concept_id:
-                last_knowledge = self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)  # FIXED: Removed await
+                last_knowledge = None
+                if hasattr(self.profile_manager, 'get_concept_knowledge') and callable(getattr(self.profile_manager, 'get_concept_knowledge')):
+                    if asyncio.iscoroutinefunction(self.profile_manager.get_concept_knowledge):
+                        last_knowledge = await self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
+                    else:
+                        last_knowledge = self.profile_manager.get_concept_knowledge(learner_id, last_concept_id)
+                
                 if last_knowledge:
                     last_score = last_knowledge.get('current_score', 0.0) / 10.0
                     difficulty_str = last_knowledge.get('current_difficulty_level', 'easy')
@@ -258,7 +287,7 @@ class RLEnvironment:
         """Get list of valid action indices for current state"""
         valid_actions = []
         
-        # FIXED: Improved action filtering based on learner state
+        # FIXED: Improved action filtering with better edge case handling
         for i, concept_id in enumerate(self.available_concepts):
             concept_score = state.concept_scores.get(concept_id, 0.0)
             concept_attempts = state.concept_attempts.get(concept_id, 0)
@@ -291,11 +320,34 @@ class RLEnvironment:
                     action_idx = i * len(DifficultyLevel) + difficulty_idx
                     valid_actions.append(action_idx)
         
-        # Fallback - if no valid actions, allow all actions
+        # FIXED: Enhanced fallback mechanisms for edge cases
         if not valid_actions:
-            logger.warning(f"No valid actions found for learner {state.learner_id}, allowing all actions")
-            valid_actions = list(range(self.action_space_size))
+            logger.warning(f"No valid actions found for learner {state.learner_id}, checking fallback options")
+            
+            # Fallback 1: Allow all concepts with easy difficulty only
+            for i, concept_id in enumerate(self.available_concepts):
+                action_idx = i * len(DifficultyLevel) + list(DifficultyLevel).index(DifficultyLevel.EASY)
+                valid_actions.append(action_idx)
+            
+            if not valid_actions:
+                logger.error(f"Still no valid actions after easy-only fallback for learner {state.learner_id}")
+                # Fallback 2: Allow all actions (last resort)
+                valid_actions = list(range(self.action_space_size))
+                logger.warning(f"Using all actions as final fallback for learner {state.learner_id}")
         
+        # FIXED: Validate that we have valid actions
+        if not valid_actions:
+            logger.error(f"CRITICAL: No valid actions available for learner {state.learner_id}")
+            raise ValueError(f"No valid actions available for learner {state.learner_id}")
+        
+        # FIXED: Ensure all action indices are within bounds
+        valid_actions = [action for action in valid_actions if 0 <= action < self.action_space_size]
+        
+        if not valid_actions:
+            logger.error(f"All valid actions were out of bounds for learner {state.learner_id}")
+            raise ValueError(f"All valid actions out of bounds for learner {state.learner_id}")
+        
+        logger.debug(f"Generated {len(valid_actions)} valid actions for learner {state.learner_id}")
         return valid_actions
     
     def start_interaction(self, learner_id: str, interaction_id: str):
