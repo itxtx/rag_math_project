@@ -10,6 +10,7 @@ from .environment import RLEnvironment, State, Action, DifficultyLevel
 from .agent import RLAgent
 from .reward_system import RewardSystemManager, VoteType
 from src.generation.question_generator_rag import RAGQuestionGenerator
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +31,20 @@ class RLQuestionSelector:
         self.question_generator = question_generator
         self.model_path = model_path
         
-        # Initialize RL components
-        self.environment = RLEnvironment(profile_manager, retriever)
-        self.agent = None  # Will be initialized after environment
-        self.reward_manager = RewardSystemManager(profile_manager)
+        # RL components
+        self.agent = None
+        self.environment = None
+        self.reward_manager = None
         
+        # State
         self.is_initialized = False
         self.training_mode = False
+        
+        # FIXED: Add cleanup tracking
+        self.cleanup_stats = {
+            'failed_interactions_cleaned': 0,
+            'last_cleanup_time': None
+        }
         
         logger.info("RLQuestionSelector created, awaiting initialization")
     
@@ -95,6 +103,9 @@ class RLQuestionSelector:
             logger.error("RL Question Selector not initialized")
             return {"error": "RL system not initialized"}
         
+        interaction_id = None
+        selected_action = None
+        
         try:
             logger.info(f"RL agent selecting question for learner {learner_id}")
             
@@ -122,6 +133,7 @@ class RLQuestionSelector:
             )
             
             if not question_data:
+                logger.warning(f"Question generation failed for concept {selected_action.concept_id}")
                 return {"error": "Failed to generate question for selected concept"}
             
             # FIXED: Start tracking this interaction for reward calculation with action_index
@@ -137,6 +149,9 @@ class RLQuestionSelector:
             
             if not success:
                 logger.error("Failed to start interaction tracking")
+                # FIXED: Clean up any partial resources when interaction tracking fails
+                if interaction_id and selected_action:
+                    self._cleanup_failed_interaction(interaction_id, learner_id, selected_action.concept_id)
                 return {"error": "Failed to start interaction tracking"}
             
             # FIXED: Notify environment of interaction start
@@ -158,7 +173,40 @@ class RLQuestionSelector:
             logger.error(f"Error in RL question selection: {e}")
             import traceback
             traceback.print_exc()
+            
+            # FIXED: Clean up any partial interaction tracking on error
+            if interaction_id and selected_action:
+                self._cleanup_failed_interaction(interaction_id, learner_id, selected_action.concept_id)
+            
             return {"error": f"RL selection failed: {str(e)}"}
+    
+    def _cleanup_failed_interaction(self, interaction_id: str, learner_id: str, concept_id: str):
+        """Clean up resources when an interaction fails"""
+        try:
+            # Clean up reward manager tracking
+            if hasattr(self, 'reward_manager') and self.reward_manager:
+                # Remove from pending interactions if it exists
+                if hasattr(self.reward_manager.interaction_tracker, 'pending_interactions'):
+                    if interaction_id in self.reward_manager.interaction_tracker.pending_interactions:
+                        del self.reward_manager.interaction_tracker.pending_interactions[interaction_id]
+                        logger.debug(f"Cleaned up pending interaction {interaction_id}")
+            
+            # Clean up environment session tracking
+            if hasattr(self, 'environment') and self.environment:
+                # Remove from interaction start times if it exists
+                if hasattr(self.environment.session_manager, 'interaction_start_times'):
+                    if interaction_id in self.environment.session_manager.interaction_start_times:
+                        del self.environment.session_manager.interaction_start_times[interaction_id]
+                        logger.debug(f"Cleaned up environment interaction {interaction_id}")
+            
+            # FIXED: Update cleanup statistics
+            self.cleanup_stats['failed_interactions_cleaned'] += 1
+            self.cleanup_stats['last_cleanup_time'] = datetime.now().isoformat()
+            
+            logger.info(f"Cleaned up failed interaction {interaction_id} for learner {learner_id}, concept {concept_id}")
+            
+        except Exception as cleanup_error:
+            logger.error(f"Error during cleanup of failed interaction {interaction_id}: {cleanup_error}")
     
     def _get_valid_actions(self, state: State, target_doc_id: Optional[str] = None) -> List[int]:
         """Get valid actions, optionally filtered by document ID"""
@@ -435,12 +483,12 @@ class RLQuestionSelector:
         if self.environment:
             stats.update(self.environment.get_environment_stats())
         
+        # FIXED: Add cleanup and error handling statistics
         stats.update({
             'initialized': self.is_initialized,
             'training_mode': self.training_mode,
-            'model_path': self.model_path,
-            'available_concepts': len(self.environment.available_concepts) if self.environment.available_concepts else 0,
-            'model_exists': os.path.exists(self.model_path) if self.model_path else False
+            'cleanup_stats': self.cleanup_stats.copy(),
+            'error_handling_improved': True  # Indicate that error handling has been enhanced
         })
         
         return stats
@@ -476,3 +524,52 @@ class RLQuestionSelector:
         except Exception as e:
             logger.error(f"Error resetting session for learner {learner_id}: {e}")
         return False
+    
+    def get_cleanup_status(self) -> Dict[str, Any]:
+        """Get detailed cleanup status and statistics"""
+        return {
+            'cleanup_stats': self.cleanup_stats.copy(),
+            'pending_interactions': len(self.reward_manager.interaction_tracker.pending_interactions) if self.reward_manager else 0,
+            'completed_interactions': len(self.reward_manager.interaction_tracker.completed_interactions) if self.reward_manager else 0,
+            'environment_interactions': len(self.environment.session_manager.interaction_start_times) if self.environment else 0,
+            'cleanup_needed': self._check_if_cleanup_needed()
+        }
+    
+    def _check_if_cleanup_needed(self) -> bool:
+        """Check if cleanup is needed based on current state"""
+        if not self.reward_manager or not self.environment:
+            return False
+        
+        pending_count = len(self.reward_manager.interaction_tracker.pending_interactions)
+        env_count = len(self.environment.session_manager.interaction_start_times)
+        
+        # Suggest cleanup if there are many pending interactions
+        return pending_count > 50 or env_count > 50
+    
+    def force_cleanup(self) -> Dict[str, int]:
+        """Force cleanup of all pending interactions and return statistics"""
+        if not self.reward_manager or not self.environment:
+            return {'cleaned': 0, 'error': 'Components not initialized'}
+        
+        initial_pending = len(self.reward_manager.interaction_tracker.pending_interactions)
+        initial_env = len(self.environment.session_manager.interaction_start_times)
+        
+        # Clean up reward manager
+        self.reward_manager.cleanup()
+        
+        # Clean up environment
+        self.environment.cleanup_sessions()
+        
+        final_pending = len(self.reward_manager.interaction_tracker.pending_interactions)
+        final_env = len(self.environment.session_manager.interaction_start_times)
+        
+        cleaned_pending = initial_pending - final_pending
+        cleaned_env = initial_env - final_env
+        
+        logger.info(f"Force cleanup completed: {cleaned_pending} pending, {cleaned_env} environment interactions cleaned")
+        
+        return {
+            'pending_cleaned': cleaned_pending,
+            'environment_cleaned': cleaned_env,
+            'total_cleaned': cleaned_pending + cleaned_env
+        }

@@ -16,6 +16,67 @@ logger = logging.getLogger(__name__)
 Experience = namedtuple('Experience', 
                        ['state', 'action', 'reward', 'next_state', 'done'])
 
+class DeviceManager:
+    """Manages consistent device placement for tensors"""
+    
+    def __init__(self, device: torch.device):
+        self.device = device
+        logger.info(f"DeviceManager initialized with device: {device}")
+    
+    def to_device(self, tensor_or_array) -> torch.Tensor:
+        """
+        Ensure tensor is on the correct device
+        
+        Args:
+            tensor_or_array: Input tensor or numpy array
+            
+        Returns:
+            torch.Tensor: Tensor on the correct device
+        """
+        if isinstance(tensor_or_array, torch.Tensor):
+            # If it's already a tensor, move it to the correct device
+            if tensor_or_array.device != self.device:
+                return tensor_or_array.to(self.device)
+            return tensor_or_array
+        elif isinstance(tensor_or_array, np.ndarray):
+            # If it's a numpy array, convert to tensor and move to device
+            return torch.FloatTensor(tensor_or_array).to(self.device)
+        else:
+            # For other types, try to convert to tensor
+            try:
+                return torch.FloatTensor(tensor_or_array).to(self.device)
+            except Exception as e:
+                logger.error(f"Failed to convert {type(tensor_or_array)} to tensor: {e}")
+                raise
+    
+    def batch_to_device(self, batch_data) -> torch.Tensor:
+        """
+        Convert a batch of data to tensors on the correct device
+        
+        Args:
+            batch_data: List or array of data
+            
+        Returns:
+            torch.Tensor: Batch tensor on the correct device
+        """
+        if isinstance(batch_data, list):
+            # Convert list of arrays/tensors to batch tensor
+            tensors = [self.to_device(item) for item in batch_data]
+            return torch.stack(tensors) if tensors else torch.empty(0).to(self.device)
+        else:
+            # Single item
+            return self.to_device(batch_data)
+    
+    def get_device_info(self) -> dict:
+        """Get information about the current device"""
+        return {
+            'device': str(self.device),
+            'device_type': self.device.type,
+            'cuda_available': torch.cuda.is_available(),
+            'mps_available': torch.backends.mps.is_available(),
+            'cuda_device_count': torch.cuda.device_count() if torch.cuda.is_available() else 0
+        }
+
 class DQN(nn.Module):
     """Deep Q-Network for question selection"""
     
@@ -100,14 +161,12 @@ class RLAgent:
         self.batch_size = batch_size
         self.target_update_freq = target_update_freq
         
-        # Device selection
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        else:
-            self.device = torch.device("cpu")
+        # FIXED: Enhanced device selection with automatic detection
+        self.device = self._select_best_device()
         logger.info(f"RL Agent using device: {self.device}")
+        
+        # FIXED: Add global device management
+        self._device_manager = DeviceManager(self.device)
         
         # Neural networks
         self.q_network = DQN(state_size, action_size).to(self.device)
@@ -145,22 +204,27 @@ class RLAgent:
     
     def _exploit(self, state: np.ndarray, valid_actions: Optional[List[int]] = None) -> int:
         """Exploit: choose best action according to Q-network"""
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        def _exploit_operation():
+            # FIXED: Use device manager to ensure consistent device placement
+            state_tensor = self._device_manager.to_device(state).unsqueeze(0)
+            
+            with torch.no_grad():
+                q_values = self.q_network(state_tensor)
+            
+            if valid_actions is not None:
+                # Mask invalid actions with very negative values
+                masked_q_values = q_values.clone()
+                mask = torch.ones(self.action_size, dtype=torch.bool, device=self.device)
+                mask[valid_actions] = False
+                masked_q_values[0, mask] = -float('inf')
+                action = masked_q_values.argmax().item()
+            else:
+                action = q_values.argmax().item()
+            
+            return action
         
-        with torch.no_grad():
-            q_values = self.q_network(state_tensor)
-        
-        if valid_actions is not None:
-            # Mask invalid actions with very negative values
-            masked_q_values = q_values.clone()
-            mask = torch.ones(self.action_size, dtype=torch.bool)
-            mask[valid_actions] = False
-            masked_q_values[0, mask] = -float('inf')
-            action = masked_q_values.argmax().item()
-        else:
-            action = q_values.argmax().item()
-        
-        return action
+        # FIXED: Use safe operation wrapper for device error handling
+        return self.safe_tensor_operation(_exploit_operation)
     
     def _explore(self, valid_actions: Optional[List[int]] = None) -> int:
         """Explore: choose random action"""
@@ -188,11 +252,11 @@ class RLAgent:
         # Sample batch from replay buffer
         experiences = self.replay_buffer.sample(self.batch_size)
         
-        # Convert to tensors
-        states = torch.FloatTensor([e.state for e in experiences]).to(self.device)
+        # FIXED: Use device manager for consistent device placement
+        states = self._device_manager.batch_to_device([e.state for e in experiences])
         actions = torch.LongTensor([e.action for e in experiences]).to(self.device)
         rewards = torch.FloatTensor([e.reward for e in experiences]).to(self.device)
-        next_states = torch.FloatTensor([e.next_state for e in experiences]).to(self.device)
+        next_states = self._device_manager.batch_to_device([e.next_state for e in experiences])
         dones = torch.BoolTensor([e.done for e in experiences]).to(self.device)
         
         # Current Q values
@@ -282,8 +346,69 @@ class RLAgent:
             logger.error(f"Error loading model: {e}")
             return False
     
+    def validate_device_consistency(self) -> bool:
+        """Validate that all components are on the correct device"""
+        try:
+            # Check networks
+            q_network_device = next(self.q_network.parameters()).device
+            target_network_device = next(self.target_network.parameters()).device
+            
+            if q_network_device != self.device:
+                logger.error(f"Q-network on wrong device: {q_network_device}, expected: {self.device}")
+                return False
+            
+            if target_network_device != self.device:
+                logger.error(f"Target network on wrong device: {target_network_device}, expected: {self.device}")
+                return False
+            
+            # Check optimizer
+            optimizer_device = next(self.optimizer.param_groups[0]['params']).device
+            if optimizer_device != self.device:
+                logger.error(f"Optimizer on wrong device: {optimizer_device}, expected: {self.device}")
+                return False
+            
+            logger.debug("Device consistency validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error during device consistency validation: {e}")
+            return False
+    
+    def migrate_to_device(self, new_device: torch.device) -> bool:
+        """Migrate all components to a new device"""
+        try:
+            logger.info(f"Migrating RL agent from {self.device} to {new_device}")
+            
+            # Update device manager
+            self.device = new_device
+            self._device_manager = DeviceManager(new_device)
+            
+            # Move networks to new device
+            self.q_network = self.q_network.to(new_device)
+            self.target_network = self.target_network.to(new_device)
+            
+            # Move optimizer parameters to new device
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    param.data = param.data.to(new_device)
+            
+            # Validate migration
+            if self.validate_device_consistency():
+                logger.info(f"Successfully migrated to {new_device}")
+                return True
+            else:
+                logger.error(f"Device migration validation failed")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error during device migration: {e}")
+            return False
+    
     def get_stats(self) -> dict:
         """Get training statistics"""
+        # FIXED: Add device information and validation
+        device_consistent = self.validate_device_consistency()
+        
         return {
             'training_steps': self.training_steps,
             'episodes': self.episodes,
@@ -291,5 +416,50 @@ class RLAgent:
             'total_reward': self.total_reward,
             'buffer_size': len(self.replay_buffer),
             'recent_avg_loss': np.mean(self.losses[-100:]) if self.losses else 0.0,
-            'device': str(self.device)
+            'device': str(self.device),
+            'device_consistent': device_consistent,
+            'device_info': self._device_manager.get_device_info()
         }
+
+    def _select_best_device(self):
+        """Select the best available device"""
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            return torch.device("mps")
+        else:
+            return torch.device("cpu")
+    
+    def handle_device_error(self, error: Exception) -> bool:
+        """Handle device-related errors gracefully"""
+        error_str = str(error).lower()
+        
+        if "cuda" in error_str or "gpu" in error_str:
+            logger.warning("CUDA error detected, falling back to CPU")
+            return self.migrate_to_device(torch.device("cpu"))
+        elif "mps" in error_str:
+            logger.warning("MPS error detected, falling back to CPU")
+            return self.migrate_to_device(torch.device("cpu"))
+        elif "out of memory" in error_str:
+            logger.warning("Out of memory error, trying to free cache and continue")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return True  # Try to continue
+        else:
+            logger.error(f"Unknown device error: {error}")
+            return False
+    
+    def safe_tensor_operation(self, operation_func, *args, **kwargs):
+        """Safely execute tensor operations with device error handling"""
+        try:
+            return operation_func(*args, **kwargs)
+        except Exception as e:
+            if self.handle_device_error(e):
+                # Retry the operation after device migration
+                try:
+                    return operation_func(*args, **kwargs)
+                except Exception as retry_error:
+                    logger.error(f"Operation failed even after device migration: {retry_error}")
+                    raise
+            else:
+                raise

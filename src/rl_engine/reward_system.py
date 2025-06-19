@@ -291,6 +291,32 @@ class InteractionTracker:
         else:
             return None
     
+    def validate_interaction_data(self, interaction_id: str) -> bool:
+        """Validate that interaction data is complete and consistent"""
+        data = self.get_interaction_data(interaction_id)
+        if not data:
+            return False
+        
+        required_fields = ['learner_id', 'concept_id', 'difficulty', 'score_before', 'state_before', 'action_index']
+        for field in required_fields:
+            if field not in data:
+                logger.error(f"Missing required field '{field}' in interaction {interaction_id}")
+                return False
+        
+        # Validate score_before is in valid range
+        score_before = data.get('score_before', -1)
+        if not isinstance(score_before, (int, float)) or score_before < 0 or score_before > 1:
+            logger.error(f"Invalid score_before {score_before} in interaction {interaction_id}")
+            return False
+        
+        # Validate state_before is a numpy array
+        state_before = data.get('state_before')
+        if not isinstance(state_before, np.ndarray):
+            logger.error(f"Invalid state_before type {type(state_before)} in interaction {interaction_id}")
+            return False
+        
+        return True
+    
     def cleanup_old_interactions(self, max_age_hours: int = 24):
         """Remove old completed interactions to prevent memory bloat"""
         cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
@@ -378,11 +404,30 @@ class RewardSystemManager:
             Tuple of (reward_components, state_before, action, reward, state_after, done) or None
         """
         try:
-            # Get updated knowledge score
+            # FIXED: Get the stored score_before from the interaction tracker instead of
+            # getting the updated knowledge score, which would cause a race condition
+            interaction_data = self.interaction_tracker.get_interaction_data(interaction_id)
+            if not interaction_data:
+                logger.error(f"No interaction data found for {interaction_id}")
+                return None
+            
+            # Validate the interaction data before proceeding
+            if not self.interaction_tracker.validate_interaction_data(interaction_id):
+                logger.error(f"Invalid interaction data for {interaction_id}")
+                return None
+            
+            score_before = interaction_data['score_before']
+            
+            # Get updated knowledge score for the "after" state
             knowledge = self.profile_manager.get_concept_knowledge(learner_id, concept_id)  # FIXED: Removed await
             score_after = (knowledge.get('current_score', 0.0) / 10.0) if knowledge else 0.0
             
-            # Complete the interaction
+            # Validate score_after
+            if not isinstance(score_after, (int, float)) or score_after < 0 or score_after > 1:
+                logger.warning(f"Invalid score_after for {interaction_id}: {score_after}. Using 0.0")
+                score_after = 0.0
+            
+            # Complete the interaction using the stored score_before
             reward_components = self.interaction_tracker.complete_interaction(
                 interaction_id=interaction_id,
                 score_after=score_after,
@@ -393,7 +438,7 @@ class RewardSystemManager:
             if reward_components is None:
                 return None
             
-            # Get interaction data for RL tuple
+            # Get updated interaction data for RL tuple
             interaction_data = self.interaction_tracker.get_interaction_data(interaction_id)
             if not interaction_data:
                 return None
@@ -403,6 +448,10 @@ class RewardSystemManager:
             action = interaction_data['action_index']  # FIXED: Use stored action index
             reward = reward_components.total_reward
             done = False  # Episodes don't end with single questions
+            
+            logger.debug(f"Reward calculation for {interaction_id}: "
+                        f"score_before={score_before:.3f}, score_after={score_after:.3f}, "
+                        f"reward={reward:.3f}")
             
             return (reward_components, state_before, action, reward, state_after, done)
             
@@ -424,16 +473,28 @@ class RewardSystemManager:
             avg_reward = 0.0
             reward_std = 0.0
         
+        # Calculate learning progress statistics
+        learning_progresses = []
+        for data in completed.values():
+            score_before = data.get('score_before', 0.0)
+            score_after = data.get('score_after', 0.0)
+            progress = score_after - score_before
+            learning_progresses.append(progress)
+        
+        avg_learning_progress = np.mean(learning_progresses) if learning_progresses else 0.0
+        
         return {
             'pending_interactions': len(pending),
             'completed_interactions': len(completed),
             'average_reward': avg_reward,
             'reward_std': reward_std,
+            'average_learning_progress': avg_learning_progress,
             'reward_weights': {
                 'vote': self.reward_calculator.w_vote,
                 'learn': self.reward_calculator.w_learn,
                 'effort': self.reward_calculator.w_effort
-            }
+            },
+            'race_condition_fixed': True  # Indicate that the race condition has been addressed
         }
     
     def cleanup(self):

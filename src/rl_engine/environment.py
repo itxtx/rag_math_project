@@ -88,11 +88,39 @@ class State:
         
         return np.array(features, dtype=np.float32)
     
+    def validate_feature_vector(self, available_concepts: List[str]) -> bool:
+        """Validate that the feature vector has the correct size"""
+        feature_vector = self.to_feature_vector(available_concepts)
+        expected_size = self.get_feature_size(len(available_concepts))
+        
+        if len(feature_vector) != expected_size:
+            logger.error(f"Feature vector size mismatch! Expected {expected_size}, got {len(feature_vector)}")
+            logger.error(f"Available concepts: {len(available_concepts)}")
+            return False
+        
+        return True
+    
     @classmethod
     def get_feature_size(cls, num_concepts: int) -> int:
         """Calculate the size of the feature vector"""
-        # FIXED: Updated to reflect new feature structure
-        return 8 + (num_concepts * 3) + 3  # global(4) + session(4) + per-concept + difficulty
+        global_features = 4  # last_score, session_length, avg_engagement, time_since_last
+        session_features = 4  # fatigue, momentum, streak, upvote_rate
+        per_concept_features = num_concepts * 3  # score, attempts, is_last per concept
+        difficulty_features = 3  # one-hot encoding for difficulty
+        
+        total = global_features + session_features + per_concept_features + difficulty_features
+        return total
+
+    @classmethod
+    def get_feature_breakdown(cls, num_concepts: int) -> Dict[str, int]:
+        """Get detailed breakdown of feature vector components"""
+        return {
+            'global_features': 4,  # last_score, session_length, avg_engagement, time_since_last
+            'session_features': 4,  # fatigue, momentum, streak, upvote_rate
+            'per_concept_features': num_concepts * 3,  # score, attempts, is_last per concept
+            'difficulty_features': 3,  # one-hot encoding for difficulty
+            'total': cls.get_feature_size(num_concepts)
+        }
 
 class RLEnvironment:
     """
@@ -129,6 +157,9 @@ class RLEnvironment:
             self.action_space_size = len(self.available_concepts) * len(DifficultyLevel)
             self.state_size = State.get_feature_size(len(self.available_concepts))
             
+            # Log detailed feature breakdown
+            feature_breakdown = State.get_feature_breakdown(len(self.available_concepts))
+            logger.info(f"Feature vector breakdown: {feature_breakdown}")
             logger.info(f"Action space size: {self.action_space_size}")
             logger.info(f"State space size: {self.state_size}")
             
@@ -175,7 +206,7 @@ class RLEnvironment:
             # FIXED: Get real session data from session manager
             session_data = self.session_manager.get_session_state_for_rl(learner_id)
             
-            return State(
+            state = State(
                 learner_id=learner_id,
                 concept_scores=concept_scores,
                 concept_attempts=concept_attempts,
@@ -184,6 +215,13 @@ class RLEnvironment:
                 last_difficulty=last_difficulty,
                 session_data=session_data  # FIXED: Now uses real session data
             )
+            
+            # Validate feature vector size
+            if not state.validate_feature_vector(self.available_concepts):
+                logger.error(f"Feature vector validation failed for learner {learner_id}")
+                raise ValueError(f"Feature vector size mismatch for learner {learner_id}")
+            
+            return state
             
         except Exception as e:
             logger.error(f"Error getting current state for learner {learner_id}: {e}")

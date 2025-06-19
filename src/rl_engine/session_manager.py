@@ -78,6 +78,15 @@ class SessionManager:
     
     def get_or_create_session(self, learner_id: str) -> SessionData:
         """Get existing session or create new one for learner"""
+        # Add automatic cleanup every 100 sessions to prevent memory leaks
+        if len(self.sessions) % 100 == 0 and len(self.sessions) > 0:
+            self.cleanup_expired_sessions()
+        
+        # Additional cleanup if we have too many sessions (memory pressure)
+        if len(self.sessions) > 500:
+            self.cleanup_expired_sessions()
+            logger.warning(f"Memory pressure detected: {len(self.sessions)} sessions, triggered cleanup")
+        
         if learner_id not in self.sessions:
             self.sessions[learner_id] = SessionData(learner_id=learner_id)
             logger.info(f"Created new session for learner {learner_id}")
@@ -196,6 +205,7 @@ class SessionManager:
     
     def cleanup_expired_sessions(self):
         """Remove expired sessions to prevent memory leaks"""
+        initial_count = len(self.sessions)
         expired_learners = []
         
         for learner_id, session in self.sessions.items():
@@ -204,7 +214,7 @@ class SessionManager:
         
         for learner_id in expired_learners:
             del self.sessions[learner_id]
-            logger.info(f"Cleaned up expired session for learner {learner_id}")
+            logger.debug(f"Cleaned up expired session for learner {learner_id}")
         
         # Also cleanup old interaction start times
         current_time = datetime.now()
@@ -217,9 +227,17 @@ class SessionManager:
         for interaction_id in expired_interactions:
             del self.interaction_start_times[interaction_id]
         
+        final_count = len(self.sessions)
+        cleaned_sessions = initial_count - final_count
+        
         if expired_learners or expired_interactions:
-            logger.info(f"Cleaned up {len(expired_learners)} expired sessions and "
-                       f"{len(expired_interactions)} expired interactions")
+            logger.info(f"Memory cleanup: removed {cleaned_sessions} expired sessions and "
+                       f"{len(expired_interactions)} expired interactions. "
+                       f"Total sessions: {initial_count} -> {final_count}")
+        
+        # If we still have too many sessions after cleanup, log a warning
+        if final_count > 300:
+            logger.warning(f"High session count after cleanup: {final_count} sessions remain")
     
     def get_all_active_sessions(self) -> List[Dict[str, Any]]:
         """Get statistics for all active sessions"""
@@ -247,7 +265,9 @@ class SessionManager:
                 'active_sessions': 0,
                 'average_session_length': 0.0,
                 'total_questions_answered': 0,
-                'global_upvote_rate': 0.0
+                'global_upvote_rate': 0.0,
+                'memory_usage_warning': False,
+                'cleanup_recommended': False
             }
         
         total_questions = sum(s['questions_answered'] for s in active_sessions)
@@ -255,11 +275,35 @@ class SessionManager:
         total_votes = sum(s['total_upvotes'] + s['total_downvotes'] for s in active_sessions)
         avg_session_length = sum(s['session_duration_minutes'] for s in active_sessions) / len(active_sessions)
         
+        # Memory management indicators
+        total_sessions = len(self.sessions)
+        memory_warning = total_sessions > 200
+        cleanup_recommended = total_sessions > 100
+        
         return {
-            'total_sessions': len(self.sessions),
+            'total_sessions': total_sessions,
             'active_sessions': len(active_sessions),
             'average_session_length_minutes': avg_session_length,
             'total_questions_answered': total_questions,
             'global_upvote_rate': total_upvotes / max(1, total_votes),
-            'cleanup_needed': len(self.sessions) > 100  # Suggest cleanup if too many sessions
+            'memory_usage_warning': memory_warning,
+            'cleanup_recommended': cleanup_recommended,
+            'expired_sessions': total_sessions - len(active_sessions)
+        }
+    
+    def force_cleanup(self) -> Dict[str, int]:
+        """Force cleanup of all expired sessions and return statistics"""
+        initial_sessions = len(self.sessions)
+        initial_interactions = len(self.interaction_start_times)
+        
+        self.cleanup_expired_sessions()
+        
+        final_sessions = len(self.sessions)
+        final_interactions = len(self.interaction_start_times)
+        
+        return {
+            'sessions_cleaned': initial_sessions - final_sessions,
+            'interactions_cleaned': initial_interactions - final_interactions,
+            'remaining_sessions': final_sessions,
+            'remaining_interactions': final_interactions
         }
