@@ -399,25 +399,15 @@ async def list_topics_fast():
 
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
 async def start_interaction(
-    request: Request,
+    request: LearnerInteractionStartRequest,
     learner_id: Optional[str] = None,
     topic_id: Optional[str] = None
 ):
     """Start a new interaction with a question"""
     try:
-        # Parse request body only if it's not empty
-        body = {}
-        try:
-            body_bytes = await request.body()
-            if body_bytes:
-                body = await request.json()
-        except Exception as e:
-            print(f"Warning: Could not parse request body as JSON: {e}")
-            body = {}
-        
-        # Use query parameters if provided, otherwise use body
-        learner_id = learner_id or body.get("learner_id", "1")
-        topic_id = topic_id or body.get("topic_id")
+        # Use query parameters if provided, otherwise use request body
+        learner_id = learner_id or request.learner_id or "1"
+        topic_id = topic_id or request.topic_id
         
         print(f"🎯 Fast interaction start for learner: {learner_id}")
         
