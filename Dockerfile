@@ -1,7 +1,7 @@
 # /Dockerfile
 
 # Start from a base image with Python
-FROM python:3.10-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 # Set an environment variable to prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -31,9 +31,10 @@ WORKDIR /app
 RUN pip install uv
 
 # 5. Copy the pyproject.toml file and install dependencies with uv
-# This uses pyproject.toml as the source of truth, not requirements.txt
+
 COPY pyproject.toml .
-RUN uv pip install . --system
+RUN uv sync 
+RUN uv pip install .[test] --system
 
 # 6. Copy the rest of your application source code into the container
 COPY . .
@@ -41,5 +42,5 @@ COPY . .
 EXPOSE 8000
 
 # The command to run your application
-# This will start the FastAPI server from your main_api.py
-CMD ["uvicorn", "src.api.main_api:app", "--host", "0.0.0.0", "--port", "8000"]
+# This will start the FastAPI server from your fast_api.py
+CMD ["uvicorn", "src.api.fast_api:app", "--host", "0.0.0.0", "--port", "8000"]

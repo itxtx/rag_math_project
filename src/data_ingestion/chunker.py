@@ -34,17 +34,15 @@ def chunk_conceptual_blocks(
 
     print(f"DEBUG: Created {len(conceptual_blocks)} blocks total")
     for i, block in enumerate(conceptual_blocks):
-        block_content = block.get("text", "")
+        block_content = block.get("block_content", "")
 
         # This print block is for debugging the chunker's input
-        print(f"DEBUG: Processing node {block.get('id', 'N/A')}:")
-        print(f"  Type: {block.get('type')}")
+        print(f"DEBUG: Processing node {block.get('block_id', 'N/A')}:")
+        print(f"  Type: {block.get('concept_type')}")
         print(f"  Text length: {len(block_content)}")
         if len(block_content) > 0:
-            # --- FIX: Perform the string replacement outside the f-string ---
             preview_text = block_content[:120].replace('\n', ' ')
             print(f"  Text preview: {preview_text}...")
-            # --- END OF FIX ---
 
         if not block_content or not block_content.strip():
             print(f"  Skipping this block due to empty or whitespace-only content.")
@@ -61,9 +59,11 @@ def chunk_conceptual_blocks(
                     "doc_id": block.get("doc_id", "unknown_doc"),
                     "source": block.get("source", "unknown_source"),
                     "filename": os.path.basename(block.get("source", "unknown_source")),
-                    "parent_block_id": block.get("id"),
-                    "concept_type": block.get("type"),
+                    "parent_block_id": block.get("block_id"),
+                    "concept_type": block.get("concept_type"),
+                    "concept_name": block.get("concept_name"),
                     "chunk_text": chunk_text_stripped,
+                    "parent_block_content": block_content,
                 })
 
     print(f"\nChunker: Finished processing. Total final text chunks created: {len(final_text_chunks)}")

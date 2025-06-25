@@ -1,5 +1,5 @@
 # /docker-compose.yaml
-version: '3.4'
+
 services:
   # The new service for your main RAG application
   app:

@@ -56,3 +56,16 @@ PROCESSED_DOCS_LOG_FILE = os.path.join(DATA_DIR, "processed_documents_log.txt")
 
 # You can add other global configurations here
 # For example, default chunk sizes, specific model parameters, etc.
+
+# --- Question Selection Configuration ---
+# Score thresholds for adaptive question selection
+REVIEW_SCORE_THRESHOLD = float(os.getenv("REVIEW_SCORE_THRESHOLD", "0.6"))
+LOW_SCORE_THRESHOLD = float(os.getenv("LOW_SCORE_THRESHOLD", "5.0"))
+PERFECT_SCORE_THRESHOLD = float(os.getenv("PERFECT_SCORE_THRESHOLD", "9.0"))
+
+# Bonus multiplier for selecting adjacent concepts (concepts from the same document)
+ADJACENCY_BONUS = float(os.getenv("ADJACENCY_BONUS", "1.2"))
+
+# Maximum number of context chunks to use for question generation
+NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX = int(os.getenv("NUM_CONTEXT_CHUNKS_FOR_NEW_CONCEPT_MAX", "2"))
+NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX = int(os.getenv("NUM_CONTEXT_CHUNKS_FOR_REVIEW_MAX", "3"))

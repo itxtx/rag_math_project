@@ -19,6 +19,8 @@ class QuestionResponse(BaseModel):
     question_text: str = Field(..., description="The text of the question presented to the learner.")
     context_for_evaluation: str = Field(..., description="The context provided with the question, used for evaluation. This is also the context to display if is_new_concept_context_presented is true.")
     is_new_concept_context_presented: Optional[bool] = Field(False, description="Flag indicating if the context (in context_for_evaluation) was just presented as new material to the learner.")
+    interaction_id: Optional[str] = Field(None, description="Unique interaction ID for feedback tracking")
+    rl_metadata: Optional[Dict[str, Any]] = Field(None, description="RL system metadata")
 
 class AnswerSubmissionRequest(BaseModel):
     learner_id: str = Field(..., description="Unique identifier for the learner.")

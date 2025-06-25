@@ -1,70 +1,283 @@
-# src/retrieval/retriever.py
+# src/retrieval/optimized_retriever.py
+import asyncio
+import time
+from functools import lru_cache
+from typing import List, Dict, Optional, Any
+import hashlib
+import pickle
+import os
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from src.data_ingestion.vector_store_manager import VectorStoreManager
 import weaviate
-import weaviate.exceptions
-import json # For logging raw response
-from typing import List, Dict, Optional, Union
 
-from src.data_ingestion import vector_store_manager
-from src import config 
-
-class Retriever:
+class HybridRetriever:
     """
-    A class to retrieve relevant text chunks from a Weaviate vector store.
+    A high-performance retriever with in-memory caching and async operations.
+    Features:
+    - Embedding caching for faster repeated queries
+    - Async operations for better concurrency
+    - Hybrid search capabilities
+    - Performance tracking and statistics
     """
+    
+    def __init__(self, weaviate_client, cache_size: int = 1000):
+        self.weaviate_client = weaviate_client
+        self.weaviate_class_name = "MathConcept"
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embedding_cache = {}
+        self.cache_size = cache_size
+        self._cache_lock = asyncio.Lock()
+        print("HybridRetriever initialized with embedding cache")
+        
+        # Performance tracking
+        self.cache_hits = 0
+        self.cache_misses = 0
+        
+        # Initialize search results cache
+        self.search_results_cache = {}
+        
+        # Default search parameters
+        self.default_limit = 5
+        self.default_hybrid_alpha = 0.5
+        self.default_hybrid_bm25_properties = ["chunk_text", "concept_name"]
+        
+        # Default return properties
+        self.DEFAULT_RETURN_PROPERTIES = [
+            "chunk_id", "doc_id", "filename", "concept_name", "concept_type",
+            "source_path", "original_doc_type", "parent_block_id", "sequence_in_block", "chunk_text"
+        ]
+        
+        # Default additional properties
+        self.DEFAULT_ADDITIONAL_PROPERTIES = ["distance", "score"]
+    
+    def _get_cache_key(self, query_text: str, search_params: dict = None) -> str:
+        """Generate cache key for query + parameters"""
+        params_str = str(sorted(search_params.items())) if search_params else ""
+        content = f"{query_text}:{params_str}"
+        return hashlib.md5(content.encode()).hexdigest()
+    
+    def _manage_cache_size(self, cache_dict: dict):
+        """Simple LRU cache management - remove oldest entries"""
+        if len(cache_dict) > self.cache_size:
+            # Remove oldest 20% of entries
+            items_to_remove = len(cache_dict) - int(self.cache_size * 0.8)
+            keys_to_remove = list(cache_dict.keys())[:items_to_remove]
+            for key in keys_to_remove:
+                del cache_dict[key]
+    
+    async def _get_cached_embedding(self, text: str) -> Optional[np.ndarray]:
+        """Get embedding from cache with thread safety"""
+        async with self._cache_lock:
+            return self.embedding_cache.get(text)
 
-    DEFAULT_RETURN_PROPERTIES = [
-        "chunk_text", "source_path", "original_doc_type", # Corrected here
-        "concept_type", "concept_name", "sequence_in_block", "chunk_id",
-        "parent_block_id", "parent_block_content", "doc_id", "filename" 
-    ]
-    DEFAULT_ADDITIONAL_PROPERTIES = ["id", "distance", "certainty", "score"]
+    async def _cache_embedding(self, text: str, embedding: np.ndarray):
+        """Cache embedding with thread safety and size limit"""
+        async with self._cache_lock:
+            # If cache is full, remove oldest item
+            if len(self.embedding_cache) >= self.cache_size:
+                oldest_key = next(iter(self.embedding_cache))
+                del self.embedding_cache[oldest_key]
+            self.embedding_cache[text] = embedding
 
-    def __init__(self,
-                 weaviate_client: Optional[weaviate.Client] = None,
-                 embedding_model = None, 
-                 weaviate_class_name: Optional[str] = None):
+    async def _embed_query(self, query_text: str) -> np.ndarray:
+        """Get embedding for query text, using cache if available"""
+        # Check cache first
+        cached_embedding = await self._get_cached_embedding(query_text)
+        if cached_embedding is not None:
+            print("Cache hit, using cached embedding")
+            return cached_embedding
+
+        # Generate new embedding
+        print("Cache miss, generating embedding...")
         try:
-            self.client = weaviate_client if weaviate_client else vector_store_manager.get_weaviate_client()
-            print("Retriever: Weaviate client initialized successfully.")
-        except Exception as e:
-            print(f"Retriever: Error initializing Weaviate client: {e}")
-            raise
-
-        self._embedding_model = embedding_model
-        self._embedding_model_instance = None 
-
-        self.weaviate_class_name = weaviate_class_name if weaviate_class_name \
-                                   else vector_store_manager.WEAVIATE_CLASS_NAME
-        self.default_limit = getattr(config, 'DEFAULT_SEARCH_LIMIT', 5)
-        self.default_semantic_certainty = getattr(config, 'DEFAULT_SEMANTIC_CERTAINTY', 0.7)
-        self.default_hybrid_alpha = getattr(config, 'DEFAULT_HYBRID_ALPHA', 0.5)
-        self.default_hybrid_bm25_properties = ["chunk_text^2", "concept_name"]
-
-
-    def _get_embedding_model_instance(self):
-        if self._embedding_model_instance is None:
-            if self._embedding_model is not None:
-                self._embedding_model_instance = self._embedding_model
-            else:
-                try:
-                    self._embedding_model_instance = vector_store_manager.get_embedding_model()
-                    print("Retriever: Embedding model loaded successfully.")
-                except Exception as e:
-                    print(f"Retriever: Error loading embedding model: {e}")
-                    raise
-        return self._embedding_model_instance
-
-    def _embed_query(self, query_text: str) -> Optional[List[float]]:
-        if not query_text:
-            print("Retriever: Query text is empty, cannot embed.")
-            return None
-        try:
-            model = self._get_embedding_model_instance()
-            embedding = vector_store_manager.generate_standard_embedding(query_text, model_instance=model)
+            # Run the CPU-bound embedding generation in a thread pool
+            loop = asyncio.get_event_loop()
+            embedding = await loop.run_in_executor(
+                None,
+                lambda: self.embedding_model.encode(query_text, convert_to_tensor=False)
+            )
+            # Cache the new embedding
+            await self._cache_embedding(query_text, embedding)
             return embedding
         except Exception as e:
-            print(f"Retriever: Error embedding query '{query_text[:50]}...': {e}")
-            return None
+            print(f"Error generating embedding: {e}")
+            raise
+    
+    async def get_all_documents(self, limit: int = 1000) -> List[Dict]:
+        """Get all documents without semantic search"""
+        try:
+            print("Fetching all documents from Weaviate...")
+            collection = self.weaviate_client.collections.get("MathConcept")
+            response = collection.query.fetch_objects(limit=limit)
+            
+            print(f"Raw Weaviate response (first 500 chars): {str(response)[:500]}")
+            
+            if not response or not hasattr(response, 'objects'):
+                print("Invalid response from Weaviate")
+                return []
+                
+            documents = []
+            for obj in response.objects:
+                doc = {
+                    'chunk_id': obj.properties.get('chunk_id'),
+                    'doc_id': obj.properties.get('doc_id'),
+                    'filename': obj.properties.get('filename'),
+                    'concept_name': obj.properties.get('concept_name'),
+                    'concept_type': obj.properties.get('concept_type'),
+                    'source_path': obj.properties.get('source_path'),
+                    'original_doc_type': obj.properties.get('original_doc_type'),
+                    'parent_block_id': obj.properties.get('parent_block_id'),
+                    'sequence_in_block': obj.properties.get('sequence_in_block'),
+                    'chunk_text': obj.properties.get('chunk_text'),  # Add chunk_text
+                    'id': str(obj.uuid)
+                }
+                documents.append(doc)
+            
+            print(f"Found {len(documents)} documents")
+            return documents
+            
+        except Exception as e:
+            print(f"Error getting all documents: {e}")
+            return []
+
+    async def fast_semantic_search(self, query_text: str, limit: int = 5) -> List[Dict]:
+        """Perform semantic search with caching"""
+        try:
+            print(f"Starting fast_semantic_search for query: {query_text}")
+            
+            # Get embedding
+            embedding = await self._embed_query(query_text)
+            
+            # Perform search
+            results = await self._execute_weaviate_search(embedding, limit)
+            
+            print(f"Found {len(results)} results for query: {query_text}")
+            return results
+            
+        except Exception as e:
+            print(f"Error in fast_semantic_search: {e}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            return []
+    
+    async def _execute_weaviate_search(self, embedding: np.ndarray, limit: int) -> List[Dict]:
+        """Execute Weaviate search with error handling"""
+        try:
+            print("Executing Weaviate search...")
+            collection = self.weaviate_client.collections.get("MathConcept")
+            response = collection.query.near_vector(
+                near_vector=embedding.tolist(),
+                limit=limit
+            )
+            
+            print(f"Raw Weaviate search response (first 500 chars): {str(response)[:500]}")
+            
+            if not response or not hasattr(response, 'objects'):
+                print("Invalid response from Weaviate")
+                return []
+                
+            results = []
+            for obj in response.objects:
+                result = {
+                    'chunk_id': obj.properties.get('chunk_id'),
+                    'doc_id': obj.properties.get('doc_id'),
+                    'filename': obj.properties.get('filename'),
+                    'concept_name': obj.properties.get('concept_name'),
+                    'concept_type': obj.properties.get('concept_type'),
+                    'source_path': obj.properties.get('source_path'),
+                    'original_doc_type': obj.properties.get('original_doc_type'),
+                    'parent_block_id': obj.properties.get('parent_block_id'),
+                    'sequence_in_block': obj.properties.get('sequence_in_block'),
+                    'id': str(obj.uuid)
+                }
+                results.append(result)
+            
+            print(f"Found {len(results)} results")
+            return results
+            
+        except Exception as e:
+            print(f"Error executing Weaviate search: {e}")
+            return []
+    
+    async def fast_hybrid_search(self, 
+                                query_text: str,
+                                alpha: Optional[float] = None,
+                                limit: Optional[int] = None,
+                                **kwargs) -> List[Dict]:
+        """Async hybrid search with caching"""
+        search_params = {
+            'alpha': alpha or self.default_hybrid_alpha,
+            'limit': limit or self.default_limit,
+            'search_type': 'hybrid'
+        }
+        cache_key = self._get_cache_key(query_text, search_params)
+        
+        if cache_key in self.search_results_cache:
+            return self.search_results_cache[cache_key]
+        
+        # Run in parallel: embedding + keyword prep
+        loop = asyncio.get_event_loop()
+        embedding_task = loop.run_in_executor(None, self._embed_query, query_text)
+        
+        embedding = await embedding_task
+        if not embedding.any():
+            return []
+        
+        # Execute hybrid search
+        results = await loop.run_in_executor(
+            None,
+            self._execute_hybrid_search,
+            query_text,
+            embedding,
+            search_params
+        )
+        
+        # Cache results
+        self.search_results_cache[cache_key] = results
+        self._manage_cache_size(self.search_results_cache)
+        
+        return results
+    
+    def _execute_hybrid_search(self, query_text: str, embedding: np.ndarray, params: dict) -> List[Dict]:
+        """Execute hybrid search synchronously"""
+        try:
+            # Use Weaviate v4 API syntax
+            collection = self.weaviate_client.collections.get(self.weaviate_class_name)
+            response = collection.query.hybrid(
+                query=query_text,
+                vector=embedding.tolist(),
+                alpha=params['alpha'],
+                limit=params['limit'],
+                include_vector=False
+            )
+            return self._format_results_v4(response)
+        except Exception as e:
+            print(f"Hybrid search error: {e}")
+            return []
+    
+    def get_cache_stats(self) -> dict:
+        """Get cache performance statistics"""
+        total_requests = self.cache_hits + self.cache_misses
+        hit_rate = (self.cache_hits / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "hit_rate_percent": round(hit_rate, 2),
+            "embedding_cache_size": len(self.embedding_cache),
+            "results_cache_size": len(self.search_results_cache),
+            "max_cache_size": self.cache_size
+        }
+    
+    def clear_cache(self):
+        """Clear all caches"""
+        self.embedding_cache.clear()
+        self.search_results_cache.clear()
+        self.cache_hits = 0
+        self.cache_misses = 0
+        print("All caches cleared")
 
     def _format_results(self, weaviate_response: Dict, requested_properties: Optional[List[str]] = None) -> List[Dict]:
         """
@@ -100,205 +313,259 @@ class Retriever:
             results.append(result)
         return results
 
-    def get_all_chunks_metadata(self, properties: Optional[List[str]] = None) -> List[Dict]:
-        """
-        Retrieves metadata for all chunks in the specified class.
-        Useful for building an initial curriculum graph.
-        """
-        if properties is None:
-            # --- CORRECTED PROPERTY NAME HERE ---
-            properties = ["parent_block_id", "concept_name", "concept_type", 
-                          "source_path", "original_doc_type", "doc_id", # Was original_type
-                          "chunk_id", "sequence_in_block"] 
-            # --- END OF CORRECTION ---
-        
-        print(f"Retriever: Fetching all chunk metadata for curriculum graph (properties: {properties})...")
-        try:
-            response = (
-                self.client.query
-                .get(self.weaviate_class_name, properties)
-                .with_limit(10000) 
-                .do()
-            )
-            
-            print(f"DEBUG Retriever (get_all_chunks_metadata): Raw Weaviate response (first 500 chars): {str(response)[:500]}...")
-            if response and "data" in response and "Get" in response["data"] and \
-               response["data"]["Get"].get(self.weaviate_class_name):
-                num_items_retrieved = len(response["data"]["Get"][self.weaviate_class_name])
-                print(f"DEBUG Retriever (get_all_chunks_metadata): Number of items in response: {num_items_retrieved}")
-            else:
-                print("DEBUG Retriever (get_all_chunks_metadata): Response structure not as expected or no items.")
-
-            formatted_results = self._format_results(response, requested_properties=properties)
-            
-            print(f"Retriever: Fetched metadata for {len(formatted_results)} chunks via get_all_chunks_metadata.")
-            return formatted_results
-        except Exception as e:
-            print(f"Retriever: Error fetching all chunk metadata: {e}")
-            import traceback
-            traceback.print_exc()
-            return []
-
-
-    def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
-        """
-        Retrieves all text chunks belonging to a specific parent conceptual block,
-        ordered by their sequence within that block.
-        """
+    async def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
         print(f"Retriever: Fetching chunks for parent_block_id: {parent_block_id}")
-        filters = {
-            "operator": "Equal",
-            "path": ["parent_block_id"],
-            "valueText": parent_block_id
-        }
-        
-        query_limit = limit if limit is not None else 50 
+        query_limit = limit if limit is not None else 50
+
+        def _execute_query():
+            # Use Weaviate v4 API syntax - search by parent_block_id property
+            collection = self.weaviate_client.collections.get(self.weaviate_class_name)
+            
+            # FIXED: Use the correct Weaviate v4 filtering API
+            from weaviate.classes.query import Filter
+            try:
+                # Try using bm25 search with where filter first
+                response = collection.query.bm25(
+                    query=parent_block_id,
+                    where=Filter.by_property("parent_block_id").equal(parent_block_id),
+                    limit=query_limit
+                )
+            except Exception as e:
+                print(f"BM25 search failed: {e}, trying fetch_objects with manual filtering")
+                # Fallback: fetch all and filter manually
+                response = collection.query.fetch_objects(
+                    limit=query_limit * 10,  # Get more to have better chances of finding matches
+                    include_vector=False
+                )
+                
+                # Manual filtering for parent_block_id
+                filtered_objects = []
+                total_checked = 0
+                found_parent_ids = set()
+                
+                for obj in response.objects:
+                    total_checked += 1
+                    
+                    # Debug: Show all available properties for first few objects
+                    if total_checked <= 3:
+                        if hasattr(obj.properties, 'keys'):
+                            available_props = list(obj.properties.keys())
+                            print(f"Object {total_checked} available properties: {available_props}")
+                            if 'parent_block_id' in obj.properties:
+                                print(f"Object {total_checked} parent_block_id: {obj.properties['parent_block_id']}")
+                            else:
+                                print(f"Object {total_checked} has NO parent_block_id property")
+                        else:
+                            print(f"Object {total_checked} properties type: {type(obj.properties)}")
+                    
+                    # FIXED: Use dict syntax instead of attribute syntax
+                    if 'parent_block_id' in obj.properties:
+                        obj_parent_id = obj.properties['parent_block_id']
+                        found_parent_ids.add(obj_parent_id)
+                        if obj_parent_id == parent_block_id:
+                            filtered_objects.append(obj)
+                    # Also try UUID as fallback
+                    elif str(obj.uuid) == parent_block_id:
+                        filtered_objects.append(obj)
+                
+                print(f"Checked {total_checked} objects, found {len(found_parent_ids)} unique parent_block_ids")
+                print(f"Sample found parent_block_ids: {list(found_parent_ids)[:5]}")
+                print(f"Looking for: {parent_block_id}")
+                print(f"Found {len(filtered_objects)} matching objects")
+                
+                # Create a mock response object
+                response.objects = filtered_objects
+            
+            # Debug: Show what we found
+            print(f"Retriever: Found {len(response.objects)} objects for parent_block_id '{parent_block_id}'")
+            if response.objects:
+                sample_ids = []
+                for obj in response.objects[:3]:  # Show first 3
+                    if hasattr(obj.properties, 'parent_block_id'):
+                        sample_ids.append(getattr(obj.properties, 'parent_block_id'))
+                print(f"Retriever: Sample parent_block_ids found: {sample_ids}")
+            
+            # Sort by sequence_in_block
+            response.objects.sort(key=lambda obj: obj.properties.get('sequence_in_block', 0))
+            return self._format_results_v4_simple(response.objects)
 
         try:
-            query_chain = (
-                self.client.query
-                .get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
-                .with_where(filters)
-                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) 
-                .with_limit(query_limit) 
-                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES) 
-            )
-            response = query_chain.do()
-            results = self._format_results(response) 
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(None, _execute_query)
             print(f"Retriever: Found {len(results)} chunks for parent_block_id '{parent_block_id}'.")
             return results
         except Exception as e:
             print(f"Retriever: Error fetching chunks for parent_block_id '{parent_block_id}': {e}")
             return []
 
-    def semantic_search(self,
-                        query_text: str,
-                        limit: Optional[int] = None,
-                        certainty: Optional[float] = None,
-                        filters: Optional[Dict] = None,
-                        return_properties: Optional[List[str]] = None,
-                        additional_properties: Optional[List[str]] = None) -> List[Dict]:
-        query_embedding = self._embed_query(query_text)
-        if query_embedding is None:
-            return []
+    def _format_results_v4_simple(self, objects) -> List[Dict]:
+        """Format results from Weaviate v4 API response - simplified version"""
+        results = []
+        
+        if not objects:
+            return results
+            
+        for obj in objects:
+            result = {}
+            # Extract all available properties using dict syntax
+            for prop in self.DEFAULT_RETURN_PROPERTIES:
+                if prop in obj.properties:
+                    result[prop] = obj.properties[prop]
+                else:
+                    result[prop] = None
+            
+            # Add UUID as 'id'
+            result['id'] = str(obj.uuid)
+            
+            results.append(result)
+        
+        return results
 
-        limit = limit if limit is not None else self.default_limit
-        certainty = certainty if certainty is not None else self.default_semantic_certainty
-        props_to_return = return_properties if return_properties else self.DEFAULT_RETURN_PROPERTIES
-        add_props = additional_properties if additional_properties else self.DEFAULT_ADDITIONAL_PROPERTIES
-        near_vector_filter = {"vector": query_embedding, "certainty": certainty}
 
+# src/data_ingestion/optimized_vector_store_manager.py
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from src.data_ingestion.vector_store_manager import *
+
+class OptimizedVectorStoreManager:
+    """
+    Optimized version that batches operations and uses async processing
+    """
+    
+    @staticmethod
+    async def fast_embed_and_store_chunks(client, final_text_chunks: list, batch_size: int = 50):
+        """
+        Optimized version with parallel embedding generation
+        """
+        if not final_text_chunks:
+            print("No chunks to embed and store.")
+            return
+
+        print(f"Optimized embedding and storage for {len(final_text_chunks)} chunks...")
+        create_weaviate_schema(client)
+
+        # Pre-load embedding model
+        embedding_model = get_embedding_model()
+        
+        # Process chunks in parallel batches
+        loop = asyncio.get_event_loop()
+        
+        # Create thread pool for CPU-bound embedding work
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Split chunks into batches for parallel processing
+            chunk_batches = [
+                final_text_chunks[i:i+batch_size] 
+                for i in range(0, len(final_text_chunks), batch_size)
+            ]
+            
+            print(f"Processing {len(chunk_batches)} batches in parallel...")
+            
+            # Process batches concurrently
+            batch_tasks = [
+                loop.run_in_executor(
+                    executor,
+                    OptimizedVectorStoreManager._process_batch,
+                    batch,
+                    embedding_model
+                )
+                for batch in chunk_batches
+            ]
+            
+            # Wait for all batches to complete embedding
+            embedded_batches = await asyncio.gather(*batch_tasks)
+            
+            # Flatten results
+            all_embedded_chunks = []
+            for batch_result in embedded_batches:
+                all_embedded_chunks.extend(batch_result)
+        
+        # Store all chunks in Weaviate
+        print("Storing all embedded chunks in Weaviate...")
+        client.batch.configure(batch_size=batch_size, dynamic=True, timeout_retries=3)
+        
+        with client.batch as batch_context:
+            for chunk_data in all_embedded_chunks:
+                if chunk_data['embedding'] is not None:
+                    batch_context.add_data_object(
+                        data_object=chunk_data['data_object'],
+                        class_name=WEAVIATE_CLASS_NAME,
+                        vector=chunk_data['embedding'],
+                        uuid=chunk_data['uuid']
+                    )
+        
+        print(f"✓ Optimized embedding and storage complete!")
+    
+    @staticmethod
+    def _process_batch(chunk_batch: list, embedding_model) -> list:
+        """
+        Process a batch of chunks - generate embeddings in parallel
+        """
+        embedded_chunks = []
+        
+        # Extract texts for batch embedding
+        texts = [chunk.get("chunk_text", "") for chunk in chunk_batch]
+        valid_indices = [i for i, text in enumerate(texts) if text.strip()]
+        valid_texts = [texts[i] for i in valid_indices]
+        
+        if not valid_texts:
+            return embedded_chunks
+        
+        # Batch generate embeddings
         try:
-            query_chain = self.client.query.get(self.weaviate_class_name, props_to_return)
-            query_chain = query_chain.with_near_vector(near_vector_filter)
-            query_chain = query_chain.with_limit(limit)
-            if filters: query_chain = query_chain.with_where(filters)
-            if add_props: query_chain = query_chain.with_additional(add_props)
-            response = query_chain.do()
-            return self._format_results(response, requested_properties=props_to_return)
+            embeddings = embedding_model.encode(
+                valid_texts,
+                batch_size=32,
+                convert_to_tensor=False,
+                normalize_embeddings=True,
+                show_progress_bar=False
+            )
+            
+            # Map embeddings back to chunks
+            embedding_iter = iter(embeddings)
+            
+            for i, chunk_data in enumerate(chunk_batch):
+                if i in valid_indices:
+                    embedding = next(embedding_iter)
+                    embedding_list = embedding.tolist() if hasattr(embedding, 'tolist') else embedding
+                else:
+                    embedding_list = None
+                
+                if embedding_list is not None:
+                    # Prepare data object
+                    source_file_path = chunk_data.get("source", "Unknown source")
+                    file_name = chunk_data.get("filename", os.path.basename(source_file_path) if source_file_path != "Unknown source" else "unknown_filename")
+                    
+                    data_object = {
+                        "chunk_id": str(chunk_data.get("chunk_id")),
+                        "doc_id": chunk_data.get("doc_id", "unknown_doc_id"),
+                        "source_path": source_file_path,
+                        "original_doc_type": chunk_data.get("original_type", "unknown"),
+                        "concept_type": chunk_data.get("concept_type", "general_content"),
+                        "concept_name": chunk_data.get("concept_name"),
+                        "chunk_text": chunk_data.get("chunk_text", ""),
+                        "parent_block_id": chunk_data.get("parent_block_id"),
+                        "parent_block_content": chunk_data.get("parent_block_content", ""),
+                        "sequence_in_block": chunk_data.get("sequence_in_block", 0),
+                        "filename": file_name
+                    }
+                    
+                    embedded_chunks.append({
+                        'embedding': embedding_list,
+                        'data_object': {k: v for k, v in data_object.items() if v is not None},
+                        'uuid': str(chunk_data.get("chunk_id"))
+                    })
+        
         except Exception as e:
-            print(f"Retriever: Error during semantic search: {e}")
-        return []
+            print(f"Error in batch processing: {e}")
+        
+        return embedded_chunks
 
-    def hybrid_search(self,
-                      query_text: str,
-                      alpha: Optional[float] = None,
-                      limit: Optional[int] = None,
-                      filters: Optional[Dict] = None,
-                      bm25_query: Optional[str] = None,
-                      bm25_properties: Optional[List[str]] = None,
-                      return_properties: Optional[List[str]] = None,
-                      additional_properties: Optional[List[str]] = None,
-                      autocut: Optional[int] = None) -> List[Dict]:
-        query_embedding = self._embed_query(query_text)
-        if query_embedding is None and (alpha is None or alpha > 0) :
-             return []
 
-        alpha = alpha if alpha is not None else self.default_hybrid_alpha
-        limit = limit if limit is not None else self.default_limit
-        props_to_return = return_properties if return_properties else self.DEFAULT_RETURN_PROPERTIES
-        add_props = additional_properties if additional_properties else self.DEFAULT_ADDITIONAL_PROPERTIES
-        keyword_query_str = bm25_query if bm25_query else query_text
-        target_bm25_props = bm25_properties if bm25_properties else self.default_hybrid_bm25_properties
-        hybrid_params = {"query": keyword_query_str, "alpha": alpha, "properties": target_bm25_props}
-        if query_embedding: hybrid_params["vector"] = query_embedding
-
-        try:
-            query_chain = self.client.query.get(self.weaviate_class_name, props_to_return)
-            query_chain = query_chain.with_hybrid(**hybrid_params)
-            query_chain = query_chain.with_limit(limit)
-            if filters: query_chain = query_chain.with_where(filters)
-            if add_props: query_chain = query_chain.with_additional(add_props)
-            if autocut is not None: query_chain = query_chain.with_autocut(autocut)
-            response = query_chain.do()
-            return self._format_results(response, requested_properties=props_to_return)
-        except Exception as e:
-            print(f"Retriever: Error during hybrid search: {e}")
-        return []
-
-    def keyword_search(self,
-                       query_text: str,
-                       properties: Optional[List[str]] = None,
-                       limit: Optional[int] = None,
-                       filters: Optional[Dict] = None,
-                       return_properties: Optional[List[str]] = None,
-                       additional_properties: Optional[List[str]] = None) -> List[Dict]:
-        limit = limit if limit is not None else self.default_limit
-        target_props = properties if properties else ["chunk_text", "concept_name"]
-        props_to_return = return_properties if return_properties else self.DEFAULT_RETURN_PROPERTIES
-        add_props = additional_properties if additional_properties else self.DEFAULT_ADDITIONAL_PROPERTIES
-        bm25_params = {"query": query_text, "properties": target_props}
-
-        try:
-            query_chain = self.client.query.get(self.weaviate_class_name, props_to_return)
-            query_chain = query_chain.with_bm25(**bm25_params)
-            query_chain = query_chain.with_limit(limit)
-            if filters: query_chain = query_chain.with_where(filters)
-            if add_props: query_chain = query_chain.with_additional(add_props)
-            response = query_chain.do()
-            return self._format_results(response, requested_properties=props_to_return)
-        except Exception as e:
-            print(f"Retriever: Error during keyword search: {e}")
-        return []
-
-    def search(self,
-               query_text: str,
-               search_type: str = "semantic", 
-               limit: Optional[int] = None,
-               certainty: Optional[float] = None,
-               alpha: Optional[float] = None,
-               bm25_query: Optional[str] = None,
-               hybrid_bm25_properties: Optional[List[str]] = None, 
-               autocut: Optional[int] = None,
-               keyword_properties: Optional[List[str]] = None, 
-               filters: Optional[Dict] = None,
-               return_properties: Optional[List[str]] = None,
-               additional_properties: Optional[List[str]] = None
-               ) -> List[Dict]:
-        search_type = search_type.lower()
-        current_return_props = return_properties if return_properties else self.DEFAULT_RETURN_PROPERTIES
-        current_add_props = additional_properties if additional_properties else self.DEFAULT_ADDITIONAL_PROPERTIES
-
-        if search_type == "semantic":
-            return self.semantic_search(query_text=query_text, limit=limit, certainty=certainty,
-                                        filters=filters, return_properties=current_return_props,
-                                        additional_properties=current_add_props)
-        elif search_type == "hybrid":
-            return self.hybrid_search(query_text=query_text, alpha=alpha, limit=limit,
-                                      filters=filters, bm25_query=bm25_query,
-                                      bm25_properties=hybrid_bm25_properties,
-                                      return_properties=current_return_props,
-                                      additional_properties=current_add_props,
-                                      autocut=autocut)
-        elif search_type == "keyword":
-            return self.keyword_search(query_text=query_text, properties=keyword_properties,
-                                       limit=limit, filters=filters,
-                                       return_properties=current_return_props,
-                                       additional_properties=current_add_props)
-        else:
-            print(f"Retriever: Unknown search type '{search_type}'.")
-            return []
-
-if __name__ == '__main__':
-    print("--- Retriever Demo (with get_chunks_for_parent_block & get_all_chunks_metadata) ---")
-    # ... (rest of the demo) ...
+# Convenience function to use optimized embedding
+async def fast_embed_and_store_chunks(client, final_text_chunks: list, batch_size: int = 50):
+    """
+    Drop-in replacement for the original embed_and_store_chunks function
+    """
+    return await OptimizedVectorStoreManager.fast_embed_and_store_chunks(
+        client, final_text_chunks, batch_size
+    )

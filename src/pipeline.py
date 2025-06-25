@@ -1,222 +1,404 @@
-# src/pipeline.py
+# src/fast_pipeline.py - Improved version
 import os
+import argparse
+import sys
 import asyncio
-import json
-import time 
+import time
+import logging
+import pickle
+import networkx as nx
+from typing import Optional, List, Dict
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# --- Add project root to path ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# --- Fast Pipeline Modules ---
+from src import config
 from src.data_ingestion import document_loader
-from src.data_ingestion import concept_tagger
+from src.data_ingestion.latex_parser import LatexToGraphParser
 from src.data_ingestion import chunker
 from src.data_ingestion import vector_store_manager
+from src.data_ingestion.vector_store_manager import fast_embed_and_store_chunks
 from src.retrieval import retriever
-from src.generation import question_generator_rag
-from src.learner_model import profile_manager 
-from src.evaluation import answer_evaluator 
-from src.learner_model import knowledge_tracker 
-from src.interaction import answer_handler 
-from src.adaptive_engine import question_selector
-from src.adaptive_engine.srs_scheduler import SRSScheduler 
-from src import config
-from typing import Optional
+from src.learner_model import profile_manager
 
-# Constants
-DEFAULT_CHUNK_SIZE = 1000
-DEFAULT_CHUNK_OVERLAP = 150
-DEMO_LEARNER_ID = "learner_pipeline_interactive_001"
-WEAVIATE_INDEXING_WAIT_TIME = 5 
+# --- GNN Training Module ---
+try:
+    from src.gnn_training.train import run_training as run_gnn_training
+except ImportError:
+    run_gnn_training = None
+    logger.warning("GNN training module not found. 'train-gnn' command unavailable.")
 
+class FastPipeline:
+    """Encapsulates the fast pipeline logic with better error handling and resource management."""
+    
+    def __init__(self):
+        self.graph_parser = None
+        self.start_time = None
+        self.processed_count = 0
+        self.error_count = 0
+        self.total_chunks_processed = 0
+        self.processed_doc_filenames = []
+        
+    async def run_ingestion(self) -> bool:
+        """
+        A unified and corrected data ingestion pipeline.
+        Returns True if successful, False otherwise.
+        """
+        logger.info("🚀 Starting ingestion pipeline...")
+        self.start_time = time.time()
+        os.makedirs('data/graph_db', exist_ok=True)
+        os.makedirs('data/embeddings', exist_ok=True)
 
-async def run_ingestion_pipeline(processed_log_path: str):
-    print("\n--- Phase 1: Data Ingestion & Storage (LaTeX Only) ---")
-    client = None 
-    try:
-        client = vector_store_manager.get_weaviate_client()
-        print("Weaviate client obtained for ingestion phase.")
-        vector_store_manager.create_weaviate_schema(client)
-        print("Weaviate schema ensured for ingestion phase.")
-    except Exception as e:
-        print(f"Could not connect to Weaviate or ensure schema: {e}")
-        return None
-    print("\nStep 1.1: Loading and Parsing LaTeX Documents...")
-    latex_documents_path = config.DATA_DIR_RAW_LATEX
-    if not os.path.isdir(latex_documents_path):
-        print(f"ERROR: LaTeX documents directory not found at {latex_documents_path}.")
-        return client 
-    try:
-        print(f"Attempting to load only LaTeX documents from {latex_documents_path} (skipping already processed)...")
-        all_parsed_docs = document_loader.load_and_parse_documents(
-            process_pdfs=False, processed_docs_log_path=processed_log_path
+        try:
+            # 1. Load raw content of new documents
+            logger.info("📂 Loading new documents...")
+            all_new_docs_data = document_loader.load_new_documents()
+
+            if not all_new_docs_data:
+                logger.info("✅ No new documents to process. Pipeline finished.")
+                return True
+
+            logger.info(f"✓ Found {len(all_new_docs_data)} new documents to process")
+
+            # 2. Parse documents and build knowledge graph
+            logger.info("🧠 Building Knowledge Graph...")
+            self.graph_parser = LatexToGraphParser(model_name=config.EMBEDDING_MODEL_NAME)
+
+            for doc_data in all_new_docs_data:
+                if doc_data['type'] == 'latex':
+                    try:
+                        logger.info(f"  🔄 Parsing: {doc_data['filename']}")
+                        self.graph_parser.extract_structured_nodes(
+                            latex_content=doc_data['raw_content'],
+                            doc_id=doc_data['doc_id'],
+                            source=doc_data['source']
+                        )
+                        self.processed_count += 1
+                    except Exception as e:
+                        logger.error(f"  ❌ Failed to parse {doc_data['filename']}: {e}")
+                        self.error_count += 1
+                        continue
+
+            # 3. Save graph and embeddings
+            logger.info("💾 Saving knowledge graph and embeddings...")
+            self.graph_parser.save_graph_and_embeddings(
+                'data/graph_db/knowledge_graph.graphml',
+                'data/embeddings/initial_text_embeddings.pkl'
+            )
+
+            # 4. Convert graph nodes to conceptual blocks
+            logger.info("🔪 Chunking conceptual blocks...")
+            conceptual_blocks = self.graph_parser.get_graph_nodes_as_conceptual_blocks()
+
+            if not conceptual_blocks:
+                logger.warning("⚠️  No conceptual blocks generated from graph.")
+                self._update_processed_log(all_new_docs_data)
+                return self.error_count == 0
+
+            # 5. Chunk the blocks
+            final_chunks = chunker.chunk_conceptual_blocks(conceptual_blocks)
+
+            if not final_chunks:
+                logger.warning("⚠️  No chunks generated for vector store")
+                self._update_processed_log(all_new_docs_data)
+                return False
+
+            # 6. Fast embedding and storage
+            logger.info(f"⚡ Fast embedding and storage of {len(final_chunks)} chunks...")
+            try:
+                client = vector_store_manager.get_weaviate_client()
+                await fast_embed_and_store_chunks(client, final_chunks, batch_size=100)
+            except Exception as e:
+                logger.error(f"❌ Failed to store in Weaviate: {e}")
+                return False
+
+            # 7. Update processed docs log (only after successful processing)
+            self._update_processed_log(all_new_docs_data)
+
+            total_time = time.time() - self.start_time
+            logger.info(f"✅ Fast ingestion pipeline completed in {total_time:.2f} seconds!")
+            logger.info(f"   Processed: {self.processed_count} documents")
+            logger.info(f"   Errors: {self.error_count} documents")
+
+            if run_gnn_training:
+                logger.info("Next: Run 'python -m src.fast_pipeline train-gnn' for graph-aware embeddings")
+
+            return self.error_count == 0
+
+        except Exception as e:
+            logger.error(f"❌ Pipeline failed with error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+    def _update_processed_log(self, docs_data: List[Dict]):
+        """Update the processed documents log."""
+        newly_processed_filenames = [doc['filename'] for doc in docs_data]
+        document_loader.update_processed_docs_log(
+            config.PROCESSED_DOCS_LOG_FILE, 
+            newly_processed_filenames
         )
-        parsed_docs_data = [doc for doc in all_parsed_docs if doc and doc.get("original_type") == "latex"]
-    except Exception as e:
-        print(f"ERROR: Failed during LaTeX document loading/parsing phase: {e}")
-        return client 
-    if not parsed_docs_data:
-        print("No new LaTeX documents to process for ingestion.")
-        return client 
-    print(f"Successfully parsed {len(parsed_docs_data)} new LaTeX documents.")
-    print("\nStep 1.2: Concept/Topic Identification & Tagging...")
-    all_conceptual_blocks = concept_tagger.tag_all_documents(parsed_docs_data)
-    if not all_conceptual_blocks:
-        if parsed_docs_data:
-            print("ERROR: New LaTeX documents were parsed, but no conceptual blocks were identified. Skipping ingestion.")
-            return client 
-        print("Warning: No conceptual blocks identified.")
-    else:
-        print(f"Identified {len(all_conceptual_blocks)} conceptual blocks from new LaTeX documents.")
-    if not all_conceptual_blocks: return client
-    print("\nStep 1.3: Text Chunking...")
-    final_text_chunks = chunker.chunk_conceptual_blocks(
-        all_conceptual_blocks, chunk_size=DEFAULT_CHUNK_SIZE, chunk_overlap=DEFAULT_CHUNK_OVERLAP
-    )
-    if not final_text_chunks:
-        print("ERROR: No text chunks were created. Skipping ingestion.")
-        return client
-    print(f"Created {len(final_text_chunks)} final text chunks from new LaTeX content.")
-    print("\nStep 1.4 & 1.5: Embed and Store Chunks...")
-    try:
-        vector_store_manager.embed_and_store_chunks(client, final_text_chunks)
-        print(f"Data ingestion complete for new LaTeX content.")
-        newly_ingested_filenames = list(set([doc['filename'] for doc in parsed_docs_data if 'filename' in doc]))
-        document_loader.update_processed_docs_log(processed_log_path, newly_ingested_filenames)
-    except Exception as e:
-        print(f"ERROR: Error during Weaviate data storage: {e}")
-    return client
 
+async def run_fast_ingestion_pipeline():
+    """Wrapper for backward compatibility."""
+    pipeline = FastPipeline()
+    success = await pipeline.run_ingestion()
+    if not success:
+        sys.exit(1)
 
-async def run_interaction_pipeline(
-    client, 
-    learner_id: str, 
-    interactive_mode: bool = False,
-    target_topic_id: Optional[str] = None 
-    ):
-    print("\n\n--- Phase 2, 3 & 5: Retrieval, Question Selection, Generation & Learner Interaction ---")
-    if not client:
-        print("Weaviate client not available. Cannot proceed.")
+def run_fast_gnn_training():
+    """
+    Fast GNN training with optimizations
+    """
+    if not run_gnn_training:
+        logger.error("❌ GNN training module not available")
         return
 
-    pm = None 
+    logger.info("🧠 Starting Fast GNN Training")
+    start_time = time.time()
+    os.makedirs('data/graph_db', exist_ok=True)
+    os.makedirs('data/embeddings', exist_ok=True)
+
     try:
-        print("\nInitializing components for interaction phase...")
-        doc_retriever = retriever.Retriever(weaviate_client=client)
-        q_generator = question_generator_rag.RAGQuestionGenerator()
-        profile_db_path = os.path.join(config.DATA_DIR, f"{learner_id}_profile.sqlite3")
-        pm = profile_manager.LearnerProfileManager(db_path=profile_db_path)
-        
-        srs_scheduler_instance = SRSScheduler()
-        q_selector = question_selector.QuestionSelector(
-            profile_manager=pm,
-            retriever=doc_retriever,
-            question_generator=q_generator
-        )
-        ans_evaluator = answer_evaluator.AnswerEvaluator()
-        knowledge_track = knowledge_tracker.KnowledgeTracker(
-            profile_manager=pm, 
-            srs_scheduler=srs_scheduler_instance
-        )
-        ans_handler = answer_handler.AnswerHandler(evaluator=ans_evaluator, tracker=knowledge_track)
-        print("Interaction components (including SRS Scheduler) initialized.")
+        # Check if required files exist
+        if not os.path.exists('data/graph_db/knowledge_graph.graphml'):
+            logger.error("❌ Knowledge graph not found. Run 'make ingest' first.")
+            return
 
-        for interaction_count in range(1): 
-            print(f"\n--- Interaction Cycle {interaction_count + 1} ---")
-            print(f"Step 2.X: Selecting next question for learner '{learner_id}'" + (f" within topic '{target_topic_id}'." if target_topic_id else "."))
-            
-            next_question_info = await q_selector.select_next_question(learner_id, target_doc_id=target_topic_id)
+        if not os.path.exists('data/embeddings/initial_text_embeddings.pkl'):
+            logger.error("❌ Initial embeddings not found. Run 'make ingest' first.")
+            return
 
-            if not next_question_info or "error" in next_question_info:
-                error_msg = next_question_info.get("error", "QuestionSelector could not select a next question.") if next_question_info else "QuestionSelector returned None."
-                suggestion = next_question_info.get("suggestion", "") if next_question_info else ""
-                print(f"QuestionSelector Info: {error_msg} {suggestion}")
-                break 
-
-            current_question_text = next_question_info["question_text"]
-            question_concept_id = next_question_info["concept_id"] 
-            context_for_evaluation = next_question_info["context_for_evaluation"]
-            concept_name = next_question_info["concept_name"]
-            # --- Get doc_id from question_info ---
-            doc_id_for_tracking = next_question_info.get("doc_id", "unknown_doc_id_from_qselector") # Fallback
-            if doc_id_for_tracking == "unknown_doc_id_from_qselector":
-                # Attempt to find it in curriculum map if QuestionSelector didn't directly return it
-                # (though it should based on question_selector_v2_curriculum)
-                concept_block_details = next((block for block in q_selector.curriculum_map if block["concept_id"] == question_concept_id), None)
-                if concept_block_details:
-                    doc_id_for_tracking = concept_block_details.get("doc_id", "unknown_doc_id_after_lookup")
-
-            print("\n--- Learner Interaction ---")
-            print(f"Learner ID: {learner_id}")
-            print(f"Selected Concept: {concept_name} (ID: {question_concept_id}, Doc: {doc_id_for_tracking})")
-            print(f"Presenting Question:\n  Q: {current_question_text}")
-            
-            learner_actual_answer = None
-            if interactive_mode:
-                learner_actual_answer = input("Your Answer: ").strip()
-                if not learner_actual_answer: 
-                    print("No answer provided. Skipping evaluation for this question.")
-                    continue 
-            else:
-                learner_actual_answer = "A vector space is a set of vectors that can be added together and multiplied by scalars, following certain axioms like closure under addition and scalar multiplication."
-                print(f"Using Simulated Answer (non-interactive mode): \"{learner_actual_answer}\"")
-
-            if learner_actual_answer: 
-                handler_response = await ans_handler.submit_answer(
-                    learner_id=learner_id, question_id=question_concept_id, 
-                    doc_id=doc_id_for_tracking, # <<< PASS doc_id
-                    question_text=current_question_text, retrieved_context=context_for_evaluation, 
-                    learner_answer=learner_actual_answer
-                )
-                print("\n--- Evaluation & Tracking Results ---")
-                print(f"  Feedback: {handler_response.get('feedback')}")
-                print(f"  Accuracy: {handler_response.get('accuracy_score')}")
-                print(f"  Suggested Correct Answer: {handler_response.get('correct_answer_suggestion')}")
-                
-                updated_knowledge = pm.get_concept_knowledge(learner_id, question_concept_id)
-                if updated_knowledge: 
-                    print(f"  Updated Knowledge for '{concept_name}':")
-                    print(f"    Current Score (0-10): {updated_knowledge.get('current_score')}")
-                    print(f"    Total Attempts: {updated_knowledge.get('total_attempts')}")
-                    print(f"    SRS Reps: {updated_knowledge.get('srs_repetitions')}")
-                    print(f"    SRS Interval (days): {updated_knowledge.get('srs_interval_days')}")
-                    print(f"    Next Review At: {updated_knowledge.get('next_review_at')}")
-                    print(f"    Current Difficulty: {updated_knowledge.get('current_difficulty_level')}")
-            
-            if not interactive_mode: break
-
+        run_gnn_training()
+        total_time = time.time() - start_time
+        logger.info(f"✅ GNN training completed in {total_time:.2f} seconds!")
+        logger.info("Optimized embeddings saved to: data/embeddings/gnn_embeddings.pkl")
     except Exception as e:
-        print(f"Error during interaction pipeline: {e}")
+        logger.error(f"❌ GNN training failed: {e}")
         import traceback
         traceback.print_exc()
-    finally:
-        if pm:
-            pm.close_db()
 
+async def run_performance_test():
+    """
+    Test the performance of the optimized system
+    """
+    logger.info("🏃 Running Performance Tests")
+    
+    try:
+        from src.api.fast_api import FastRAGComponents
+        
+        logger.info("Initializing components...")
+        components = FastRAGComponents()
+        components._init_core_components()
+        
+        logger.info("Testing retrieval performance...")
+        
+        # Test queries
+        test_queries = [
+            "vector space definition",
+            "linear algebra examples",
+            "matrix operations", 
+            "eigenvalues",
+            "proof techniques"
+        ]
+        
+        # Run tests
+        cold_times = []
+        warm_times = []
+        
+        # Cold run
+        logger.info("  Cold run (no cache)...")
+        for query in test_queries:
+            start = time.time()
+            results = await components.retriever.fast_semantic_search(query, limit=5)
+            elapsed = time.time() - start
+            cold_times.append(elapsed)
+            logger.info(f"    '{query}': {elapsed:.3f}s ({len(results)} results)")
+        
+        # Warm run
+        logger.info("  Warm run (with cache)...")
+        for query in test_queries:
+            start = time.time()
+            results = await components.retriever.fast_semantic_search(query, limit=5)
+            elapsed = time.time() - start
+            warm_times.append(elapsed)
+            logger.info(f"    '{query}': {elapsed:.3f}s ({len(results)} results)")
+        
+        # Performance summary
+        avg_cold = sum(cold_times) / len(cold_times) if cold_times else 0
+        avg_warm = sum(warm_times) / len(warm_times) if warm_times else 0
+        speedup = avg_cold / avg_warm if avg_warm > 0 else 0
+        
+        logger.info("📊 Performance Summary:")
+        logger.info(f"  Average cold query time: {avg_cold:.3f}s")
+        logger.info(f"  Average warm query time: {avg_warm:.3f}s")
+        logger.info(f"  Cache speedup: {speedup:.1f}x")
+        
+        # Cache stats
+        cache_stats = components.retriever.get_cache_stats()
+        logger.info(f"  Cache hit rate: {cache_stats['hit_rate_percent']:.1f}%")
+        logger.info(f"  Cached embeddings: {cache_stats['embedding_cache_size']}")
+        logger.info(f"  Cached results: {cache_stats['results_cache_size']}")
+        
+        components.cleanup()
+        
+    except Exception as e:
+        logger.error(f"❌ Performance test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
-async def run_full_pipeline(interactive_mode: bool = False, 
-                            initial_learner_id: Optional[str] = None,
-                            target_topic_id: Optional[str] = None): 
-    print("Starting RAG System - Full Pipeline Execution...")
-    processed_log_path = config.PROCESSED_DOCS_LOG_FILE
-    weaviate_client = await run_ingestion_pipeline(processed_log_path)
+async def run_interactive_pipeline(
+    learner_id: str,
+    target_topic_id: Optional[str] = None
+):
+    """
+    Run the interactive learning pipeline that asks questions and gets user input
+    """
+    logger.info("🎯 Starting Interactive Learning Pipeline...")
+    
+    try:
+        # Initialize components
+        from src.api.fast_api import FastRAGComponents
+        components = FastRAGComponents()
+        components._init_core_components()
+        
+        logger.info(f"📚 Starting interactive session for learner: {learner_id}")
+        
+        # Get available topics if no specific topic is selected
+        if not target_topic_id:
+            logger.info("🔍 Fetching available topics...")
+            # This would need to be implemented based on your curriculum structure
+            logger.info("Using adaptive topic selection across all content")
+        
+        # Start interactive question-answer loop
+        interaction_count = 0
+        max_interactions = 5  # Limit for demo purposes
+        
+        while interaction_count < max_interactions:
+            interaction_count += 1
+            logger.info(f"\n--- Interaction {interaction_count} ---")
+            
+            # Get next question (this would need to be implemented)
+            question_text = "What is a vector space in linear algebra?"
+            concept_name = "Vector Spaces"
+            
+            print(f"\n📝 Question {interaction_count}:")
+            print(f"Topic: {concept_name}")
+            print(f"Q: {question_text}")
+            
+            # Get user answer
+            user_answer = input("\nYour Answer: ").strip()
+            
+            if not user_answer:
+                print("No answer provided. Skipping this question.")
+                continue
+            
+            # Evaluate answer (this would need to be implemented)
+            print(f"\n✅ Answer submitted: {user_answer[:100]}...")
+            print("📊 Evaluation: This would evaluate your answer and provide feedback")
+            print("🎯 Knowledge tracking: This would update your learning progress")
+            
+            # Ask if user wants to continue
+            continue_choice = input("\nContinue with another question? (y/n): ").strip().lower()
+            if continue_choice != 'y':
+                break
+        
+        logger.info("🎉 Interactive session completed!")
+        components.cleanup()
+        
+    except Exception as e:
+        logger.error(f"❌ Interactive pipeline failed: {e}")
+        import traceback
+        traceback.print_exc()
 
-    if weaviate_client:
-        print(f"\nWaiting {WEAVIATE_INDEXING_WAIT_TIME} seconds for Weaviate to index...")
-        await asyncio.sleep(WEAVIATE_INDEXING_WAIT_TIME)
-        learner_id_to_use = initial_learner_id if initial_learner_id else DEMO_LEARNER_ID
-        await run_interaction_pipeline(
-            client=weaviate_client, 
-            learner_id=learner_id_to_use,
-            interactive_mode=interactive_mode,
-            target_topic_id=target_topic_id 
-            )
+async def run_full_pipeline(
+    interactive_mode: bool = False,
+    initial_learner_id: Optional[str] = None,
+    target_topic_id: Optional[str] = None
+):
+    """
+    Run the full pipeline with optional interactive mode
+    """
+    if interactive_mode:
+        learner_id = initial_learner_id or "default_learner"
+        await run_interactive_pipeline(learner_id, target_topic_id)
     else:
-        print("Ingestion phase failed or Weaviate client not available. Skipping interaction phase.")
+        # Run the regular ingestion pipeline
+        await run_fast_ingestion_pipeline()
 
-    print("\n\n--- RAG System Pipeline Finished ---")
-    await asyncio.sleep(0.25)
+def main():
+    """Main function with fast pipeline commands"""
+    parser = argparse.ArgumentParser(
+        description="Fast RAG Math Pipeline - Optimized for speed and performance",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+
+    # Fast Ingestion Command
+    subparsers.add_parser(
+        "ingest", 
+        help="🚀 Run fast data ingestion pipeline\n"
+             "Processes LaTeX docs with parallel embedding and optimized storage"
+    )
+    
+    # Fast GNN Training Command
+    if run_gnn_training:
+        subparsers.add_parser(
+            "train-gnn", 
+            help="🧠 Run optimized GNN training\n"
+                 "Generates graph-aware embeddings for advanced retrieval"
+        )
+
+    # Performance Test Command
+    subparsers.add_parser(
+        "test", 
+        help="🏃 Run performance tests\n"
+             "Tests retrieval speed and caching effectiveness"
+    )
+
+    # Server Command
+    subparsers.add_parser(
+        "serve", 
+        help="🖥️  Start optimized API server\n"
+             "Launches FastAPI with pre-loaded components and caching"
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "ingest":
+        asyncio.run(run_fast_ingestion_pipeline())
+        
+    elif args.command == "train-gnn":
+        run_fast_gnn_training()
+        
+    elif args.command == "test":
+        asyncio.run(run_performance_test())
+        
+    elif args.command == "serve":
+        logger.info("🖥️  Starting optimized API server...")
+        import uvicorn
+        uvicorn.run(
+            "src.api.fast_api:app", 
+            host="0.0.0.0", 
+            port=8000, 
+            reload=False,  # Disable reload for better performance
+            workers=1,     # Single worker to share cache
+            log_level="info"
+        )
 
 if __name__ == '__main__':
-    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-    if os.path.exists(dotenv_path):
-        from dotenv import load_dotenv
-        print(f"pipeline.py: Found .env file at {dotenv_path}, loading.")
-        load_dotenv(dotenv_path)
-    asyncio.run(run_full_pipeline(interactive_mode=False)) 
+    main()

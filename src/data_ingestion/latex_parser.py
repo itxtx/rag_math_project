@@ -17,6 +17,12 @@ class LatexToGraphParser:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
         self.embedding_model = SentenceTransformer(model_name)
         self.graph = nx.DiGraph()
+        
+        # Pre-compile regex patterns for efficiency
+        self._item_number_pattern = re.compile(r'\b\d+\.\s*\d+\s*item\s*\d+\s*')
+        self._standalone_number_pattern = re.compile(r'(?<![.$])\b\d+\b(?![.$])')
+        self._multiple_spaces_pattern = re.compile(r'\s+')
+        self._namespace_pattern = re.compile(r' xmlns="[^"]+"')
 
     def _get_node_type_from_element(self, element) -> str:
         """
@@ -80,13 +86,13 @@ class LatexToGraphParser:
     def _clean_extracted_text(self, text: str) -> str:
         """Clean up extracted text by removing artifacts and fixing spacing."""
         # Remove item numbers and tags like "1. 1 item 1"
-        text = re.sub(r'\b\d+\.\s*\d+\s*item\s*\d+\s*', '', text)
+        text = re.sub(self._item_number_pattern, '', text)
         
         # Remove standalone numbers that appear to be labels
-        text = re.sub(r'(?<![.$])\b\d+\b(?![.$])', '', text)
+        text = re.sub(self._standalone_number_pattern, '', text)
         
         # Clean up multiple spaces
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(self._multiple_spaces_pattern, ' ', text)
         
         # Remove leading/trailing spaces
         text = text.strip()
@@ -96,6 +102,7 @@ class LatexToGraphParser:
     def _get_clean_text(self, element, exclude_title=True) -> str:
         """
         Extracts text from an XML element, properly handling LaTeX math elements.
+        Optimized version with reduced string operations.
         """
         if element is None:
             return ""
@@ -112,9 +119,11 @@ class LatexToGraphParser:
             if elem.tag in ['tag', 'tags']:
                 return
                 
-            # Add text before the element
-            if elem.text and elem.text.strip():
-                text_parts.append(elem.text.strip())
+            # Add text before the element (only if not empty)
+            if elem.text:
+                text = elem.text.strip()
+                if text:
+                    text_parts.append(text)
             
             # Process child elements
             for child in elem:
@@ -131,26 +140,29 @@ class LatexToGraphParser:
                     continue
                 elif child.tag == 'ERROR':
                     # Handle LaTeX commands that couldn't be processed
-                    if child.text and child.text.strip():
-                        text_parts.append(child.text.strip())
+                    if child.text:
+                        text = child.text.strip()
+                        if text:
+                            text_parts.append(text)
                 else:
                     # Recursively process other elements
                     process_element(child, skip_title=False)
                 
-                # Add text after the element (tail)
-                if child.tail and child.tail.strip():
-                    text_parts.append(child.tail.strip())
+                # Add text after the element (tail) - only if not empty
+                if child.tail:
+                    text = child.tail.strip()
+                    if text:
+                        text_parts.append(text)
         
         # Process the root element
         process_element(element, skip_title=exclude_title)
         
-        # Join all parts with spaces
+        # Join all parts with spaces and clean up in one operation
+        if not text_parts:
+            return ""
+        
         full_text = ' '.join(text_parts)
-        
-        # Clean up the extracted text
-        full_text = self._clean_extracted_text(full_text)
-        
-        return full_text
+        return self._clean_extracted_text(full_text)
 
     def extract_structured_nodes(self, latex_content: str, doc_id: str, source: str = None):
         """
@@ -164,7 +176,7 @@ class LatexToGraphParser:
                 return
 
             # Remove namespace to make parsing easier
-            xml_output = re.sub(r' xmlns="[^"]+"', '', xml_output, count=1)
+            xml_output = re.sub(self._namespace_pattern, '', xml_output, count=1)
 
             try:
                 root = ET.fromstring(xml_output)
@@ -339,12 +351,36 @@ class LatexToGraphParser:
                 concept_name = f"{data.get('node_type', 'unknown').title()} {node[-6:]}"
             
             blocks.append({
-                'id': node,
-                'type': data.get('node_type', 'unknown'),
-                'text': data.get('text', ''),
+                'block_id': node,
+                'concept_type': data.get('node_type', 'unknown'),
+                'block_content': data.get('text', ''),
                 'doc_id': data.get('doc_id', ''),
                 'source': data.get('source', ''),
-                'embedding': data.get('embedding', None),
-                'concept_name': concept_name
+                'concept_name': concept_name,
+                'embedding': data.get('embedding', None)
             })
         return blocks
+
+def parse_latex_file(file_path: str, doc_id: str = None) -> nx.DiGraph:
+    """
+    Parse a LaTeX file and return a knowledge graph.
+    
+    Args:
+        file_path: Path to the LaTeX file
+        doc_id: Optional document ID. If not provided, will use the filename
+        
+    Returns:
+        A NetworkX DiGraph containing the parsed knowledge graph
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"LaTeX file not found: {file_path}")
+        
+    if doc_id is None:
+        doc_id = os.path.splitext(os.path.basename(file_path))[0]
+        
+    with open(file_path, 'r', encoding='utf-8') as f:
+        latex_content = f.read()
+        
+    parser = LatexToGraphParser()
+    parser.extract_structured_nodes(latex_content, doc_id, file_path)
+    return parser.graph
