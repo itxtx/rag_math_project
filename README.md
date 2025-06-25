@@ -35,7 +35,7 @@ The core architecture processes technical documents, chunks them into meaningful
 
 The system features a modular design, primarily within the `src/` directory, promoting separation of concerns and maintainability:
 
-*(This section is well-detailed. Keep as is, perhaps just add a lead-in sentence if you like: "The architecture is composed of several interconnected Python modules, each responsible for a distinct part of the learning pipeline:")*
+
 
 * **data_ingestion/**: `latex_processor.py`, `latex_parser.py`, `pdf_parser.py`, `document_loader.py`, `concept_tagger.py`, `chunker.py`, `vector_store_manager.py`
 * **retrieval/**: `retriever.py`
@@ -68,7 +68,7 @@ This project utilizes a modern, robust technology stack:
 
 ## 5. Project Structure
 
-*(Your existing structure is clear and standard. Keep as is.)*
+
 
 ```
 rag_math_project/
@@ -102,6 +102,10 @@ rag_math_project/
 
 ## 6. Setup and Installation
 
+<<<<<<< test
+=======
+
+>>>>>>> main
 * **Prerequisites:** Python 3.10+, Docker & Docker Compose, Weaviate access, LLM API Key. (Optional: Mathpix API credentials).
 * **Installation:**
     1.  Clone: `git clone <your-repository-url> && cd rag_math_project`
@@ -113,7 +117,7 @@ rag_math_project/
 
 ## 7. Running the Application
 
-*(This section is good. Clear instructions.)*
+
 
 * **a. Data Ingestion & Interactive CLI Demo:**
     * Place `.tex` files in `data/raw_latex/`.
@@ -135,7 +139,7 @@ The FastAPI backend provides a comprehensive set of endpoints. Key examples:
 * `POST /api/v1/interaction/submit_answer`: Submits and evaluates a learner's answer.
 * `GET /api/v1/health`: API health check.
 
-*(Refer to http://localhost:8000/docs for detailed API specifications when the server is running.)*
+
 
 ## 9. Current Status, Challenges, and Limitations
 
@@ -168,6 +172,7 @@ The vision for this project includes several exciting enhancements:
 * **Dedicated Web Frontend:** Build a responsive web application for a seamless and engaging learner experience.
 * **Performance Optimization:** Profile and optimize for large-scale knowledge bases and concurrent users.
 * **Learner Analytics & Reporting:** Provide dashboards for learners and educators to track progress, identify challenging concepts, and assess system effectiveness
+<<<<<<< test
 
 # RAG Math Project
 
@@ -302,3 +307,5 @@ For questions and support, please open an issue in the GitHub repository.
 ---
 
 Last updated: June 2025
+=======
+>>>>>>> main
