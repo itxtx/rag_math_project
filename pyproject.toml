@@ -11,18 +11,21 @@ dependencies = [
     "langchain-text-splitters>=0.3.8",
     "latex2sympy2>=1.9.1",
     "lxml>=5.4.0",
+    "matplotlib>=3.8.0",
     "networkx[default]>=3.5.0",
     "numpy>=2.3.0",
     "pylatexenc>=2.10",
     "pymupdf>=1.26.1",
     "python-dotenv>=1.1.0",
     "requests>=2.32.4",
+    "seaborn>=0.13.0",
     "sentence-transformers>=4.1.0",
     "sympy>=1.14.0",
     "torch>=2.7.1",
     "torch-geometric>=2.6.1",
     "uvicorn[standard]>=0.34.3",
     "weaviate-client>=4.15.1",
+    
 ]
 
 [project.optional-dependencies]

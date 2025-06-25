@@ -1,4 +1,4 @@
-# src/api/fast_api.py
+# src/api/fast_api.py - Updated with fixed RL integration
 import os
 import asyncio
 import time
@@ -8,8 +8,16 @@ from typing import Dict, Any, Optional, List as PyList
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 import datetime
-import uuid
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+from datetime import datetime
+from src.rl_engine.rl_question_selector import RLQuestionSelector
+from src.rl_engine.reward_system import VoteType
+from src.rl_engine.environment import ProfileManagerAdapter
+from src.api.feedback_models import InteractionFeedbackRequest, InteractionFeedbackResponse, FeedbackRating
 
 from src import config
 from src.api.models import (
@@ -34,10 +42,11 @@ from src.retrieval.retriever import HybridRetriever
 class FastRAGComponents:
     """
     Optimized RAG components with pre-loading and async initialization
+    Now includes RL integration
     """
     
     def __init__(self):
-        print("🚀 Initializing Fast RAG Components...")
+        print("🚀 Initializing Fast RAG Components with RL...")
         self.initialization_error = None
         self.startup_time = time.time()
         
@@ -62,8 +71,8 @@ class FastRAGComponents:
             print("  🔍 Initializing optimized retriever...")
             self._retriever = HybridRetriever(weaviate_client=self.weaviate_client)
             
-            # Profile manager
-            print("  👤 Initializing profile manager...")
+            # FIXED: Use improved profile manager
+            print("  👤 Initializing improved profile manager...")
             self._profile_manager = LearnerProfileManager()
             
             # SRS Scheduler
@@ -87,6 +96,7 @@ class FastRAGComponents:
             print("  📝 Initializing answer evaluator...")
             self._answer_evaluator = AnswerEvaluator()
     
+        
     def _init_dependent_components(self):
         """Initialize components that depend on others"""
         print("  🔗 Initializing dependent components...")
@@ -96,8 +106,16 @@ class FastRAGComponents:
             srs_scheduler=self.srs_scheduler
         )
         
-        self.question_selector = QuestionSelector(
+        # FIXED: Initialize RL Question Selector with proper async handling
+        self.rl_question_selector = RLQuestionSelector(
             profile_manager=self._profile_manager,
+            retriever=self._retriever,
+            question_generator=self._question_generator
+        )
+        
+        # Keep old question selector as fallback
+        self.question_selector = QuestionSelector(
+            profile_manager=ProfileManagerAdapter(self._profile_manager),
             retriever=self._retriever,
             question_generator=self._question_generator
         )
@@ -113,6 +131,17 @@ class FastRAGComponents:
         """Ensure all components are ready (pre-initialized during startup)"""
         if self.initialization_error:
             raise Exception(f"Components failed to initialize: {self.initialization_error}")
+        
+        # FIXED: Initialize RL components with graceful error handling
+        if hasattr(self, 'rl_question_selector') and not self.rl_question_selector.is_initialized:
+            try:
+                print("  🤖 Initializing RL Question Selector...")
+                await self.rl_question_selector.initialize()
+                print("  ✓ RL Question Selector initialized")
+            except Exception as e:
+                print(f"  ⚠️  Failed to initialize RL Question Selector (non-critical): {e}")
+                # Don't fail the entire system if RL fails to initialize
+                # The system can still work with rule-based selection
         
         # LLM components are now pre-initialized during startup
         # Only pre-warm if not already done
@@ -143,14 +172,12 @@ class FastRAGComponents:
                     print(f"  ⚠️  Failed to pre-warm cache for query '{query}': {e}")
                     continue
             
-            # Load curriculum map
+            # Load curriculum map for rule-based selector
             try:
-                await asyncio.get_event_loop().run_in_executor(
-                    None, 
-                    self.question_selector._load_curriculum_map
-                )
+                await self.question_selector.initialize()
+                print("  ✓ Rule-based question selector initialized")
             except Exception as e:
-                print(f"  ⚠️  Failed to load curriculum map: {e}")
+                print(f"  ⚠️  Failed to initialize rule-based selector: {e}")
             
             print(f"  ✓ System pre-warmed in {time.time() - self.startup_time:.2f}s")
             
@@ -172,11 +199,20 @@ class FastRAGComponents:
         stats = {
             "startup_time": time.time() - self.startup_time,
             "prewarmed": self._prewarmed,
-            "components_ready": self.initialization_error is None
+            "components_ready": self.initialization_error is None,
+            "rl_initialized": self.rl_question_selector.is_initialized if hasattr(self, 'rl_question_selector') else False
         }
         
         if self._retriever:
             stats.update(self._retriever.get_cache_stats())
+        
+        # Add RL stats if available
+        if hasattr(self, 'rl_question_selector') and self.rl_question_selector.is_initialized:
+            try:
+                rl_stats = self.rl_question_selector.get_stats()
+                stats['rl_stats'] = rl_stats
+            except Exception as e:
+                logger.warning(f"Failed to get RL stats: {e}")
         
         return stats
     
@@ -195,7 +231,7 @@ class FastRAGComponents:
     async def _get_context_for_concept(self, concept_id: str, limit: int = 2) -> str:
         """Get context for a concept with proper LaTeX formatting"""
         try:
-            chunks = self.retriever.get_chunks_for_parent_block(concept_id, limit)
+            chunks = await self.retriever.get_chunks_for_parent_block(concept_id, limit)
             if not chunks:
                 return "No context available for this concept."
                 
@@ -273,10 +309,17 @@ async def lifespan(app: FastAPI):
         app_state["answer_evaluator"] = components._answer_evaluator
         app_state["active_interactions"] = {}
         
+        # FIXED: Add debugging to verify components are stored
+        print(f"✅ Components stored in app_state: {components is not None}")
+        print(f"✅ App state keys: {list(app_state.keys())}")
+        print(f"✅ Components initialization_error: {components.initialization_error}")
+        
         print("✅ Fast startup complete! All components ready.")
         print("   LLM components pre-loaded for fast first requests.")
     except Exception as e:
         print(f"❌ Failed to initialize components: {e}")
+        import traceback
+        traceback.print_exc()
         # Initialize with None values to prevent KeyError
         app_state["components"] = None
         app_state["profile_manager"] = None
@@ -299,9 +342,9 @@ async def lifespan(app: FastAPI):
 
 # Create optimized app
 app = FastAPI(
-    title="Fast Adaptive RAG Learning System",
-    description="High-performance RAG API with optimized retrieval",
-    version="0.2.0",
+    title="Fast Adaptive RAG Learning System with RL",
+    description="High-performance RAG API with RL-powered question selection",
+    version="0.3.0",
     lifespan=lifespan
 )
 
@@ -342,9 +385,11 @@ async def list_topics_fast():
     """Get list of available topics"""
     try:
         print("Starting topics endpoint...")
+        components = await get_fast_components()
+        
         # Get all documents without semantic search
         print("Fetching all documents...")
-        results = await app_state["components"].retriever.get_all_documents(limit=1000)
+        results = await components.retriever.get_all_documents(limit=1000)
         print(f"Found {len(results)} documents")
         
         # Group by doc_id and create topic responses
@@ -399,23 +444,37 @@ async def list_topics_fast():
 
 @app.post("/api/v1/interaction/start", response_model=QuestionResponse)
 async def start_interaction(
-    request: LearnerInteractionStartRequest,
+    request: Request,
     learner_id: Optional[str] = None,
-    topic_id: Optional[str] = None
+    topic_id: Optional[str] = None,
+    use_rl: bool = True  # FIXED: Default to True for RL system
 ):
-    """Start a new interaction with a question"""
+    """Start a new interaction with a question using RL or rule-based selection"""
     try:
-        # Use query parameters if provided, otherwise use request body
-        learner_id = learner_id or request.learner_id or "1"
-        topic_id = topic_id or request.topic_id
+        # Parse request body only if it's not empty
+        body = {}
+        try:
+            body_bytes = await request.body()
+            if body_bytes:
+                body = await request.json()
+        except Exception as e:
+            print(f"Warning: Could not parse request body as JSON: {e}")
+            body = {}
         
-        print(f"🎯 Fast interaction start for learner: {learner_id}")
+        # Use query parameters if provided, otherwise use body
+        learner_id = learner_id or body.get("learner_id", "1")
+        topic_id = topic_id or body.get("topic_id")
+        use_rl = body.get("use_rl", use_rl)
+        
+        print(f"🎯 Starting interaction for learner: {learner_id} (RL: {use_rl})")
+        
+        components = await get_fast_components()
         
         # Get or create learner profile
-        profile = app_state["profile_manager"].get_profile(str(learner_id))
+        profile = await components.profile_manager.get_profile(str(learner_id))
         if not profile:
-            app_state["profile_manager"].create_profile(str(learner_id))
-            profile = app_state["profile_manager"].get_profile(str(learner_id))
+            await components.profile_manager.create_profile(str(learner_id))
+            profile = await components.profile_manager.get_profile(str(learner_id))
         
         # Select topic if not provided
         if not topic_id:
@@ -424,54 +483,148 @@ async def start_interaction(
                 raise HTTPException(status_code=404, detail="No topics available")
             topic_id = topics[0].doc_id
         
-        # Get next question using the adaptive engine
-        question_data = await app_state["question_selector"].select_next_question(
-            learner_id=str(learner_id),
-            target_doc_id=topic_id
-        )
+        # Choose question selector based on use_rl parameter and availability
+        if use_rl and hasattr(components, 'rl_question_selector') and components.rl_question_selector.is_initialized:
+            question_selector = components.rl_question_selector
+            print(f"Using RL question selector")
+        else:
+            question_selector = components.question_selector
+            print(f"Using rule-based question selector")
+            
+            # Initialize rule-based selector if not done yet
+            if not hasattr(question_selector, 'curriculum_map') or not question_selector.curriculum_map:
+                await question_selector.initialize()
+        
+        # Get next question using the selected engine
+        try:
+            question_data = await question_selector.select_next_question(
+                learner_id=str(learner_id),
+                target_doc_id=topic_id
+            )
+        except Exception as selector_error:
+            print(f"❌ Error in question selector: {selector_error}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Question selection failed: {str(selector_error)}")
         
         if not question_data:
             raise HTTPException(status_code=404, detail="No questions available for this topic")
         
-        # Get context for the concept
-        context = await app_state["components"]._get_context_for_concept(question_data["concept_id"])
+        if "error" in question_data:
+            raise HTTPException(status_code=500, detail=question_data["error"])
         
-        # Generate question using LLM
-        questions = await app_state["question_generator"].generate_questions(
-            context_chunks=[{"chunk_text": context}],
-            num_questions=1,
-            question_type=question_data["question_type"],
-            difficulty_level=question_data["difficulty"],
-            question_style=question_data["style"]
-        )
-        
-        if not questions:
-            raise HTTPException(status_code=500, detail="Failed to generate question")
-        
-        question = questions[0]
-        
-        # Create interaction
-        interaction_id = str(uuid.uuid4())
-        app_state["active_interactions"][interaction_id] = {
-            "learner_id": learner_id,
-            "topic_id": topic_id,
-            "concept_id": question_data["concept_id"],
-            "question": question,
-            "start_time": datetime.datetime.now(),
-            "status": "active"
-        }
+        # For rule-based selector, enhance the response
+        if not use_rl or not components.rl_question_selector.is_initialized:
+            # Get context for the concept if not already provided
+            if not question_data.get("context_for_evaluation"):
+                context = await components._get_context_for_concept(question_data["concept_id"])
+                question_data["context_for_evaluation"] = context
         
         return QuestionResponse(
             question_id=question_data["concept_id"],
-            doc_id=topic_id,
+            doc_id=question_data.get("doc_id", topic_id or "unknown_doc"),
             concept_name=question_data.get("concept_name", "Unknown Concept"),
-            question_text=question,
-            context_for_evaluation=context,
-            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False)
+            question_text=question_data["question_text"],
+            context_for_evaluation=question_data.get("context_for_evaluation", ""),
+            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False),
+            # Add RL-specific fields if available
+            interaction_id=question_data.get("interaction_id"),
+            rl_metadata=question_data.get("rl_metadata") or {
+                "selected_by_rl": question_data.get("selected_by_rl", False),
+                "rl_action": question_data.get("rl_action"),
+                "rl_confidence": question_data.get("rl_confidence"),
+                "valid_actions_count": question_data.get("valid_actions_count"),
+                "total_actions_count": question_data.get("total_actions_count")
+            }
         )
         
     except Exception as e:
-        print(f"❌ Error in fast interaction start: {e}")
+        print(f"❌ Error in interaction start: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/interaction/next_question", response_model=QuestionResponse)
+async def get_next_question(
+    learner_id: str = "1",
+    topic_id: Optional[str] = None,
+    use_rl: bool = True,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Get the next question for a learner (same as start_interaction but with a different endpoint name)"""
+    try:
+        print(f"🎯 Getting next question for learner: {learner_id} (RL: {use_rl})")
+        
+        # Get or create learner profile
+        profile = await components.profile_manager.get_profile(str(learner_id))
+        if not profile:
+            await components.profile_manager.create_profile(str(learner_id))
+            profile = await components.profile_manager.get_profile(str(learner_id))
+        
+        # Select topic if not provided
+        if not topic_id:
+            topics = await list_topics_fast()
+            if not topics:
+                raise HTTPException(status_code=404, detail="No topics available")
+            topic_id = topics[0].doc_id
+        
+        # Choose question selector based on use_rl parameter and availability
+        if use_rl and hasattr(components, 'rl_question_selector') and components.rl_question_selector.is_initialized:
+            question_selector = components.rl_question_selector
+            print(f"Using RL question selector")
+        else:
+            question_selector = components.question_selector
+            print(f"Using rule-based question selector")
+            
+            # Initialize rule-based selector if not done yet
+            if not hasattr(question_selector, 'curriculum_map') or not question_selector.curriculum_map:
+                await question_selector.initialize()
+        
+        # Get next question using the selected engine
+        try:
+            question_data = await question_selector.select_next_question(
+                learner_id=str(learner_id),
+                target_doc_id=topic_id
+            )
+        except Exception as selector_error:
+            print(f"❌ Error in question selector: {selector_error}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Question selection failed: {str(selector_error)}")
+        
+        if not question_data:
+            raise HTTPException(status_code=404, detail="No questions available for this topic")
+        
+        if "error" in question_data:
+            raise HTTPException(status_code=500, detail=question_data["error"])
+        
+        # For rule-based selector, enhance the response
+        if not use_rl or not components.rl_question_selector.is_initialized:
+            # Get context for the concept if not already provided
+            if not question_data.get("context_for_evaluation"):
+                context = await components._get_context_for_concept(question_data["concept_id"])
+                question_data["context_for_evaluation"] = context
+        
+        return QuestionResponse(
+            question_id=question_data["concept_id"],
+            doc_id=question_data.get("doc_id", topic_id or "unknown_doc"),
+            concept_name=question_data.get("concept_name", "Unknown Concept"),
+            question_text=question_data["question_text"],
+            context_for_evaluation=question_data.get("context_for_evaluation", ""),
+            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False),
+            # Add RL-specific fields if available
+            interaction_id=question_data.get("interaction_id"),
+            rl_metadata=question_data.get("rl_metadata") or {
+                "selected_by_rl": question_data.get("selected_by_rl", False),
+                "rl_action": question_data.get("rl_action"),
+                "rl_confidence": question_data.get("rl_confidence"),
+                "valid_actions_count": question_data.get("valid_actions_count"),
+                "total_actions_count": question_data.get("total_actions_count")
+            }
+        )
+        
+    except Exception as e:
+        print(f"❌ Error in getting next question: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -512,6 +665,176 @@ async def submit_answer_fast(
         print(f"❌ Error in fast answer submission: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
+@app.post("/api/v1/interaction/{interaction_id}/rate", response_model=InteractionFeedbackResponse)
+async def rate_interaction(
+    interaction_id: str,
+    request: InteractionFeedbackRequest,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """
+    Rate an interaction with engagement feedback
+    This triggers the reward calculation for the RL system
+    """
+    try:
+        logger.info(f"Received rating for interaction {interaction_id}: {request.rating.value}")
+        
+        # Convert rating to VoteType
+        vote_type = VoteType.UPVOTE if request.rating == FeedbackRating.UP else VoteType.DOWNVOTE
+        
+        # Check if RL system is available and this was an RL interaction
+        if not components.rl_question_selector.is_initialized:
+            return InteractionFeedbackResponse(
+                interaction_id=interaction_id,
+                learner_id="unknown",
+                rating=request.rating,
+                reward_calculated=False,
+                message="RL system not available for this interaction"
+            )
+        
+        # Get interaction data to find learner and concept
+        interaction_data = components.rl_question_selector.reward_manager.interaction_tracker.get_interaction_data(interaction_id)
+        
+        if not interaction_data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Interaction {interaction_id} not found"
+            )
+        
+        learner_id = interaction_data['learner_id']
+        concept_id = interaction_data['concept_id']
+        
+        # Process the feedback
+        success = await components.rl_question_selector.process_feedback(
+            interaction_id=interaction_id,
+            learner_id=learner_id,
+            concept_id=concept_id,
+            vote_type=vote_type
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process feedback"
+            )
+        
+        # Get the completed interaction data with reward
+        completed_data = components.rl_question_selector.reward_manager.interaction_tracker.get_interaction_data(interaction_id)
+        
+        reward_components = None
+        reward_total = None
+        
+        if completed_data and completed_data.get('completed'):
+            reward_components = completed_data['reward_components'].to_dict()
+            reward_total = reward_components['total_reward']
+        
+        return InteractionFeedbackResponse(
+            interaction_id=interaction_id,
+            learner_id=learner_id,
+            rating=request.rating,
+            reward_calculated=success,
+            reward_total=reward_total,
+            reward_components=reward_components,
+            message="Feedback processed successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing interaction rating: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error processing feedback: {str(e)}"
+        )
+
+@app.get("/api/v1/rl/stats")
+async def get_rl_stats(components: FastRAGComponents = Depends(get_fast_components)):
+    """Get RL system statistics"""
+    try:
+        if not components.rl_question_selector.is_initialized:
+            return {"error": "RL system not initialized", "initialized": False}
+        
+        stats = components.rl_question_selector.get_stats()
+        return {
+            "rl_system": stats,
+            "timestamp": datetime.now().isoformat(),
+            "initialized": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting RL stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/training/enable")
+async def enable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
+    """Enable RL training mode"""
+    try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
+        components.rl_question_selector.enable_training_mode()
+        return {"message": "RL training mode enabled", "training_mode": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/training/disable")
+async def disable_rl_training(components: FastRAGComponents = Depends(get_fast_components)):
+    """Disable RL training mode"""
+    try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
+        components.rl_question_selector.disable_training_mode()
+        return {"message": "RL training mode disabled", "training_mode": False}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/rl/model/save")
+async def save_rl_model(components: FastRAGComponents = Depends(get_fast_components)):
+    """Save the current RL model"""
+    try:
+        if not components.rl_question_selector.is_initialized:
+            raise HTTPException(status_code=503, detail="RL system not initialized")
+        
+        components.rl_question_selector.save_model()
+        return {"message": "RL model saved successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/learner/{learner_id}/session")
+async def get_learner_session(
+    learner_id: str,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Get detailed session information for a learner"""
+    try:
+        session_info = components.rl_question_selector.get_learner_session_info(learner_id)
+        return session_info
+    except Exception as e:
+        logger.error(f"Error getting learner session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/learner/{learner_id}/session/reset")
+async def reset_learner_session(
+    learner_id: str,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Reset session data for a learner"""
+    try:
+        success = await components.rl_question_selector.reset_learner_session(learner_id)
+        if success:
+            return {"message": f"Session reset for learner {learner_id}", "success": True}
+        else:
+            return {"message": f"Failed to reset session for learner {learner_id}", "success": False}
+    except Exception as e:
+        logger.error(f"Error resetting learner session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/v1/health")
 async def health_check_fast():
     """Health check with performance metrics"""
@@ -519,7 +842,7 @@ async def health_check_fast():
     
     health_data = {
         "status": "healthy" if components and not components.initialization_error else "degraded",
-        "timestamp": datetime.datetime.utcnow().isoformat()
+        "timestamp": datetime.now().isoformat()
     }
     
     if components:
@@ -551,64 +874,39 @@ async def test_endpoint():
     return {
         "status": "working",
         "message": "Backend is responding correctly",
-        "timestamp": datetime.datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "version": "0.3.0 with RL integration"
     }
 
-@app.post("/api/v1/test_question")
-async def test_question():
-    """Test endpoint that returns a hardcoded question without LLM processing"""
-    return QuestionResponse(
-        question_id="test_question_1",
-        doc_id="functional_analysis",
-        concept_name="Test Concept",
-        question_text="What is a vector space?",
-        context_for_evaluation="A vector space is a mathematical structure...",
-        is_new_concept_context_presented=False
-    )
-
-@app.post("/api/v1/interaction/next_question", response_model=QuestionResponse)
-async def next_question(
-    request: Request
-):
+@app.get("/api/v1/debug/database")
+async def debug_database():
+    """Debug endpoint to check database content"""
     try:
-        # Parse request body only if it's not empty
-        body = {}
-        try:
-            body_bytes = await request.body()
-            if body_bytes:
-                body = await request.json()
-        except Exception as e:
-            print(f"Warning: Could not parse request body as JSON: {e}")
-            body = {}
+        components = await get_fast_components()
         
-        learner_id = body.get("learner_id", "1")
-        topic_id = body.get("topic_id")
-        print(f"➡️  Next question for learner: {learner_id}, topic: {topic_id}")
+        # Get a sample of documents to see their structure
+        sample_docs = await components.retriever.get_all_documents(limit=10)
         
-        # Use the real adaptive engine
-        selector = app_state["question_selector"]
-        next_question_info = await selector.select_next_question(learner_id, target_doc_id=topic_id)
-        if not next_question_info or "error" in next_question_info:
-            detail_msg = next_question_info.get("error", "Could not select a next question.") if next_question_info else "Could not select a next question."
-            raise HTTPException(status_code=404, detail=detail_msg)
+        # Extract unique parent_block_ids
+        parent_block_ids = set()
+        concept_names = set()
+        for doc in sample_docs:
+            if doc.get('parent_block_id'):
+                parent_block_ids.add(doc.get('parent_block_id'))
+            if doc.get('concept_name'):
+                concept_names.add(doc.get('concept_name'))
         
-        return QuestionResponse(
-            question_id=next_question_info["concept_id"],
-            doc_id=next_question_info.get("doc_id", topic_id or "unknown_doc"),
-            concept_name=next_question_info["concept_name"],
-            question_text=next_question_info["question_text"],
-            context_for_evaluation=next_question_info.get("context_for_evaluation", ""),
-            is_new_concept_context_presented=next_question_info.get("is_new_concept_context_presented", False)
-        )
-    except HTTPException as http_exc:
-        raise http_exc
+        return {
+            "total_docs_sampled": len(sample_docs),
+            "sample_docs": sample_docs[:3],  # Show first 3
+            "unique_parent_block_ids": list(parent_block_ids)[:10],  # Show first 10
+            "unique_concept_names": list(concept_names)[:10],  # Show first 10
+            "curriculum_map_size": len(components.question_selector.curriculum_map) if hasattr(components.question_selector, 'curriculum_map') else 0
+        }
     except Exception as e:
-        print(f"❌ Error in next_question: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Internal server error selecting next question: {str(e)}")
+        return {"error": str(e), "type": str(type(e))}
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Fast RAG API Server...")
+    print("🚀 Starting Fast RAG API Server with RL...")
     uvicorn.run("src.api.fast_api:app", host="0.0.0.0", port=8000, reload=True)

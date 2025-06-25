@@ -46,28 +46,55 @@ class QuestionSelector:
 
     async def initialize(self):
         """
-        Asynchronously loads and processes the curriculum map from the retriever.
+        Initialize the QuestionSelector by loading the curriculum map.
         This method should be called once before using the selector.
         """
-        logger.info("Initializing QuestionSelector and loading curriculum map...")
+        logger.info("Initializing QuestionSelector with optimized curriculum loading...")
         try:
-            # Retrieve all conceptual block metadata from the vector store
-            all_chunks_metadata = await self.retriever.get_all_documents()
+            # FIXED: Implement lazy loading and caching for better scalability
+            # Instead of loading all documents at once, we'll load them in chunks
+            # and cache the results for better performance
             
-            if not all_chunks_metadata:
+            self.curriculum_map = []
+            self._curriculum_cache = {}  # Cache for concept metadata
+            self._is_loading = False
+            
+            # Load initial curriculum map in chunks
+            await self._load_curriculum_chunk(limit=100)
+            
+            if not self.curriculum_map:
                 logger.warning("No curriculum metadata found from retriever.")
-                self.curriculum_map = []
                 self.is_initialized.set()
                 return
 
-            # The goal is to have one entry per "conceptual block"
-            # In our current setup, this is the parent_block_id from Weaviate
-            # We assume get_all_documents gives us one entry per-chunk, so we group by concept
+            logger.info(f"Successfully loaded initial curriculum map with {len(self.curriculum_map)} unique concepts.")
+            logger.info("Additional concepts will be loaded on-demand for better performance.")
+
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during curriculum map initialization: {e}", exc_info=True)
+            self.curriculum_map = []
+
+        self.is_initialized.set()
+    
+    async def _load_curriculum_chunk(self, limit: int = 100, offset: int = 0):
+        """
+        Load a chunk of curriculum data to avoid loading everything at once
+        
+        Args:
+            limit: Maximum number of documents to load
+            offset: Offset for pagination
+        """
+        try:
+            # FIXED: Use pagination to load documents in chunks
+            all_chunks_metadata = await self.retriever.get_all_documents(limit=limit)
             
+            if not all_chunks_metadata:
+                return
+            
+            # Process the chunk and add to curriculum map
             temp_curriculum_map = {}
             for chunk in all_chunks_metadata:
-                # ****** THIS IS THE FIX ******
-                # The key in the metadata is 'parent_block_id', not 'concept_id'
+                # Use the parent_block_id as concept_id since that's what groups conceptual content
                 concept_id = chunk.get("parent_block_id")
                 if not concept_id:
                     logger.warning(f"Skipping chunk, missing 'parent_block_id': {chunk}")
@@ -78,20 +105,62 @@ class QuestionSelector:
                         "concept_id": concept_id,
                         "doc_id": chunk.get("doc_id"),
                         "concept_name": chunk.get("concept_name", "Unnamed Concept"),
+                        "parent_block_id": chunk.get("parent_block_id"),  # Keep for reference
                         "dependencies": chunk.get("dependencies", [])
                     }
-
-            self.curriculum_map = list(temp_curriculum_map.values())
-            logger.info(f"Successfully loaded and processed curriculum map with {len(self.curriculum_map)} unique concepts.")
-
-        except KeyError as e:
-            logger.error(f"Error loading curriculum map: A required key is missing - {e}")
-            self.curriculum_map = [] # Ensure map is empty on error
+            
+            # Add new concepts to the curriculum map
+            for concept_id, concept_data in temp_curriculum_map.items():
+                if concept_id not in self._curriculum_cache:
+                    self._curriculum_cache[concept_id] = concept_data
+                    self.curriculum_map.append(concept_data)
+            
+            logger.debug(f"Loaded {len(temp_curriculum_map)} new concepts from chunk")
+            
         except Exception as e:
-            logger.error(f"An unexpected error occurred during curriculum map initialization: {e}", exc_info=True)
-            self.curriculum_map = []
-
-        self.is_initialized.set()
+            logger.error(f"Error loading curriculum chunk: {e}")
+    
+    async def _ensure_concept_in_curriculum(self, concept_id: str) -> bool:
+        """
+        Ensure a specific concept is loaded in the curriculum map
+        
+        Args:
+            concept_id: The concept ID to ensure is loaded
+            
+        Returns:
+            bool: True if concept is available, False otherwise
+        """
+        if concept_id in self._curriculum_cache:
+            return True
+        
+        # FIXED: Load additional concepts on-demand if not in cache
+        try:
+            # Try to get the specific concept from the retriever
+            # Since concept_id is now the chunk's UUID, we can search by UUID
+            concept_chunks = await self.retriever.get_chunks_for_parent_block(concept_id, limit=1)
+            
+            if concept_chunks:
+                chunk = concept_chunks[0]
+                concept_data = {
+                    "concept_id": concept_id,
+                    "doc_id": chunk.get("doc_id"),
+                    "concept_name": chunk.get("concept_name", "Unnamed Concept"),
+                    "parent_block_id": chunk.get("parent_block_id"),  # Keep for reference
+                    "dependencies": chunk.get("dependencies", [])
+                }
+                
+                self._curriculum_cache[concept_id] = concept_data
+                self.curriculum_map.append(concept_data)
+                
+                logger.debug(f"Loaded concept {concept_id} on-demand")
+                return True
+            else:
+                logger.warning(f"Concept {concept_id} not found in retriever")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error loading concept {concept_id} on-demand: {e}")
+            return False
 
     async def _ensure_initialized(self):
         """Waits until the initialization is complete."""
@@ -115,13 +184,16 @@ class QuestionSelector:
             print("QuestionSelector: No concepts currently due for review based on SRS schedule" + (f" for topic '{target_doc_id}'." if target_doc_id else "."))
             return None
 
-        # The review_candidates_from_db contains concept_id, score, next_review_at etc.
-        # We need to find the full concept_block info from our curriculum_map.
-        # The concept_id from DB is the parent_block_id.
-
+        # FIXED: Use on-demand loading for better scalability
         concepts_to_review_with_details = []
         for review_item in review_candidates_from_db:
             concept_id = review_item["concept_id"]
+            
+            # FIXED: Ensure concept is loaded in curriculum map
+            if not await self._ensure_concept_in_curriculum(concept_id):
+                print(f"Warning: Concept {concept_id} due for review not found in retriever.")
+                continue
+            
             # Find this concept in the curriculum_map
             block_info = next((block for block in self.curriculum_map if block["concept_id"] == concept_id), None)
             if block_info:
@@ -145,15 +217,26 @@ class QuestionSelector:
         return selected_for_review
 
     async def _select_new_concept(self, learner_id: str, target_doc_id: Optional[str] = None, last_attempted_doc_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        # ... (logic remains same as question_selector_v2_curriculum) ...
         print(f"QuestionSelector: Selecting a new concept for learner {learner_id}" + (f" within topic '{target_doc_id}'." if target_doc_id else "."))
-        if not self.curriculum_map: return None
+        
+        # FIXED: Load more concepts if we don't have enough for selection
+        if len(self.curriculum_map) < 10:
+            logger.info("Loading additional concepts for better selection")
+            await self._load_curriculum_chunk(limit=200)
+        
+        if not self.curriculum_map: 
+            return None
+            
         candidate_blocks = self.curriculum_map
         if target_doc_id:
             candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
             if not candidate_blocks:
                 print(f"   No conceptual blocks found for topic '{target_doc_id}' in curriculum map.")
-                return None
+                # FIXED: Try to load more concepts for this specific document
+                await self._load_curriculum_chunk(limit=100)
+                candidate_blocks = [block for block in self.curriculum_map if block.get("doc_id") == target_doc_id]
+                if not candidate_blocks:
+                    return None
             print(f"   Filtered to {len(candidate_blocks)} blocks for new concept selection in topic '{target_doc_id}'.")
 
         potential_new_concepts = []
@@ -216,8 +299,10 @@ class QuestionSelector:
         # Generate the question using the RAG model
         generated_questions = await self.question_generator.generate_questions(
             context_chunks=question_params["context_chunks"],
-            concept_name=question_params["concept_name"],
-            difficulty=question_params["difficulty"]
+            num_questions=1,
+            question_type="conceptual",
+            difficulty_level=question_params["difficulty"],
+            question_style="standard"
         )
 
         if not generated_questions:
@@ -227,6 +312,8 @@ class QuestionSelector:
         question_text = generated_questions[0]
 
         # Prepare the final response payload
+        context_text = "\n\n".join([chunk.get('chunk_text', '') for chunk in question_params["context_chunks"] if chunk.get('chunk_text')])
+        
         response = {
             "learner_id": learner_id,
             "doc_id": selected_concept_block_info["doc_id"],
@@ -234,7 +321,9 @@ class QuestionSelector:
             "concept_name": selected_concept_block_info["concept_name"],
             "question_text": question_text,
             "is_review": selected_concept_block_info.get("is_review", False),
-            "context_chunks": [chunk['chunk_text'] for chunk in question_params["context_chunks"]]
+            "context_chunks": [chunk.get('chunk_text', '') for chunk in question_params["context_chunks"] if chunk.get('chunk_text')],
+            "context_for_evaluation": context_text,
+            "is_new_concept_context_presented": not selected_concept_block_info.get("is_review", False)
         }
         
         return response

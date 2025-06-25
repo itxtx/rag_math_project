@@ -9,6 +9,7 @@ import os
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from src.data_ingestion.vector_store_manager import VectorStoreManager
+import weaviate
 
 class HybridRetriever:
     """
@@ -22,6 +23,7 @@ class HybridRetriever:
     
     def __init__(self, weaviate_client, cache_size: int = 1000):
         self.weaviate_client = weaviate_client
+        self.weaviate_class_name = "MathConcept"
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.embedding_cache = {}
         self.cache_size = cache_size
@@ -34,6 +36,20 @@ class HybridRetriever:
         
         # Initialize search results cache
         self.search_results_cache = {}
+        
+        # Default search parameters
+        self.default_limit = 5
+        self.default_hybrid_alpha = 0.5
+        self.default_hybrid_bm25_properties = ["chunk_text", "concept_name"]
+        
+        # Default return properties
+        self.DEFAULT_RETURN_PROPERTIES = [
+            "chunk_id", "doc_id", "filename", "concept_name", "concept_type",
+            "source_path", "original_doc_type", "parent_block_id", "sequence_in_block", "chunk_text"
+        ]
+        
+        # Default additional properties
+        self.DEFAULT_ADDITIONAL_PROPERTIES = ["distance", "score"]
     
     def _get_cache_key(self, query_text: str, search_params: dict = None) -> str:
         """Generate cache key for query + parameters"""
@@ -113,6 +129,7 @@ class HybridRetriever:
                     'original_doc_type': obj.properties.get('original_doc_type'),
                     'parent_block_id': obj.properties.get('parent_block_id'),
                     'sequence_in_block': obj.properties.get('sequence_in_block'),
+                    'chunk_text': obj.properties.get('chunk_text'),  # Add chunk_text
                     'id': str(obj.uuid)
                 }
                 documents.append(doc)
@@ -225,21 +242,17 @@ class HybridRetriever:
     
     def _execute_hybrid_search(self, query_text: str, embedding: np.ndarray, params: dict) -> List[Dict]:
         """Execute hybrid search synchronously"""
-        hybrid_params = {
-            "query": query_text,
-            "alpha": params['alpha'],
-            "properties": self.default_hybrid_bm25_properties,
-            "vector": embedding.tolist()
-        }
-        
         try:
-            query_chain = self.client.query.get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
-            query_chain = query_chain.with_hybrid(**hybrid_params)
-            query_chain = query_chain.with_limit(params['limit'])
-            query_chain = query_chain.with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES)
-            
-            response = query_chain.do()
-            return self._format_results(response)
+            # Use Weaviate v4 API syntax
+            collection = self.weaviate_client.collections.get(self.weaviate_class_name)
+            response = collection.query.hybrid(
+                query=query_text,
+                vector=embedding.tolist(),
+                alpha=params['alpha'],
+                limit=params['limit'],
+                include_vector=False
+            )
+            return self._format_results_v4(response)
         except Exception as e:
             print(f"Hybrid search error: {e}")
             return []
@@ -300,36 +313,113 @@ class HybridRetriever:
             results.append(result)
         return results
 
-    def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
-        """
-        Retrieves all text chunks belonging to a specific parent conceptual block,
-        ordered by their sequence within that block.
-        """
+    async def get_chunks_for_parent_block(self, parent_block_id: str, limit: Optional[int] = None) -> List[Dict]:
         print(f"Retriever: Fetching chunks for parent_block_id: {parent_block_id}")
-        filters = {
-            "operator": "Equal",
-            "path": ["parent_block_id"],
-            "valueText": parent_block_id
-        }
-        
-        query_limit = limit if limit is not None else 50 
+        query_limit = limit if limit is not None else 50
+
+        def _execute_query():
+            # Use Weaviate v4 API syntax - search by parent_block_id property
+            collection = self.weaviate_client.collections.get(self.weaviate_class_name)
+            
+            # FIXED: Use the correct Weaviate v4 filtering API
+            from weaviate.classes.query import Filter
+            try:
+                # Try using bm25 search with where filter first
+                response = collection.query.bm25(
+                    query=parent_block_id,
+                    where=Filter.by_property("parent_block_id").equal(parent_block_id),
+                    limit=query_limit
+                )
+            except Exception as e:
+                print(f"BM25 search failed: {e}, trying fetch_objects with manual filtering")
+                # Fallback: fetch all and filter manually
+                response = collection.query.fetch_objects(
+                    limit=query_limit * 10,  # Get more to have better chances of finding matches
+                    include_vector=False
+                )
+                
+                # Manual filtering for parent_block_id
+                filtered_objects = []
+                total_checked = 0
+                found_parent_ids = set()
+                
+                for obj in response.objects:
+                    total_checked += 1
+                    
+                    # Debug: Show all available properties for first few objects
+                    if total_checked <= 3:
+                        if hasattr(obj.properties, 'keys'):
+                            available_props = list(obj.properties.keys())
+                            print(f"Object {total_checked} available properties: {available_props}")
+                            if 'parent_block_id' in obj.properties:
+                                print(f"Object {total_checked} parent_block_id: {obj.properties['parent_block_id']}")
+                            else:
+                                print(f"Object {total_checked} has NO parent_block_id property")
+                        else:
+                            print(f"Object {total_checked} properties type: {type(obj.properties)}")
+                    
+                    # FIXED: Use dict syntax instead of attribute syntax
+                    if 'parent_block_id' in obj.properties:
+                        obj_parent_id = obj.properties['parent_block_id']
+                        found_parent_ids.add(obj_parent_id)
+                        if obj_parent_id == parent_block_id:
+                            filtered_objects.append(obj)
+                    # Also try UUID as fallback
+                    elif str(obj.uuid) == parent_block_id:
+                        filtered_objects.append(obj)
+                
+                print(f"Checked {total_checked} objects, found {len(found_parent_ids)} unique parent_block_ids")
+                print(f"Sample found parent_block_ids: {list(found_parent_ids)[:5]}")
+                print(f"Looking for: {parent_block_id}")
+                print(f"Found {len(filtered_objects)} matching objects")
+                
+                # Create a mock response object
+                response.objects = filtered_objects
+            
+            # Debug: Show what we found
+            print(f"Retriever: Found {len(response.objects)} objects for parent_block_id '{parent_block_id}'")
+            if response.objects:
+                sample_ids = []
+                for obj in response.objects[:3]:  # Show first 3
+                    if hasattr(obj.properties, 'parent_block_id'):
+                        sample_ids.append(getattr(obj.properties, 'parent_block_id'))
+                print(f"Retriever: Sample parent_block_ids found: {sample_ids}")
+            
+            # Sort by sequence_in_block
+            response.objects.sort(key=lambda obj: obj.properties.get('sequence_in_block', 0))
+            return self._format_results_v4_simple(response.objects)
 
         try:
-            query_chain = (
-                self.weaviate_client.query
-                .get(self.weaviate_class_name, self.DEFAULT_RETURN_PROPERTIES)
-                .with_where(filters)
-                .with_sort([{'path': ['sequence_in_block'], 'order': 'asc'}]) 
-                .with_limit(query_limit) 
-                .with_additional(self.DEFAULT_ADDITIONAL_PROPERTIES) 
-            )
-            response = query_chain.do()
-            results = self._format_results(response) 
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(None, _execute_query)
             print(f"Retriever: Found {len(results)} chunks for parent_block_id '{parent_block_id}'.")
             return results
         except Exception as e:
             print(f"Retriever: Error fetching chunks for parent_block_id '{parent_block_id}': {e}")
             return []
+
+    def _format_results_v4_simple(self, objects) -> List[Dict]:
+        """Format results from Weaviate v4 API response - simplified version"""
+        results = []
+        
+        if not objects:
+            return results
+            
+        for obj in objects:
+            result = {}
+            # Extract all available properties using dict syntax
+            for prop in self.DEFAULT_RETURN_PROPERTIES:
+                if prop in obj.properties:
+                    result[prop] = obj.properties[prop]
+                else:
+                    result[prop] = None
+            
+            # Add UUID as 'id'
+            result['id'] = str(obj.uuid)
+            
+            results.append(result)
+        
+        return results
 
 
 # src/data_ingestion/optimized_vector_store_manager.py

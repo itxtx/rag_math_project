@@ -4,15 +4,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-
-const cleanLatexString = (text) => {
-  if (typeof text !== 'string') {
-    return text;
-  }
-  let cleanedText = text.replace(/`(\${1,2}[^`]*?\${1,2})`/g, '$1');
-  cleanedText = cleanedText.replace(/\${3,}/g, '$$');
-  return cleanedText;
-};
+import { cleanLatexString } from '@/lib/utils';
 
 const ContextView = ({
   conceptContext,
