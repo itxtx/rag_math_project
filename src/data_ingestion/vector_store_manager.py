@@ -18,18 +18,46 @@ DEFAULT_ADDITIONAL_PROPERTIES = ["distance"]
 def get_weaviate_client():
     """Establishes a connection to the Weaviate instance and returns a client object."""
     try:
+        import weaviate.classes.init as wvc
+        
+        # Configure connection with increased timeout and skip initial checks
         connection_params = ConnectionParams.from_url(
             url=config.WEAVIATE_URL,
             grpc_port=50051
         )
-        client = weaviate.WeaviateClient(connection_params)
+        
+        # Create client with extended timeout configuration
+        additional_config = wvc.AdditionalConfig(
+            timeout=wvc.Timeout(
+                init=60,  # 60 second init timeout
+                query=30, # 30 second query timeout
+                insert=30 # 30 second insert timeout
+            )
+        )
+        
+        print(f"Connecting to Weaviate at {config.WEAVIATE_URL}...")
+        client = weaviate.WeaviateClient(
+            connection_params,
+            additional_config=additional_config,
+            skip_init_checks=True  # Skip startup checks to avoid gRPC timeout
+        )
+        
         client.connect()
-        if not client.is_ready():
-            raise ConnectionError("Weaviate is not ready.")
-        print("Successfully connected to Weaviate.")
+        
+        # Perform a simple health check instead of is_ready()
+        try:
+            collections = client.collections.list_all()
+            print(f"Successfully connected to Weaviate. Found {len(collections)} collections.")
+        except Exception as health_check_error:
+            print(f"Warning: Health check failed but connection may still work: {health_check_error}")
+        
         return client
+        
     except Exception as e:
         print(f"Failed to connect to Weaviate: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
         raise
 
 def get_embedding_model(model_name=None):

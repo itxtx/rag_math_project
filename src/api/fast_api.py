@@ -544,6 +544,91 @@ async def start_interaction(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/interaction/next_question", response_model=QuestionResponse)
+async def get_next_question(
+    learner_id: str = "1",
+    topic_id: Optional[str] = None,
+    use_rl: bool = True,
+    components: FastRAGComponents = Depends(get_fast_components)
+):
+    """Get the next question for a learner (same as start_interaction but with a different endpoint name)"""
+    try:
+        print(f"🎯 Getting next question for learner: {learner_id} (RL: {use_rl})")
+        
+        # Get or create learner profile
+        profile = await components.profile_manager.get_profile(str(learner_id))
+        if not profile:
+            await components.profile_manager.create_profile(str(learner_id))
+            profile = await components.profile_manager.get_profile(str(learner_id))
+        
+        # Select topic if not provided
+        if not topic_id:
+            topics = await list_topics_fast()
+            if not topics:
+                raise HTTPException(status_code=404, detail="No topics available")
+            topic_id = topics[0].doc_id
+        
+        # Choose question selector based on use_rl parameter and availability
+        if use_rl and hasattr(components, 'rl_question_selector') and components.rl_question_selector.is_initialized:
+            question_selector = components.rl_question_selector
+            print(f"Using RL question selector")
+        else:
+            question_selector = components.question_selector
+            print(f"Using rule-based question selector")
+            
+            # Initialize rule-based selector if not done yet
+            if not hasattr(question_selector, 'curriculum_map') or not question_selector.curriculum_map:
+                await question_selector.initialize()
+        
+        # Get next question using the selected engine
+        try:
+            question_data = await question_selector.select_next_question(
+                learner_id=str(learner_id),
+                target_doc_id=topic_id
+            )
+        except Exception as selector_error:
+            print(f"❌ Error in question selector: {selector_error}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Question selection failed: {str(selector_error)}")
+        
+        if not question_data:
+            raise HTTPException(status_code=404, detail="No questions available for this topic")
+        
+        if "error" in question_data:
+            raise HTTPException(status_code=500, detail=question_data["error"])
+        
+        # For rule-based selector, enhance the response
+        if not use_rl or not components.rl_question_selector.is_initialized:
+            # Get context for the concept if not already provided
+            if not question_data.get("context_for_evaluation"):
+                context = await components._get_context_for_concept(question_data["concept_id"])
+                question_data["context_for_evaluation"] = context
+        
+        return QuestionResponse(
+            question_id=question_data["concept_id"],
+            doc_id=question_data.get("doc_id", topic_id or "unknown_doc"),
+            concept_name=question_data.get("concept_name", "Unknown Concept"),
+            question_text=question_data["question_text"],
+            context_for_evaluation=question_data.get("context_for_evaluation", ""),
+            is_new_concept_context_presented=question_data.get("is_new_concept_context_presented", False),
+            # Add RL-specific fields if available
+            interaction_id=question_data.get("interaction_id"),
+            rl_metadata=question_data.get("rl_metadata") or {
+                "selected_by_rl": question_data.get("selected_by_rl", False),
+                "rl_action": question_data.get("rl_action"),
+                "rl_confidence": question_data.get("rl_confidence"),
+                "valid_actions_count": question_data.get("valid_actions_count"),
+                "total_actions_count": question_data.get("total_actions_count")
+            }
+        )
+        
+    except Exception as e:
+        print(f"❌ Error in getting next question: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/v1/interaction/submit_answer", response_model=AnswerSubmissionResponse)
 async def submit_answer_fast(
     request: AnswerSubmissionRequest,
@@ -792,6 +877,34 @@ async def test_endpoint():
         "timestamp": datetime.now().isoformat(),
         "version": "0.3.0 with RL integration"
     }
+
+@app.get("/api/v1/debug/database")
+async def debug_database():
+    """Debug endpoint to check database content"""
+    try:
+        components = await get_fast_components()
+        
+        # Get a sample of documents to see their structure
+        sample_docs = await components.retriever.get_all_documents(limit=10)
+        
+        # Extract unique parent_block_ids
+        parent_block_ids = set()
+        concept_names = set()
+        for doc in sample_docs:
+            if doc.get('parent_block_id'):
+                parent_block_ids.add(doc.get('parent_block_id'))
+            if doc.get('concept_name'):
+                concept_names.add(doc.get('concept_name'))
+        
+        return {
+            "total_docs_sampled": len(sample_docs),
+            "sample_docs": sample_docs[:3],  # Show first 3
+            "unique_parent_block_ids": list(parent_block_ids)[:10],  # Show first 10
+            "unique_concept_names": list(concept_names)[:10],  # Show first 10
+            "curriculum_map_size": len(components.question_selector.curriculum_map) if hasattr(components.question_selector, 'curriculum_map') else 0
+        }
+    except Exception as e:
+        return {"error": str(e), "type": str(type(e))}
 
 if __name__ == "__main__":
     import uvicorn

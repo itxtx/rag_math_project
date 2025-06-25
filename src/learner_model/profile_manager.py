@@ -116,12 +116,34 @@ class LearnerProfileManager:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_learners_last_active ON learners(last_active_at);")
             
             conn.commit()
+            
+            # Perform migrations to ensure all columns exist
+            self._perform_migrations(cursor)
+            
             logger.info("Database schema initialized successfully")
             
         except sqlite3.Error as e:
             logger.error(f"Error initializing database: {e}")
             conn.rollback()
             raise
+    
+    def _perform_migrations(self, cursor):
+        """Perform database migrations to ensure all columns exist"""
+        try:
+            # Check if interaction_time_seconds column exists in score_history table
+            cursor.execute("PRAGMA table_info(score_history)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'interaction_time_seconds' not in columns:
+                logger.info("Adding interaction_time_seconds column to score_history table")
+                cursor.execute("ALTER TABLE score_history ADD COLUMN interaction_time_seconds REAL")
+            
+            # Add other future migrations here as needed
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error performing migrations: {e}")
+            # Don't fail the entire initialization for migration errors
+            pass
 
     def _execute_query_sync(self, query: str, params: tuple = None) -> List[Dict]:
         """Execute a query synchronously with proper error handling"""

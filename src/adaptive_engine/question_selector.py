@@ -94,6 +94,7 @@ class QuestionSelector:
             # Process the chunk and add to curriculum map
             temp_curriculum_map = {}
             for chunk in all_chunks_metadata:
+                # Use the parent_block_id as concept_id since that's what groups conceptual content
                 concept_id = chunk.get("parent_block_id")
                 if not concept_id:
                     logger.warning(f"Skipping chunk, missing 'parent_block_id': {chunk}")
@@ -104,6 +105,7 @@ class QuestionSelector:
                         "concept_id": concept_id,
                         "doc_id": chunk.get("doc_id"),
                         "concept_name": chunk.get("concept_name", "Unnamed Concept"),
+                        "parent_block_id": chunk.get("parent_block_id"),  # Keep for reference
                         "dependencies": chunk.get("dependencies", [])
                     }
             
@@ -134,7 +136,7 @@ class QuestionSelector:
         # FIXED: Load additional concepts on-demand if not in cache
         try:
             # Try to get the specific concept from the retriever
-            # This is more efficient than loading all documents
+            # Since concept_id is now the chunk's UUID, we can search by UUID
             concept_chunks = await self.retriever.get_chunks_for_parent_block(concept_id, limit=1)
             
             if concept_chunks:
@@ -143,6 +145,7 @@ class QuestionSelector:
                     "concept_id": concept_id,
                     "doc_id": chunk.get("doc_id"),
                     "concept_name": chunk.get("concept_name", "Unnamed Concept"),
+                    "parent_block_id": chunk.get("parent_block_id"),  # Keep for reference
                     "dependencies": chunk.get("dependencies", [])
                 }
                 
@@ -309,6 +312,8 @@ class QuestionSelector:
         question_text = generated_questions[0]
 
         # Prepare the final response payload
+        context_text = "\n\n".join([chunk.get('chunk_text', '') for chunk in question_params["context_chunks"] if chunk.get('chunk_text')])
+        
         response = {
             "learner_id": learner_id,
             "doc_id": selected_concept_block_info["doc_id"],
@@ -316,7 +321,9 @@ class QuestionSelector:
             "concept_name": selected_concept_block_info["concept_name"],
             "question_text": question_text,
             "is_review": selected_concept_block_info.get("is_review", False),
-            "context_chunks": [chunk['chunk_text'] for chunk in question_params["context_chunks"]]
+            "context_chunks": [chunk.get('chunk_text', '') for chunk in question_params["context_chunks"] if chunk.get('chunk_text')],
+            "context_for_evaluation": context_text,
+            "is_new_concept_context_presented": not selected_concept_block_info.get("is_review", False)
         }
         
         return response
