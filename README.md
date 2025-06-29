@@ -2,15 +2,7 @@
 
 ## 1. Overview & Motivation
 
-This project introduces an innovative adaptive learning system developed in Python, leveraging **Retrieval Augmented Generation (RAG)** to revolutionize how individuals engage with and learn from dense technical documents, particularly those formatted in LaTeX. Traditional learning from such materials can be static and overwhelming. This system aims to create a **dynamic, personalized learning journey** by:
-
-* Intelligently ingesting and understanding complex technical content.
-* Generating tailored questions to reinforce learning and assess comprehension.
-* Adapting to the learner's knowledge state and focusing on areas needing improvement.
-* (Ultimately) Incorporating principles like spaced repetition for long-term retention.
-
-The core architecture processes technical documents, chunks them into meaningful semantic units, stores them in a Weaviate vector database, and uses this knowledge base with Large Language Models (LLMs) to power an interactive and adaptive learning experience.
-
+This project introduces an adaptive learning system developed in Python, leveraging **Retrieval Augmented Generation (RAG)**.
 ## 2. Key Features
 
 * **Advanced LaTeX Ingestion Pipeline:**
